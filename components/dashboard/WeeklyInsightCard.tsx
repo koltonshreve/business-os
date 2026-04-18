@@ -99,7 +99,7 @@ export default function WeeklyInsightCard({ insight, onGenerate, loading }: Prop
   return (
     <div className="max-w-3xl mx-auto space-y-4">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-start justify-between gap-3">
         <div>
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-1">
             Week of {new Date(insight.weekOf).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
@@ -114,7 +114,7 @@ export default function WeeklyInsightCard({ insight, onGenerate, loading }: Prop
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2 mt-1 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button onClick={copyReport}
             className="flex items-center gap-1.5 text-[12px] text-slate-500 hover:text-slate-200 border border-slate-800 hover:border-slate-600 px-3 py-1.5 rounded-lg transition-all font-medium">
             {copied ? '✓ Copied' : '⎘ Copy'}
@@ -142,7 +142,7 @@ export default function WeeklyInsightCard({ insight, onGenerate, loading }: Prop
       </div>
 
       {/* What changed / why it matters */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
           <SL>What Changed</SL>
           <div className="space-y-3">

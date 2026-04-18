@@ -146,7 +146,7 @@ function PipelinePanel({ deals, totalRevenue }: { deals: PipelineDeal[]; totalRe
   return (
     <div className="space-y-5">
       {/* Pipeline KPIs */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: 'Open Deals',         value: activeDeals.length.toString(),  color: 'text-sky-400' },
           { label: 'Total Pipeline',     value: fmt(totalPipeline),             color: 'text-slate-100' },
@@ -369,7 +369,7 @@ export default function OperationsDashboard({ data, previousData, onAskAI }: Pro
 
       {/* Headcount banner */}
       <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-1.5">Current Headcount</div>
             {headcount > 0 ? (
@@ -404,7 +404,7 @@ export default function OperationsDashboard({ data, previousData, onAskAI }: Pro
 
       {/* Efficiency KPIs */}
       {headcount > 0 && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {efficiencyMetrics.map(m => (
             <div key={m.label} className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
               <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-2">{m.label}</div>
@@ -428,7 +428,7 @@ export default function OperationsDashboard({ data, previousData, onAskAI }: Pro
       {hasPayrollDept && <PayrollBreakdown departments={data.payrollByDept!}/>}
 
       {/* Cost breakdown + OpEx detail */}
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <CostBreakdownChart data={data} />
 
         <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
@@ -489,7 +489,7 @@ export default function OperationsDashboard({ data, previousData, onAskAI }: Pro
             </button>
           )}
         </div>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { label: 'OpEx as % of Gross Profit', value: rev > 0 && (rev - cogs) > 0 ? ((opex / (rev - cogs)) * 100).toFixed(1) + '%' : '—', hint: 'Measures OpEx efficiency against gross profit' },
             { label: 'COGS as % of Revenue', value: rev > 0 ? ((cogs/rev)*100).toFixed(1) + '%' : '—', hint: 'Cost intensity of service/product delivery' },

@@ -381,11 +381,11 @@ export default function RevenueChart({ data, previousData, revenueGoal, annotati
 
       {/* Period table */}
       {periods.length > 0 && (
-        <div className="mt-4 border-t border-slate-800/50 pt-4">
+        <div className="mt-4 border-t border-slate-800/50 pt-4 overflow-x-auto">
           <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-2">
             Period Breakdown — click any row to drill down
           </div>
-          <div className="grid grid-cols-[1fr_1fr_1fr_80px_80px_40px] gap-3 px-3 mb-1">
+          <div className="grid grid-cols-[1fr_1fr_1fr_80px_80px_40px] gap-3 px-3 mb-1 min-w-[420px]">
             {['Period', 'Revenue', 'Gross Profit', 'MoM', 'Signal', ''].map((h, i) => (
               <div key={i} className="text-[9px] font-semibold text-slate-700 uppercase tracking-wider">{h}</div>
             ))}
@@ -406,7 +406,7 @@ export default function RevenueChart({ data, previousData, revenueGoal, annotati
                 <button
                   key={p.period}
                   onClick={() => setSelectedPeriod(prev => prev?.period === p.period ? null : p)}
-                  className={`w-full grid grid-cols-[1fr_1fr_1fr_80px_80px_40px] gap-3 px-3 py-2 rounded-lg text-left transition-all ${
+                  className={`w-full grid grid-cols-[1fr_1fr_1fr_80px_80px_40px] gap-3 px-3 py-2 rounded-lg text-left transition-all min-w-[420px] ${
                     isSelected ? 'bg-indigo-500/10 border border-indigo-500/20' : 'hover:bg-slate-800/30 border border-transparent'
                   }`}>
                   <div className="flex items-center gap-1.5 min-w-0">

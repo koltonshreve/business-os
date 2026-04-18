@@ -128,12 +128,12 @@ export default function BoardDeckPanel({ deck, onGenerate, loading }: Props) {
   return (
     <div className="max-w-3xl mx-auto space-y-4">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-start justify-between gap-3">
         <div>
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-1">Board Report</div>
           <h1 className="text-[18px] font-bold text-slate-100 tracking-tight">{deck.month}</h1>
         </div>
-        <div className="flex items-center gap-2 mt-1 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button onClick={copyAll}
             className="flex items-center gap-1.5 text-[12px] text-slate-500 hover:text-slate-200 border border-slate-800 hover:border-slate-600 px-3 py-1.5 rounded-lg transition-all font-medium">
             {copiedAll ? '✓ Copied' : '⎘ Copy All'}

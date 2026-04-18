@@ -135,7 +135,7 @@ export default function BudgetPanel({ data, budget, onSetBudget, onAskAI }: Prop
 
       {/* Attainment summary cards — only when budget is set */}
       {hasBudget && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
             {
               label: 'Revenue Attainment',
@@ -201,8 +201,9 @@ export default function BudgetPanel({ data, budget, onSetBudget, onAskAI }: Prop
 
       {/* Main comparison table */}
       <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
         {/* Table header */}
-        <div className="grid grid-cols-[1fr_110px_110px_90px_80px_100px] gap-2 px-5 py-2.5 border-b border-slate-800/50">
+        <div className="grid grid-cols-[1fr_110px_110px_90px_80px_100px] gap-2 px-5 py-2.5 border-b border-slate-800/50 min-w-[580px]">
           <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em]">Line Item</div>
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] text-right">Budget</div>
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] text-right">Actual</div>
@@ -234,7 +235,7 @@ export default function BudgetPanel({ data, budget, onSetBudget, onAskAI }: Prop
             return (
               <div key={row.key}>
                 {row.separator && <div className="h-px bg-slate-800/60"/>}
-                <div className={`grid grid-cols-[1fr_110px_110px_90px_80px_100px] gap-2 px-5 py-3 ${row.bold ? 'bg-slate-800/10' : ''}`}>
+                <div className={`grid grid-cols-[1fr_110px_110px_90px_80px_100px] gap-2 px-5 py-3 min-w-[580px] ${row.bold ? 'bg-slate-800/10' : ''}`}>
                   {/* Label */}
                   <div className={`text-[12px] ${row.bold ? 'font-semibold text-slate-100' : 'text-slate-400'}`}>
                     {row.label}
@@ -314,6 +315,7 @@ export default function BudgetPanel({ data, budget, onSetBudget, onAskAI }: Prop
             );
           })}
         </div>
+        </div>
       </div>
 
       {/* Category breakdown — always visible, inline editing */}
@@ -323,7 +325,8 @@ export default function BudgetPanel({ data, budget, onSetBudget, onAskAI }: Prop
             <div className="text-[12px] font-semibold text-slate-300">OpEx by Category</div>
             <div className="text-[10px] text-slate-600">Click budget cells to edit</div>
           </div>
-          <div className="grid grid-cols-[1fr_110px_110px_90px_80px_100px] gap-2 px-5 py-2 border-b border-slate-800/40">
+          <div className="overflow-x-auto">
+          <div className="grid grid-cols-[1fr_110px_110px_90px_80px_100px] gap-2 px-5 py-2 border-b border-slate-800/40 min-w-[580px]">
             <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em]">Category</div>
             <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] text-right">Budget</div>
             <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] text-right">Actual</div>
@@ -344,7 +347,7 @@ export default function BudgetPanel({ data, budget, onSetBudget, onAskAI }: Prop
                 : favorable ? 'text-emerald-400' : 'text-red-400';
 
               return (
-                <div key={cat.category} className="grid grid-cols-[1fr_110px_110px_90px_80px_100px] gap-2 px-5 py-2.5">
+                <div key={cat.category} className="grid grid-cols-[1fr_110px_110px_90px_80px_100px] gap-2 px-5 py-2.5 min-w-[580px]">
                   <div className="text-[12px] text-slate-400 pl-2">{cat.category}</div>
                   <div className="text-right font-mono">
                     {isEditingCat ? (
@@ -399,6 +402,7 @@ export default function BudgetPanel({ data, budget, onSetBudget, onAskAI }: Prop
                 </div>
               );
             })}
+          </div>
           </div>
         </div>
       )}

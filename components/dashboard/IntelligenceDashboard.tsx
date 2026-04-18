@@ -43,13 +43,13 @@ export default function IntelligenceDashboard({ weeklyInsight, boardDeck, alerts
   return (
     <div className="space-y-5">
       {/* Header bar with tabs + generate all */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1 bg-slate-900/50 border border-slate-800/50 rounded-xl p-1">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-1 bg-slate-900/50 border border-slate-800/50 rounded-xl p-1 flex-wrap">
           {tabs.map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-medium transition-all ${
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-[12px] font-medium transition-all ${
                 tab === t.id ? 'bg-slate-800 text-slate-100 shadow-sm' : 'text-slate-500 hover:text-slate-300'
               }`}
             >
@@ -65,7 +65,7 @@ export default function IntelligenceDashboard({ weeklyInsight, boardDeck, alerts
         <button
           onClick={() => onGenerate('full-report')}
           disabled={!!loading}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-[12px] font-semibold transition-all shadow-sm"
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-[12px] font-semibold transition-all shadow-sm flex-shrink-0"
         >
           {isLoading('full-report') ? <><SpinnerIcon /> Generating All…</> : '✦ Generate Full Report'}
         </button>
@@ -140,11 +140,11 @@ export default function IntelligenceDashboard({ weeklyInsight, boardDeck, alerts
                   <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 3a1 1 0 110 2 1 1 0 010-2zm-1 4h2v5H7V8z"/>
                 </svg>
               </div>
-              <div className="text-[13px] font-medium text-slate-400 mb-1">No alerts generated yet</div>
-              <div className="text-[12px] text-slate-600 mb-4">Alerts are generated from KPI anomalies and threshold breaches</div>
+              <div className="text-[13px] font-semibold text-slate-300 mb-1">No risk alerts</div>
+              <div className="text-[12px] text-slate-600 mb-4 leading-relaxed max-w-[200px]">AI scans margins, concentration, cash, and retention for anomalies</div>
               <button onClick={() => onGenerate('alerts')} disabled={!!loading}
-                className="text-[12px] font-semibold text-indigo-400 hover:text-indigo-300">
-                Generate Risk Alerts →
+                className="flex items-center gap-1.5 text-[12px] font-semibold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-4 py-2 rounded-lg transition-colors">
+                {isLoading('alerts') ? <><SpinnerIcon />Scanning…</> : 'Run Scan →'}
               </button>
             </div>
           ) : (

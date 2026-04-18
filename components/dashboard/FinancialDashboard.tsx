@@ -44,7 +44,7 @@ function CashFlowPanel({ periods, onAskAI }: { periods: CashFlowPeriod[]; onAskA
   return (
     <div className="space-y-4">
       {/* Summary KPIs */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: 'Current Cash',    value: fmt(latest?.closingBalance ?? 0), color: 'text-emerald-400' },
           { label: 'Avg Monthly Net', value: `${avgNetFlow >= 0 ? '+' : ''}${fmt(avgNetFlow)}`, color: avgNetFlow >= 0 ? 'text-emerald-400' : 'text-red-400' },
@@ -91,8 +91,8 @@ function CashFlowPanel({ periods, onAskAI }: { periods: CashFlowPeriod[]; onAskA
       </div>
 
       {/* Period table */}
-      <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
-        <table className="w-full">
+      <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-x-auto">
+        <table className="w-full min-w-[560px]">
           <thead>
             <tr className="border-b border-slate-800/50">
               {['Period','Opening Balance','Receipts','Payments','Closing Balance','Net Flow'].map(h => (
@@ -145,7 +145,7 @@ function ARAgingPanel({ buckets, onAskAI }: { buckets: ARAgingBucket[]; onAskAI?
   return (
     <div className="space-y-4">
       {/* AR KPIs */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: 'Total AR',       value: fmt(totalAR),   color: 'text-slate-100' },
           { label: '% Current',      value: totalAR > 0 ? `${((totalCurrent/totalAR)*100).toFixed(1)}%` : '—', color: 'text-emerald-400' },
@@ -197,7 +197,8 @@ function ARAgingPanel({ buckets, onAskAI }: { buckets: ARAgingBucket[]; onAskAI?
           <div className="px-5 py-3.5 border-b border-slate-800/50">
             <div className="text-[13px] font-semibold text-slate-100">AR by Customer</div>
           </div>
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px]">
             <thead>
               <tr className="border-b border-slate-800/40">
                 {['Customer','Current','1–30','31–60','61–90','90+','Total'].map(h => (
@@ -219,6 +220,7 @@ function ARAgingPanel({ buckets, onAskAI }: { buckets: ARAgingBucket[]; onAskAI?
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>
@@ -430,7 +432,7 @@ function WorkingCapitalPanel({ data, onAskAI }: { data: UnifiedBusinessData; onA
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {metrics.map(m => (
           <div key={m.label} className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
             <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-2">{m.label}</div>
@@ -579,7 +581,7 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
   return (
     <div className="space-y-5">
       {/* Summary KPI strip */}
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
         {summaryKPIs.map(kpi => (
           <div key={kpi.label} className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
             <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-2">{kpi.label}</div>
@@ -604,7 +606,7 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
             {isLTM ? 'Trailing twelve months' : `Annualized from ${ltmCount} period${ltmCount !== 1 ? 's' : ''}`}
           </div>
         </div>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { label: `${ltmLabel} Revenue`,    value: fmt(ltmRev),    color: 'text-slate-100' },
             { label: `${ltmLabel} Gross Profit`, value: fmt(ltmGP),   color: ltmGP > 0 ? 'text-emerald-400' : 'text-red-400' },
@@ -620,7 +622,7 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
       </div>
 
       {/* P&L Waterfall + Collapsible Income Statement */}
-      <div className="grid grid-cols-[1fr_340px] gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-5">
         <PLWaterfall data={data} />
 
         <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
@@ -662,7 +664,7 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
       </div>
 
       {/* Revenue + Margin charts */}
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <RevenueChart data={data} annotations={annotations} onAnnotate={onAnnotate} onAskAI={onAskAI} />
         <MarginTrendChart data={data} />
       </div>
@@ -687,7 +689,7 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
               </button>
             )}
           </div>
-          <div className="grid grid-cols-4 gap-4 mb-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
             {[
               { label: 'ARR',              value: fmt(recurringRev),    color: 'text-indigo-400', sub: 'Annual recurring rev' },
               { label: 'MRR',              value: fmt(mrr),             color: 'text-indigo-300', sub: 'Monthly recurring rev' },
@@ -759,7 +761,7 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
       {/* Cost Structure */}
       <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
         <div className="text-[13px] font-semibold text-slate-100 mb-4">Cost Structure Analysis</div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">COGS Efficiency</div>
             <div className="text-[20px] font-bold text-slate-100">{pctFmt(cogsMargin)}</div>

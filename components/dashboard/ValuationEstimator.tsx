@@ -245,7 +245,7 @@ export default function ValuationEstimator({ data, previousData, onAskAI }: Prop
             </div>
 
             {/* EV range visualization */}
-            <div className="grid grid-cols-3 gap-3 mb-5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
               {[
                 { label: 'Low Case',  ev: evLow,  mult: adjLow,  color: 'text-slate-400', bg: 'bg-slate-800/40 border-slate-700/40' },
                 { label: 'Mid Case',  ev: evMid,  mult: adjMid,  color: 'text-indigo-300', bg: 'bg-indigo-500/10 border-indigo-500/25' },
@@ -260,7 +260,7 @@ export default function ValuationEstimator({ data, previousData, onAskAI }: Prop
             </div>
 
             {/* Multiple breakdown */}
-            <div className="flex items-center gap-2 text-[12px] bg-slate-900/40 rounded-lg px-4 py-2.5 border border-slate-800/40">
+            <div className="flex flex-wrap items-center gap-2 text-[12px] bg-slate-900/40 rounded-lg px-4 py-2.5 border border-slate-800/40">
               <span className="text-slate-500">Base range:</span>
               <span className="text-slate-200 font-semibold">{ind.low}–{ind.high}×</span>
               <span className="text-slate-700">·</span>
@@ -295,9 +295,9 @@ export default function ValuationEstimator({ data, previousData, onAskAI }: Prop
             </button>
 
             {showFactors && (
-              <div className="border-t border-slate-800/40">
+              <div className="border-t border-slate-800/40 overflow-x-auto">
                 {/* Column headers */}
-                <div className="grid grid-cols-[1fr_100px_90px_80px] gap-3 px-5 py-2 text-[10px] font-semibold text-slate-600 uppercase tracking-wider bg-slate-900/30">
+                <div className="grid grid-cols-[1fr_100px_90px_80px] gap-3 px-5 py-2 text-[10px] font-semibold text-slate-600 uppercase tracking-wider bg-slate-900/30 min-w-[420px]">
                   <div>Factor</div>
                   <div className="text-center">Current</div>
                   <div className="text-center">Impact</div>
@@ -305,7 +305,7 @@ export default function ValuationEstimator({ data, previousData, onAskAI }: Prop
                 </div>
                 <div className="divide-y divide-slate-800/30">
                   {[...positiveFactors, ...neutralFactors, ...negativeFactors].map(f => (
-                    <div key={f.id} className={`grid grid-cols-[1fr_100px_90px_80px] gap-3 px-5 py-3 items-start ${f.status === 'negative' ? 'bg-red-500/[0.02]' : f.status === 'positive' ? 'bg-emerald-500/[0.02]' : ''}`}>
+                    <div key={f.id} className={`grid grid-cols-[1fr_100px_90px_80px] gap-3 px-5 py-3 items-start min-w-[420px] ${f.status === 'negative' ? 'bg-red-500/[0.02]' : f.status === 'positive' ? 'bg-emerald-500/[0.02]' : ''}`}>
                       <div>
                         <div className="text-[12px] font-medium text-slate-200">{f.label}</div>
                         <div className="text-[11px] text-slate-500 mt-0.5 leading-snug">{f.description}</div>
@@ -331,7 +331,7 @@ export default function ValuationEstimator({ data, previousData, onAskAI }: Prop
                 </div>
 
                 {/* Summary row */}
-                <div className="border-t border-slate-700/40 bg-slate-800/20 px-5 py-3 grid grid-cols-[1fr_100px_90px_80px] gap-3 items-center">
+                <div className="border-t border-slate-700/40 bg-slate-800/20 px-5 py-3 grid grid-cols-[1fr_100px_90px_80px] gap-3 items-center min-w-[420px]">
                   <div className="text-[11px] font-semibold text-slate-400">Net Multiple Adjustment</div>
                   <div/>
                   <div/>

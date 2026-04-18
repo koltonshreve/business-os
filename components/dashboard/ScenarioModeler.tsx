@@ -343,7 +343,7 @@ export default function ScenarioModeler({ data, onAskAI }: Props) {
 
       {/* Saved scenarios */}
       {saved.length > 0 && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {saved.map(s => (
             <ScenarioCard
               key={s.id}
@@ -359,7 +359,7 @@ export default function ScenarioModeler({ data, onAskAI }: Props) {
       )}
 
       {/* Main modeling area */}
-      <div className="grid grid-cols-[380px_1fr] gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-5">
 
         {/* ── Left: Levers ── */}
         <div className="space-y-5">
@@ -454,7 +454,7 @@ export default function ScenarioModeler({ data, onAskAI }: Props) {
         <div className="space-y-4">
 
           {/* P&L summary strip */}
-          <div className="grid grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
             {[
               { label: 'Revenue',      base: baseRev,    proj: proj.revenue,     d: proj.dRevenue,   color: 'text-slate-100' },
               { label: 'Gross Profit', base: baseGP,     proj: proj.grossProfit, d: proj.dGP,        color: proj.grossProfit >= baseGP ? 'text-emerald-400' : 'text-red-400' },
