@@ -288,9 +288,9 @@ function PLComparison({ data, previousData }: { data: UnifiedBusinessData; previ
   ];
 
   return (
-    <div className="font-mono text-[12px]">
+    <div className="font-mono text-[12px] overflow-x-auto">
       {/* Headers */}
-      <div className="grid grid-cols-[1fr_90px_90px_80px_70px] gap-2 pb-2 mb-2 border-b border-slate-800/60">
+      <div className="grid grid-cols-[1fr_90px_90px_80px_70px] gap-2 pb-2 mb-2 border-b border-slate-800/60 min-w-[430px]">
         <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em]">Line Item</div>
         <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] text-right">Current</div>
         <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] text-right">Prior</div>
@@ -321,7 +321,7 @@ function PLComparison({ data, previousData }: { data: UnifiedBusinessData; previ
           return (
             <div key={r.label}>
               {r.separator && <div className="h-px bg-slate-800/60 my-1.5"/>}
-              <div className={`grid grid-cols-[1fr_90px_90px_80px_70px] gap-2 py-1 rounded ${r.bold ? '' : ''}`}>
+              <div className={`grid grid-cols-[1fr_90px_90px_80px_70px] gap-2 py-1 rounded min-w-[430px] ${r.bold ? '' : ''}`}>
                 <div className={`truncate ${r.bold ? 'font-semibold text-slate-100' : 'text-slate-400'}`}>{r.label}</div>
                 <div className={`text-right tabular-nums ${r.bold ? 'font-bold ' + valColor : valColor}`}>{dispCur}</div>
                 <div className="text-right text-slate-600 tabular-nums">{dispPrev}</div>
@@ -342,7 +342,7 @@ function PLComparison({ data, previousData }: { data: UnifiedBusinessData; previ
           const deltaGood = isCost ? delta < 0 : delta > 0;
           const deltaCls = Math.abs(delta) < 0.1 ? 'text-slate-600' : deltaGood ? 'text-emerald-400' : 'text-red-400';
           return (
-            <div key={r.label} className="grid grid-cols-[1fr_90px_90px_80px_70px] gap-2 py-0.5">
+            <div key={r.label} className="grid grid-cols-[1fr_90px_90px_80px_70px] gap-2 py-0.5 min-w-[430px]">
               <div className="text-slate-500">{r.label}</div>
               <div className="text-right font-medium text-slate-200 tabular-nums">{r.cur.toFixed(1)}%</div>
               <div className="text-right text-slate-600 tabular-nums">{r.prev.toFixed(1)}%</div>

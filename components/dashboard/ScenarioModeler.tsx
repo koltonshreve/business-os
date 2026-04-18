@@ -530,7 +530,8 @@ export default function ScenarioModeler({ data, onAskAI }: Props) {
             <div className="px-5 py-3.5 border-b border-slate-800/50">
               <div className="text-[12px] font-semibold text-slate-100">Scenario Assumptions</div>
             </div>
-            <table className="w-full">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[440px]">
               <thead>
                 <tr className="border-b border-slate-800/40">
                   {['Line Item','Base','Projected','Change','% Change'].map(h => (
@@ -572,6 +573,7 @@ export default function ScenarioModeler({ data, onAskAI }: Props) {
                 })}
               </tbody>
             </table>
+            </div>{/* /overflow-x-auto */}
           </div>
         </div>
       </div>
