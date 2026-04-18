@@ -95,7 +95,7 @@ function ExitReadinessResult({ result }: { result: Record<string, unknown> }) {
             </div>
             <span className="text-[12px] font-bold text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-lg">{vr.ebitdaMultiple} EBITDA</span>
           </div>
-          <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
             {[
               { label: 'Conservative', value: vr.low, color: 'text-amber-400' },
               { label: 'Base Case',    value: vr.mid, color: 'text-emerald-400' },
@@ -121,7 +121,7 @@ function ExitReadinessResult({ result }: { result: Record<string, unknown> }) {
       )}
 
       {/* Categories */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {cats.map(cat => (
           <div key={cat.name}
             className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
@@ -165,7 +165,7 @@ function ExitReadinessResult({ result }: { result: Record<string, unknown> }) {
       </div>
 
       {/* Risks + Actions side by side */}
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
         <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
           <div className="text-[12px] font-semibold text-slate-300 mb-3">Top Risks</div>
           <div className="space-y-2.5">
@@ -259,7 +259,7 @@ function GrowthPlaybookResult({ result }: { result: Record<string, unknown> }) {
 
       {/* Priority matrix */}
       {pm && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {[
             { label: 'Do Now', items: pm.doNow, color: 'text-emerald-400', bg: 'bg-emerald-500/5 border-emerald-500/15' },
             { label: 'Plan For', items: pm.planFor, color: 'text-amber-400', bg: 'bg-amber-500/5 border-amber-500/15' },
@@ -354,7 +354,7 @@ function ActionPlanResult({ result }: { result: Record<string, unknown> }) {
       </div>
 
       {/* Category actions */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {cats.map(cat => (
           <div key={cat.name} className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
             <div className="mb-3">
@@ -378,7 +378,7 @@ function ActionPlanResult({ result }: { result: Record<string, unknown> }) {
       </div>
 
       {/* Metrics + Risks */}
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
         <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
           <div className="text-[12px] font-semibold text-slate-300 mb-3">Success Metrics</div>
           <div className="space-y-2.5">
@@ -428,7 +428,7 @@ function BoardPrepResult({ result }: { result: Record<string, unknown> }) {
   return (
     <div className="space-y-5">
       {/* Opening + Closing */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="bg-gradient-to-br from-indigo-500/6 to-transparent border border-indigo-500/15 rounded-xl p-4">
           <div className="text-[10px] font-semibold text-indigo-400/70 uppercase tracking-wider mb-2">Opening Statement</div>
           <div className="text-[13px] text-slate-200 font-medium leading-relaxed italic">"{result.openingStatement as string}"</div>
@@ -475,7 +475,7 @@ function BoardPrepResult({ result }: { result: Record<string, unknown> }) {
       </div>
 
       {/* Key asks + Don't say */}
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
         <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
           <div className="text-[12px] font-semibold text-slate-300 mb-3">Key Asks ({asks.length})</div>
           <div className="space-y-3">
@@ -650,7 +650,7 @@ export default function AgentPanel({ data, previousData }: Props) {
         </div>
       ) : (
         /* Agent cards grid */
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {AGENTS.map(agent => {
             const ran     = hasResult(agent.id);
             const isLoading = loading === agent.id;

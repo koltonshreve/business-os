@@ -141,8 +141,9 @@ function CustomerSegmentGroup({
       {/* Expanded customer rows */}
       {open && (
         <div className="border-t border-slate-800/40">
+          <div className="overflow-x-auto">
           {/* Column headers */}
-          <div className="grid grid-cols-[2fr_1fr_1fr_1fr_80px] gap-4 px-5 py-2 text-[10px] font-semibold text-slate-600 uppercase tracking-wider bg-slate-900/30">
+          <div className="grid grid-cols-[2fr_1fr_1fr_1fr_80px] gap-4 px-5 py-2 text-[10px] font-semibold text-slate-600 uppercase tracking-wider bg-slate-900/30 min-w-[480px]">
             <div>Customer</div>
             <div className="text-right">Revenue</div>
             <div className="text-right">% of Total</div>
@@ -158,7 +159,7 @@ function CustomerSegmentGroup({
                 <div key={c.id}>
                   <button
                     onClick={() => onSelectCustomer(isSelected ? null : c.id)}
-                    className={`w-full grid grid-cols-[2fr_1fr_1fr_1fr_80px] gap-4 px-5 py-3 transition-colors text-left ${
+                    className={`w-full grid grid-cols-[2fr_1fr_1fr_1fr_80px] gap-4 px-5 py-3 transition-colors text-left min-w-[480px] ${
                       isSelected ? 'bg-indigo-500/8 border-l-2 border-l-indigo-500/60' : 'hover:bg-slate-800/20 border-l-2 border-l-transparent'
                     }`}>
                     <div className="flex items-center gap-2">
@@ -201,7 +202,7 @@ function CustomerSegmentGroup({
                           </button>
                         )}
                       </div>
-                      <div className="grid grid-cols-4 gap-3">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         <div className="bg-slate-800/40 rounded-lg px-3 py-2.5">
                           <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider mb-1">Period Revenue</div>
                           <div className="text-[15px] font-bold text-slate-100">{fmt(c.revenue)}</div>
@@ -237,6 +238,7 @@ function CustomerSegmentGroup({
               );
             })}
           </div>
+          </div>{/* /overflow-x-auto */}
         </div>
       )}
     </div>
@@ -399,9 +401,9 @@ export default function CustomerDashboard({ data, previousData, onAskAI }: Props
       {/* Customer list — segmented by concentration tier */}
       <div className="space-y-2">
         {/* Toolbar */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <div className="text-[13px] font-semibold text-slate-100">Customer Accounts</div>
-          <div className="flex-1"/>
+          <div className="flex-1 min-w-0"/>
           <input
             type="text" placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)}
             className="bg-slate-800/50 border border-slate-700/60 rounded-lg px-3 py-1.5 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 w-40"/>

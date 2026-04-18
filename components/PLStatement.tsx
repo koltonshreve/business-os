@@ -204,7 +204,7 @@ export default function PLStatement({
   const spacing = compact ? '' : 'space-y-0.5';
 
   return (
-    <div className={`${className} font-mono`}>
+    <div className={`${className} font-mono overflow-x-auto`}>
       {/* Column headers */}
       <div className="flex items-center gap-2 mb-2 border-b border-slate-800/60 pb-2">
         <div className={`flex-1 ${compact ? 'text-[9px]' : 'text-[10px]'} font-semibold text-slate-600 uppercase tracking-[0.08em]`}>Line Item</div>

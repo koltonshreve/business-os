@@ -915,7 +915,7 @@ export default function DataSourcePanel({ data, onDataUpdate, onSuccess }: Props
           <span className="text-[12px] font-semibold text-slate-300 flex-shrink-0">{completedCount}/{completenessItems.length} complete</span>
         </div>
 
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
           {completenessItems.map(item => (
             <div key={item.label} className={`flex items-center gap-1.5 text-[11px] ${item.done ? 'text-emerald-400/80' : 'text-slate-600'}`}>
               <span className={`text-[10px] font-bold ${item.done ? 'text-emerald-400' : 'text-slate-700'}`}>{item.done ? '✓' : '○'}</span>

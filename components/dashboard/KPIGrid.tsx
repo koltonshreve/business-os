@@ -381,7 +381,7 @@ function KPIGroup({
             </>
           )}
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
           {kpisWithGoals.length > 0 && (
             <span className="text-[10px] font-medium px-2 py-0.5 rounded-full border bg-indigo-500/8 text-indigo-400/70 border-indigo-500/15">
               {goalsOnTrack}/{kpisWithGoals.length} goals
