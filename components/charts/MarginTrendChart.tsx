@@ -30,8 +30,12 @@ export default function MarginTrendChart({ data }: Props) {
 
   if (!chartData.length) {
     return (
-      <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5 flex items-center justify-center h-[200px]">
-        <div className="text-[12px] text-slate-600">Upload data with COGS to see margin trends</div>
+      <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5 flex flex-col items-center justify-center h-[200px] text-center gap-2">
+        <div className="w-8 h-8 rounded-xl bg-slate-800/60 border border-slate-700/40 flex items-center justify-center mb-1">
+          <svg viewBox="0 0 14 14" fill="currentColor" className="w-4 h-4 text-slate-600"><path d="M1 10l3-4 3 2 3-5 3 3v4H1z"/></svg>
+        </div>
+        <div className="text-[12px] font-semibold text-slate-500">No margin data yet</div>
+        <div className="text-[11px] text-slate-700 max-w-[160px] leading-relaxed">Include COGS in your revenue data to track gross margin over time</div>
       </div>
     );
   }
