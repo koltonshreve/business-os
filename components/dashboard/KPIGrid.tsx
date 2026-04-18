@@ -408,7 +408,7 @@ function KPIGroup({
       {/* Expanded KPI cards */}
       {open && (
         <div className="px-4 pb-4 pt-1">
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-3 gap-2.5">
             {kpis.map(kpi => {
               const goalKey = KPI_GOAL_MAP[kpi.id];
               const goal    = goalKey ? goals?.[goalKey] : undefined;

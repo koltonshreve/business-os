@@ -31,18 +31,21 @@ export default function AlertFeed({ alerts, onRunAlerts, loading }: Props) {
       <div className="flex-1 overflow-y-auto min-h-0">
         {!alerts.length ? (
           <div className="flex flex-col items-center justify-center h-full py-10 text-center px-5">
-            <div className="w-8 h-8 rounded-lg bg-slate-800/60 border border-slate-700/50 flex items-center justify-center mb-3">
+            <div className="w-9 h-9 rounded-xl bg-slate-800/60 border border-slate-700/50 flex items-center justify-center mb-3">
               <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 text-slate-500">
                 <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 3a1 1 0 110 2 1 1 0 010-2zm-1 4h2v5H7V8z"/>
               </svg>
             </div>
-            <div className="text-[12px] font-medium text-slate-400 mb-1">No alerts yet</div>
-            <div className="text-[11px] text-slate-600 mb-3 leading-relaxed">Run a report to generate AI-powered risk alerts</div>
+            <div className="text-[12px] font-semibold text-slate-300 mb-1">No risk alerts</div>
+            <div className="text-[11px] text-slate-600 mb-4 leading-relaxed max-w-[160px]">
+              AI scans margins, concentration, cash, and retention for anomalies.
+            </div>
             <button
               onClick={onRunAlerts}
-              className="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 transition-colors"
+              disabled={loading}
+              className="text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 px-3 py-1.5 rounded-lg transition-colors"
             >
-              Generate now →
+              {loading ? 'Scanning…' : 'Run scan →'}
             </button>
           </div>
         ) : (

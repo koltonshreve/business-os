@@ -94,7 +94,7 @@ function BusinessHealthScore({ data, previousData, onAskAI }: { data: UnifiedBus
   ];
 
   return (
-    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5 flex items-start gap-6">
+    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row items-start gap-4 sm:gap-6">
       {/* Gauge */}
       <div className="flex-shrink-0">
         <svg width="140" height="120" viewBox="0 0 140 110">
@@ -112,7 +112,7 @@ function BusinessHealthScore({ data, previousData, onAskAI }: { data: UnifiedBus
       </div>
 
       {/* Components */}
-      <div className="flex-1 grid grid-cols-5 gap-3">
+      <div className="flex-1 grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-5 gap-3">
         {components.map(c => {
           const color = c.score >= 75 ? 'text-emerald-400' : c.score >= 50 ? 'text-amber-400' : 'text-red-400';
           const bar   = c.score >= 75 ? 'bg-emerald-500/50' : c.score >= 50 ? 'bg-amber-500/50' : 'bg-red-500/50';
@@ -127,7 +127,7 @@ function BusinessHealthScore({ data, previousData, onAskAI }: { data: UnifiedBus
           );
         })}
         {onAskAI && (
-          <div className="col-span-5 mt-1 flex items-center justify-between">
+          <div className="col-span-2 xs:col-span-3 sm:col-span-5 mt-1 flex items-center justify-between gap-3">
             <div className="text-[11px] text-slate-600 leading-relaxed">
               {total >= 85 ? 'Strong across all dimensions — focus on growth.' :
                total >= 70 ? 'Solid fundamentals with room to improve.' :
@@ -351,11 +351,11 @@ function GoalsPanel({ data, goals, onSetGoal }: {
 
   return (
     <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3 gap-2">
         <div className="text-[12px] font-semibold text-slate-300">Performance Targets</div>
-        <div className="text-[10px] text-slate-600">Click any target to edit · press Enter to save</div>
+        <div className="hidden sm:block text-[10px] text-slate-600">Click any target to edit · Enter to save</div>
       </div>
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-5 gap-3">
         {rows.map(row => {
           const target = goals[row.key];
           const attainment = target && target > 0 && row.actual > 0
@@ -521,11 +521,11 @@ function CompanyNameEditor({ value, onChange }: { value: string; onChange: (v: s
 
 // ── Quick-nav card colors (static classes — required for Tailwind JIT) ─────────
 const NAV_CARD_COLORS: Record<string, { label: string; text: string; link: string; border: string; titleColor: string }> = {
-  financial:    { label: 'Financial Analysis',   text: 'P&L waterfall, margins, cost structure',         link: 'text-indigo-400 group-hover:text-indigo-300',   border: 'hover:border-indigo-500/30 group-hover:bg-indigo-500/5',   titleColor: 'group-hover:text-indigo-200'  },
-  customers:    { label: 'Customer Intelligence', text: 'Concentration risk, LTV, retention trends',      link: 'text-violet-400 group-hover:text-violet-300',   border: 'hover:border-violet-500/30 group-hover:bg-violet-500/5',   titleColor: 'group-hover:text-violet-200'  },
-  operations:   { label: 'Operations',            text: 'Headcount, pipeline funnel, OpEx ratios',        link: 'text-cyan-400 group-hover:text-cyan-300',       border: 'hover:border-cyan-500/30 group-hover:bg-cyan-500/5',       titleColor: 'group-hover:text-cyan-200'    },
-  intelligence: { label: 'AI Intelligence',       text: 'Weekly insights, board deck, risk alerts',       link: 'text-emerald-400 group-hover:text-emerald-300', border: 'hover:border-emerald-500/30 group-hover:bg-emerald-500/5', titleColor: 'group-hover:text-emerald-200' },
-  scenarios:    { label: 'Scenario Modeling',     text: 'What-if P&L, lever sliders, saved scenarios',   link: 'text-amber-400 group-hover:text-amber-300',     border: 'hover:border-amber-500/30 group-hover:bg-amber-500/5',     titleColor: 'group-hover:text-amber-200'   },
+  financial:    { label: 'Financials',            text: 'P&L, margins, cost waterfall, AR aging',          link: 'text-indigo-400 group-hover:text-indigo-300',   border: 'hover:border-indigo-500/30 group-hover:bg-indigo-500/5',   titleColor: 'group-hover:text-indigo-200'  },
+  customers:    { label: 'Customers',             text: 'Concentration risk, LTV, retention cohorts',      link: 'text-violet-400 group-hover:text-violet-300',   border: 'hover:border-violet-500/30 group-hover:bg-violet-500/5',   titleColor: 'group-hover:text-violet-200'  },
+  operations:   { label: 'Operations',            text: 'Headcount, pipeline, utilization, OpEx ratios',   link: 'text-cyan-400 group-hover:text-cyan-300',       border: 'hover:border-cyan-500/30 group-hover:bg-cyan-500/5',       titleColor: 'group-hover:text-cyan-200'    },
+  intelligence: { label: 'AI Intelligence',       text: 'Weekly narrative, board deck, risk scan',         link: 'text-emerald-400 group-hover:text-emerald-300', border: 'hover:border-emerald-500/30 group-hover:bg-emerald-500/5', titleColor: 'group-hover:text-emerald-200' },
+  scenarios:    { label: 'Scenarios',             text: 'Model what-if outcomes with lever sliders',       link: 'text-amber-400 group-hover:text-amber-300',     border: 'hover:border-amber-500/30 group-hover:bg-amber-500/5',     titleColor: 'group-hover:text-amber-200'   },
 };
 
 // ── Main component ─────────────────────────────────────────────────────────────
@@ -773,7 +773,7 @@ export default function BusinessOS() {
 
         {/* ── Header ── */}
         <header className="no-print border-b border-slate-800/60 bg-[#060a12]/95 backdrop-blur-md sticky top-0 z-50">
-          <div className="max-w-[1440px] mx-auto px-4 md:px-6 h-[52px] flex items-center gap-3 md:gap-4">
+          <div className="max-w-[1440px] mx-auto px-3 sm:px-4 md:px-6 h-[52px] flex items-center gap-2.5 md:gap-4">
 
             {/* Brand */}
             <div className="flex items-center gap-2.5 flex-shrink-0">
@@ -836,11 +836,11 @@ export default function BusinessOS() {
 
           {/* Mobile nav drawer */}
           {mobileNavOpen && (
-            <div className="md:hidden border-t border-slate-800/60 bg-[#060a12]/98 px-4 py-3 grid grid-cols-2 gap-1.5">
+            <div className="md:hidden border-t border-slate-800/60 bg-[#060a12]/98 px-3 py-2.5 flex flex-col gap-0.5 animate-fade-in">
               {navItems.map(({ id, label, Icon, badge, activeClass }) => (
                 <button key={id} onClick={() => { setActiveView(id); setMobileNavOpen(false); }}
-                  className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all ${
-                    activeView === id ? activeClass : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/30 border border-transparent'}`}>
+                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all ${
+                    activeView === id ? activeClass : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/40 border border-transparent'}`}>
                   <Icon/>{label}
                   {badge ? <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center ml-auto">{badge}</span> : null}
                 </button>
@@ -851,9 +851,9 @@ export default function BusinessOS() {
 
         {/* ── Breadcrumb / page bar ── */}
         <div className="border-b border-slate-800/40 bg-slate-900/15">
-          <div className="max-w-[1440px] mx-auto px-6 py-2.5 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className={`text-[13px] font-semibold ${pageAccent[activeView]}`}>{pageTitle[activeView]}</span>
+          <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0 overflow-hidden">
+              <span className={`text-[13px] font-semibold flex-shrink-0 ${pageAccent[activeView]}`}>{pageTitle[activeView]}</span>
               <span className="text-slate-700">·</span>
               <span className="text-[11px] text-slate-500 font-medium">{activeSnapshot.label}</span>
               <span className="text-slate-700">·</span>
@@ -882,19 +882,19 @@ export default function BusinessOS() {
         </div>
 
         {/* ── Content ── */}
-        <main className="max-w-[1440px] mx-auto px-6 py-6 flex-1 w-full">
+        <main className="max-w-[1440px] mx-auto px-4 sm:px-6 py-5 sm:py-6 flex-1 w-full">
 
           {/* High-priority alert banner (visible on all tabs except intelligence) */}
           {highAlerts.length > 0 && activeView !== 'intelligence' && (
-            <div className="mb-5 bg-red-500/5 border border-red-500/20 rounded-xl px-5 py-3.5 flex items-start gap-3">
-              <span className="text-red-400 mt-0.5"><Icons.Alert/></span>
+            <div className="mb-5 bg-red-500/5 border border-red-500/20 rounded-xl px-4 sm:px-5 py-3.5 flex items-start gap-3">
+              <span className="text-red-400 mt-0.5 flex-shrink-0"><Icons.Alert/></span>
               <div className="flex-1 min-w-0">
-                <div className="text-[13px] font-semibold text-red-300 mb-1">{highAlerts.length} High-Priority Alert{highAlerts.length > 1 ? 's' : ''}</div>
-                <div className="space-y-0.5">{highAlerts.map((a, i) => <div key={i} className="text-xs text-red-400/80">{a.title}: {a.message}</div>)}</div>
+                <div className="text-[13px] font-semibold text-red-300 mb-1">{highAlerts.length} high-priority alert{highAlerts.length > 1 ? 's' : ''} need attention</div>
+                <div className="space-y-0.5">{highAlerts.map((a, i) => <div key={i} className="text-xs text-red-400/80 truncate">{a.title}: {a.message}</div>)}</div>
               </div>
               <button onClick={() => setActiveView('intelligence')}
-                className="flex-shrink-0 text-[11px] text-red-400/70 hover:text-red-300 border border-red-500/20 px-2.5 py-1.5 rounded-lg transition-colors font-medium">
-                View →
+                className="flex-shrink-0 text-[11px] text-red-400/70 hover:text-red-300 border border-red-500/20 hover:border-red-500/40 px-2.5 py-1.5 rounded-lg transition-colors font-medium">
+                Review →
               </button>
             </div>
           )}
@@ -905,15 +905,20 @@ export default function BusinessOS() {
 
               {/* Demo nudge */}
               {usingDemo && (
-                <div className="bg-gradient-to-r from-indigo-500/6 via-indigo-500/4 to-transparent border border-indigo-500/15 rounded-xl px-5 py-4 flex items-center justify-between gap-4">
+                <div className="border border-indigo-500/15 bg-indigo-500/[0.04] rounded-xl px-4 sm:px-5 py-3.5 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <div className="text-[13px] font-semibold text-slate-200 mb-0.5">You're viewing demo data</div>
-                    <div className="text-[12px] text-slate-400 leading-relaxed">Connect your accounting, CRM, or payment systems to see your actual numbers and unlock live AI analysis.</div>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0"/>
+                      <div className="text-[13px] font-semibold text-slate-200">You're viewing demo data</div>
+                    </div>
+                    <div className="text-[12px] text-slate-400 leading-relaxed">
+                      Connect your accounting, CRM, or billing system to unlock live AI analysis on your real numbers.
+                    </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <button onClick={() => setActiveView('data')}
                       className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[12px] font-semibold transition-all shadow-sm whitespace-nowrap">
-                      Connect Data →
+                      Connect data →
                     </button>
                   </div>
                 </div>
@@ -926,7 +931,7 @@ export default function BusinessOS() {
 
               <TrendSignalsPanel data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
 
-              <div className="grid grid-cols-3 gap-5">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5">
                 <CostBreakdownChart data={data}/>
                 <CustomerMetricsChart data={data}/>
                 <AlertFeed alerts={alerts} onRunAlerts={() => runAction('alerts')} loading={isLoading('alerts')}/>
@@ -935,7 +940,7 @@ export default function BusinessOS() {
               <CustomKPIPanel kpis={customKPIs} onChange={saveCustomKPIs} onAskAI={openChat}/>
 
               {/* Quick nav cards */}
-              <div className="grid grid-cols-5 gap-3 pt-1">
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3 pt-1">
                 {(Object.entries(NAV_CARD_COLORS) as [ActiveView, typeof NAV_CARD_COLORS[string]][]).map(([id, cfg]) => (
                   <button key={id} onClick={() => setActiveView(id)}
                     className={`group bg-slate-900/50 border border-slate-800/50 rounded-xl p-4 text-left transition-all ${cfg.border}`}>

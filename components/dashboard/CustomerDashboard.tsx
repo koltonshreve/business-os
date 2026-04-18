@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { fmtMoney } from '../../lib/format';
 import type { UnifiedBusinessData } from '../../types';
 
 interface Props {
@@ -8,10 +9,7 @@ interface Props {
   onAskAI?: (msg: string) => void;
 }
 
-const fmt = (n: number) =>
-  n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` :
-  n >= 1_000     ? `$${(n/1_000).toFixed(0)}k` :
-  `$${n.toFixed(0)}`;
+const fmt = fmtMoney;
 
 type SortKey = 'revenue' | 'percent' | 'name';
 
@@ -124,7 +122,7 @@ function CustomerSegmentGroup({
         </div>
 
         {/* Summary stats */}
-        <div className="flex items-center gap-6 flex-shrink-0">
+        <div className="hidden sm:flex items-center gap-4 lg:gap-6 flex-shrink-0">
           <div className="text-center">
             <div className="text-[10px] text-slate-600">Avg %</div>
             <div className={`text-[12px] font-bold ${cfg.accent}`}>{avgPct.toFixed(1)}%</div>
@@ -297,7 +295,7 @@ export default function CustomerDashboard({ data, previousData, onAskAI }: Props
   return (
     <div className="space-y-5">
       {/* Health KPIs */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: 'Total Customers', value: customers.totalCount.toString(), sub: 'active accounts', color: 'text-slate-100' },
           { label: 'Net New', value: netNew >= 0 ? `+${netNew}` : `${netNew}`, sub: `${customers.newThisPeriod} added · ${customers.churned} lost`, color: netNew > 0 ? 'text-emerald-400' : netNew < 0 ? 'text-red-400' : 'text-amber-400' },
@@ -312,7 +310,7 @@ export default function CustomerDashboard({ data, previousData, onAskAI }: Props
         ))}
       </div>
 
-      <div className="grid grid-cols-[1fr_280px] gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4 lg:gap-5">
         {/* Customer revenue bar chart */}
         <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">

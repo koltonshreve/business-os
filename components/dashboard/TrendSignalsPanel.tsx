@@ -1,3 +1,4 @@
+import { fmtMoney } from '../../lib/format';
 import type { UnifiedBusinessData } from '../../types';
 
 interface Props {
@@ -6,10 +7,7 @@ interface Props {
   onAskAI?: (msg: string) => void;
 }
 
-const fmt = (n: number) =>
-  n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` :
-  n >= 1_000     ? `$${(n / 1_000).toFixed(0)}k` :
-  `$${n.toFixed(0)}`;
+const fmt = fmtMoney;
 
 type SignalSeverity = 'positive' | 'warning' | 'negative' | 'neutral' | 'info';
 
@@ -250,7 +248,7 @@ export default function TrendSignalsPanel({ data, previousData, onAskAI }: Props
         )}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {signals.map((signal, i) => {
           const styles = SEVERITY_STYLES[signal.severity];
           return (

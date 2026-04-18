@@ -12,11 +12,53 @@
   body {
     @apply bg-[#060a12] text-slate-100;
   }
+
+  /* Webkit scrollbars */
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(71, 85, 105, 0.4); border-radius: 2px; }
   ::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 0.6); }
+
+  /* Firefox scrollbars */
+  * { scrollbar-width: thin; scrollbar-color: rgba(71,85,105,0.4) transparent; }
+
   ::selection { background: rgba(99, 102, 241, 0.25); }
+
+  /* Focus ring — keyboard-accessible only */
+  :focus-visible {
+    outline: 2px solid rgba(99, 102, 241, 0.6);
+    outline-offset: 2px;
+  }
+  button:focus:not(:focus-visible),
+  input:focus:not(:focus-visible) {
+    outline: none;
+  }
+}
+
+@layer components {
+  /* Reusable card surface */
+  .card {
+    @apply bg-slate-900/50 border border-slate-800/50 rounded-xl;
+  }
+  .card-header {
+    @apply px-4 py-3 border-b border-slate-800/60 flex items-center justify-between;
+  }
+
+  /* Stat value — large metric display */
+  .stat-value {
+    @apply text-[20px] font-bold tracking-tight text-slate-100;
+  }
+  .stat-label {
+    @apply text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em];
+  }
+  .stat-sub {
+    @apply text-[11px] text-slate-600 mt-1;
+  }
+
+  /* Pill badge */
+  .pill {
+    @apply text-[10px] font-semibold px-2 py-0.5 rounded-full border;
+  }
 }
 
 /* ── Print / PDF Export ──────────────────────────────────────────────────── */

@@ -146,7 +146,7 @@ export default function AIChat({ data, open, onClose, initialMessage, onInitialM
       <div className="fixed inset-0 z-[140] bg-black/40 md:hidden" onClick={onClose}/>
 
       {/* Panel */}
-      <div className="fixed bottom-5 right-5 z-[150] flex flex-col w-[380px] h-[540px] bg-[#0d1117] border border-slate-700/60 rounded-2xl shadow-2xl overflow-hidden"
+      <div className="fixed bottom-4 right-4 sm:bottom-5 sm:right-5 z-[150] flex flex-col w-[calc(100vw-2rem)] max-w-[380px] h-[min(540px,calc(100vh-5rem))] bg-[#0d1117] border border-slate-700/60 rounded-2xl shadow-2xl overflow-hidden animate-fade-in"
         style={{ boxShadow: '0 25px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(99,102,241,0.1)' }}>
 
         {/* Header */}
