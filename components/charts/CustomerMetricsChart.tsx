@@ -45,7 +45,7 @@ export default function CustomerMetricsChart({ data }: Props) {
       <div className="text-[13px] font-semibold text-slate-100 mb-4">Customer Overview</div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-4 gap-2 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
         {statItems.map(({ label, value, color }) => (
           <div key={label} className="bg-slate-800/50 border border-slate-700/30 rounded-lg px-2 py-2 text-center">
             <div className="text-[10px] text-slate-500 mb-0.5 font-medium">{label}</div>
