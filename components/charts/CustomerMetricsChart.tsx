@@ -90,7 +90,13 @@ export default function CustomerMetricsChart({ data }: Props) {
           </div>
         </>
       ) : (
-        <div className="text-center py-8 text-[11px] text-slate-600">Upload customer data to see breakdown</div>
+        <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+          <div className="w-8 h-8 rounded-xl bg-slate-800/60 border border-slate-700/40 flex items-center justify-center mb-1">
+            <svg viewBox="0 0 14 14" fill="currentColor" className="w-4 h-4 text-slate-600"><circle cx="5" cy="4" r="2.5"/><path d="M0 12c0-2.76 2.24-5 5-5s5 2.24 5 5H0z"/><circle cx="11" cy="5" r="1.8"/><path d="M14 12c0-1.66-1.34-3-3-3-.48 0-.93.12-1.33.32A6.02 6.02 0 0111 12h3z"/></svg>
+          </div>
+          <div className="text-[12px] font-semibold text-slate-500">No customer data yet</div>
+          <div className="text-[11px] text-slate-700 max-w-[160px] leading-relaxed">Upload a customer list CSV to see revenue concentration</div>
+        </div>
       )}
     </div>
   );

@@ -854,10 +854,10 @@ export default function BusinessOS() {
           <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between">
             <div className="flex items-center gap-2 min-w-0 overflow-hidden">
               <span className={`text-[13px] font-semibold flex-shrink-0 ${pageAccent[activeView]}`}>{pageTitle[activeView]}</span>
-              <span className="text-slate-700">·</span>
-              <span className="text-[11px] text-slate-500 font-medium">{activeSnapshot.label}</span>
-              <span className="text-slate-700">·</span>
-              <span className={`text-[11px] font-medium ${data.metadata.completeness >= 0.9 ? 'text-emerald-500/70' : 'text-amber-500/70'}`}>
+              <span className="text-slate-700 flex-shrink-0">·</span>
+              <span className="text-[11px] text-slate-500 font-medium truncate min-w-0">{activeSnapshot.label}</span>
+              <span className="hidden sm:inline text-slate-700 flex-shrink-0">·</span>
+              <span className={`hidden sm:inline text-[11px] font-medium flex-shrink-0 ${data.metadata.completeness >= 0.9 ? 'text-emerald-500/70' : 'text-amber-500/70'}`}>
                 {Math.round(data.metadata.completeness * 100)}% coverage
               </span>
             </div>

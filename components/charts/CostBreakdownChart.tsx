@@ -95,7 +95,13 @@ export default function CostBreakdownChart({ data }: Props) {
           </div>
         </>
       ) : (
-        <div className="text-center py-8 text-[11px] text-slate-600">Upload cost data to see breakdown</div>
+        <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+          <div className="w-8 h-8 rounded-xl bg-slate-800/60 border border-slate-700/40 flex items-center justify-center mb-1">
+            <svg viewBox="0 0 14 14" fill="currentColor" className="w-4 h-4 text-slate-600"><path d="M2 9h3v3H2V9zm4-4h2v7H6V5zm4-3h2v10h-2V2zM1 13h12v1H1v-1z"/></svg>
+          </div>
+          <div className="text-[12px] font-semibold text-slate-500">No cost data yet</div>
+          <div className="text-[11px] text-slate-700 max-w-[160px] leading-relaxed">Upload a cost breakdown CSV to see your expense structure</div>
+        </div>
       )}
     </div>
   );
