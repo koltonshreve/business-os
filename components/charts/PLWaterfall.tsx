@@ -43,9 +43,15 @@ export default function PLWaterfall({ data }: Props) {
           <div className="text-[13px] font-semibold text-slate-100">P&amp;L Waterfall</div>
           <div className="text-[11px] text-slate-500 mt-0.5">Income statement bridge</div>
         </div>
-        <div className="flex items-center gap-4 text-[11px]">
-          <div className="text-slate-500">GM: <span className={gpMargin >= 50 ? 'text-emerald-400' : gpMargin >= 30 ? 'text-amber-400' : 'text-red-400'}>{gpMargin.toFixed(1)}%</span></div>
-          <div className="text-slate-500">EBITDA: <span className={ebitdaMargin >= 20 ? 'text-emerald-400' : ebitdaMargin >= 10 ? 'text-amber-400' : 'text-red-400'}>{ebitdaMargin.toFixed(1)}%</span></div>
+        <div className="flex items-center gap-2 text-[11px]">
+          <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800/60 border border-slate-700/40">
+            <span className="text-slate-500">GM</span>
+            <span className={`font-semibold ${gpMargin >= 50 ? 'text-emerald-400' : gpMargin >= 30 ? 'text-amber-400' : 'text-red-400'}`}>{gpMargin.toFixed(1)}%</span>
+          </div>
+          <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-800/60 border border-slate-700/40">
+            <span className="text-slate-500">EBITDA</span>
+            <span className={`font-semibold ${ebitdaMargin >= 20 ? 'text-emerald-400' : ebitdaMargin >= 10 ? 'text-amber-400' : 'text-red-400'}`}>{ebitdaMargin.toFixed(1)}%</span>
+          </div>
         </div>
       </div>
 

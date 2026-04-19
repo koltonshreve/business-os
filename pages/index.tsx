@@ -353,7 +353,7 @@ function GoalsPanel({ data, goals, onSetGoal }: {
     <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
       <div className="flex items-center justify-between mb-3 gap-2">
         <div className="text-[12px] font-semibold text-slate-300">Performance Targets</div>
-        <div className="hidden sm:block text-[10px] text-slate-600">Click any target to edit · Enter to save</div>
+        <div className="text-[10px] text-slate-600">Click any target to edit · Enter to save</div>
       </div>
       <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-5 gap-3">
         {rows.map(row => {
