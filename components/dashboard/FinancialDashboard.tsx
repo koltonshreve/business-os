@@ -658,7 +658,7 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
           <div className="mt-4 pt-3 border-t border-slate-800/60">
             <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-2">Annualized Run Rate</div>
             <div className="text-[13px] font-bold text-slate-300">{fmt(runRate)}</div>
-            <div className="text-[11px] text-slate-600 mt-0.5">Annualized run rate (monthly avg × 12)</div>
+            <div className="text-[11px] text-slate-600 mt-0.5">Monthly average × 12</div>
           </div>
         </div>
       </div>
