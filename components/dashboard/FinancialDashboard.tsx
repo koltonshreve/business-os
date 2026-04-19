@@ -123,8 +123,151 @@ function CashFlowPanel({ periods, onAskAI }: { periods: CashFlowPeriod[]; onAskA
   );
 }
 
+// ── P&L Bridge (period-over-period EBITDA waterfall) ──────────────────────────
+function PLBridge({ data, previousData }: { data: UnifiedBusinessData; previousData: UnifiedBusinessData }) {
+  const curRev    = data.revenue.total;
+  const curCOGS   = data.costs.totalCOGS;
+  const curOpEx   = data.costs.totalOpEx;
+  const curEBITDA = curRev - curCOGS - curOpEx;
+
+  const prevRev    = previousData.revenue.total;
+  const prevCOGS   = previousData.costs.totalCOGS;
+  const prevOpEx   = previousData.costs.totalOpEx;
+  const prevEBITDA = prevRev - prevCOGS - prevOpEx;
+
+  const netChange = curEBITDA - prevEBITDA;
+
+  // Bridge components: positive = good
+  const revVar  = curRev - prevRev;                // positive = favorable
+  const cogsVar = prevCOGS - curCOGS;             // positive = good (COGS reduced)
+  const opexVar = prevOpEx - curOpEx;             // positive = good (OpEx reduced)
+
+  const fmt2 = (n: number) =>
+    Math.abs(n) >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` :
+    Math.abs(n) >= 1_000     ? `$${(n/1_000).toFixed(0)}k` :
+    `$${Math.abs(n).toFixed(0)}`;
+  const fmtSgn = (n: number) => `${n >= 0 ? '+' : '−'}${fmt2(n)}`;
+
+  // SVG waterfall
+  const W = 560; const H = 160; const padL = 8; const padR = 8; const padT = 20; const padB = 36;
+  const chartH = H - padT - padB;
+
+  const segments = [
+    { id: 'prior',   label: 'Prior EBITDA', value: prevEBITDA, type: 'anchor' as const },
+    { id: 'rev',     label: 'Revenue',       value: revVar,     type: 'bridge' as const },
+    { id: 'cogs',    label: 'COGS',          value: cogsVar,    type: 'bridge' as const },
+    { id: 'opex',    label: 'OpEx',          value: opexVar,    type: 'bridge' as const },
+    { id: 'current', label: 'EBITDA Now',    value: curEBITDA,  type: 'anchor' as const },
+  ];
+
+  const allValues = [prevEBITDA, curEBITDA];
+  let rt = prevEBITDA;
+  for (const s of segments.slice(1, -1)) { rt += Math.max(s.value, 0); allValues.push(rt); }
+  let rb = prevEBITDA;
+  for (const s of segments.slice(1, -1)) { rb += Math.min(s.value, 0); allValues.push(rb); }
+
+  const minVal = Math.min(...allValues, 0);
+  const maxVal = Math.max(...allValues, 0);
+  const range  = Math.max(maxVal - minVal, 1);
+  const scale  = (v: number) => ((maxVal - v) / range) * chartH;
+  const zeroY  = padT + scale(0);
+
+  const n = segments.length;
+  const barW = Math.floor((W - padL - padR) / n) - 6;
+  const gap  = Math.floor((W - padL - padR - barW * n) / (n - 1));
+
+  const bars: { x: number; y: number; h: number; color: string; label: string; value: number; type: string }[] = [];
+  let baseline = prevEBITDA;
+
+  segments.forEach((seg, i) => {
+    const x = padL + i * (barW + gap);
+    if (seg.type === 'anchor') {
+      const yTop = padT + scale(Math.max(seg.value, 0));
+      const yBot = padT + scale(Math.min(seg.value, 0));
+      const barH = Math.max(Math.abs(yBot - yTop), 2);
+      const color = i === 0
+        ? 'rgba(99,102,241,0.7)'
+        : seg.value >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.65)';
+      bars.push({ x, y: Math.min(yTop, yBot), h: barH, color, label: seg.label, value: seg.value, type: 'anchor' });
+    } else {
+      const from = baseline;
+      const to   = baseline + seg.value;
+      const yTop = padT + scale(Math.max(from, to));
+      const yBot = padT + scale(Math.min(from, to));
+      const barH = Math.max(Math.abs(yBot - yTop), 2);
+      const color = seg.value >= 0 ? 'rgba(16,185,129,0.65)' : 'rgba(239,68,68,0.60)';
+      bars.push({ x, y: yTop, h: barH, color, label: seg.label, value: seg.value, type: 'bridge' });
+      baseline = to;
+    }
+  });
+
+  return (
+    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <div className="text-[13px] font-semibold text-slate-100">What drove the change in EBITDA this period?</div>
+          <div className="text-[12px] mt-0.5">
+            <span className="text-slate-400">Net change: </span>
+            <span className={`font-bold ${netChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {netChange >= 0 ? '+' : ''}{fmt(netChange)} ({netChange >= 0 ? '+' : ''}{prevEBITDA !== 0 ? ((netChange / Math.abs(prevEBITDA)) * 100).toFixed(1) : '0'}%)
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] flex-shrink-0">
+          <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-emerald-500/65"/><span className="text-slate-500">Favorable</span></div>
+          <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-red-500/60"/><span className="text-slate-500">Unfavorable</span></div>
+        </div>
+      </div>
+
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full overflow-visible">
+        {zeroY > padT && zeroY < H - padB && (
+          <line x1={padL} y1={zeroY} x2={W - padR} y2={zeroY}
+            stroke="rgba(148,163,184,0.15)" strokeWidth="1" strokeDasharray="4 3"/>
+        )}
+        {bars.map((bar, i) => (
+          <g key={i}>
+            {bar.type === 'anchor' && i === 0 && bars[1] && (
+              <line x1={bar.x + barW} y1={bar.y} x2={bars[1].x} y2={bar.y}
+                stroke="rgba(148,163,184,0.2)" strokeWidth="1" strokeDasharray="3 2"/>
+            )}
+            {bar.type === 'bridge' && bars[i + 1] && (
+              <line x1={bar.x + barW}
+                y1={bars[i].value >= 0 ? bar.y : bar.y + bar.h}
+                x2={bars[i + 1].x}
+                y2={bars[i].value >= 0 ? bar.y : bar.y + bar.h}
+                stroke="rgba(148,163,184,0.2)" strokeWidth="1" strokeDasharray="3 2"/>
+            )}
+            <rect x={bar.x} y={bar.y} width={barW} height={bar.h} rx="3" fill={bar.color}/>
+            <text x={bar.x + barW / 2} y={bar.y - 5}
+              textAnchor="middle"
+              fill={bar.type === 'anchor' ? (bar.value >= 0 ? '#34d399' : '#f87171') : (bar.value >= 0 ? '#34d399' : '#f87171')}
+              fontSize="10" fontWeight="600" className="font-mono">
+              {bar.type === 'anchor' ? fmt2(bar.value) : fmtSgn(bar.value)}
+            </text>
+            <text x={bar.x + barW / 2} y={H - padB + 14}
+              textAnchor="middle" fill="#64748b" fontSize="10">{bar.label}</text>
+          </g>
+        ))}
+      </svg>
+
+      <div className="mt-2 pt-3 border-t border-slate-800/60 grid grid-cols-3 gap-4 text-center">
+        {[
+          { label: 'Prior EBITDA',  value: fmt2(prevEBITDA),         color: 'text-indigo-400' },
+          { label: 'Net Change',    value: (netChange >= 0 ? '+' : '') + fmt2(netChange), color: netChange >= 0 ? 'text-emerald-400' : 'text-red-400' },
+          { label: 'Current EBITDA', value: fmt2(curEBITDA),          color: curEBITDA >= 0 ? 'text-emerald-400' : 'text-red-400' },
+        ].map(s => (
+          <div key={s.label}>
+            <div className="text-[10px] text-slate-600 font-semibold uppercase tracking-[0.08em] mb-0.5">{s.label}</div>
+            <div className={`text-[14px] font-bold ${s.color}`}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── AR Aging Panel ─────────────────────────────────────────────────────────────
-function ARAgingPanel({ buckets, onAskAI }: { buckets: ARAgingBucket[]; onAskAI?: (msg: string) => void }) {
+function ARAgingPanel({ buckets, revenue, onAskAI }: { buckets: ARAgingBucket[]; revenue: number; onAskAI?: (msg: string) => void }) {
   const totalAR     = buckets.reduce((s, b) => s + b.total, 0);
   const totalCurrent = buckets.reduce((s, b) => s + b.current, 0);
   const total30     = buckets.reduce((s, b) => s + b.days30, 0);
@@ -133,6 +276,17 @@ function ARAgingPanel({ buckets, onAskAI }: { buckets: ARAgingBucket[]; onAskAI?
   const totalOver90 = buckets.reduce((s, b) => s + b.over90, 0);
   const pastDue     = total30 + total60 + total90 + totalOver90;
   const riskAR      = total60 + total90 + totalOver90; // 60+ days is collection risk
+
+  // DSO = (Total AR / Revenue) × 30
+  const dso = revenue > 0 ? (totalAR / revenue) * 30 : null;
+  const dsoColor = dso == null ? 'text-slate-400'
+    : dso < 30 ? 'text-emerald-400'
+    : dso <= 45 ? 'text-amber-400'
+    : 'text-red-400';
+  const dsoStatus = dso == null ? 'No revenue data'
+    : dso < 30 ? 'Healthy collections pace'
+    : dso <= 45 ? 'Monitor — approaching risk threshold'
+    : 'Elevated — collections risk';
 
   const ageSummary = [
     { label: 'Current',  value: totalCurrent, pct: totalAR > 0 ? (totalCurrent/totalAR)*100 : 0, color: 'bg-emerald-500/50', textColor: 'text-emerald-400' },
@@ -144,9 +298,23 @@ function ARAgingPanel({ buckets, onAskAI }: { buckets: ARAgingBucket[]; onAskAI?
 
   return (
     <div className="space-y-4">
+      {/* DSO insight one-liner */}
+      {dso !== null && (
+        <div className={`rounded-xl border px-4 py-3 flex items-center gap-3 ${dso < 30 ? 'bg-emerald-500/5 border-emerald-500/20' : dso <= 45 ? 'bg-amber-500/5 border-amber-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
+          <div className={`text-[22px] font-bold tracking-tight ${dsoColor}`}>{dso.toFixed(0)}d</div>
+          <div>
+            <div className={`text-[12px] font-semibold ${dsoColor}`}>DSO — Days Sales Outstanding</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">
+              Collections taking {dso.toFixed(0)} days on average. Benchmark: 30–35 days for professional services.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* AR KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
+          { label: 'Days Sales Outstanding', value: dso != null ? `${dso.toFixed(0)} days` : '—', color: dsoColor },
           { label: 'Total AR',       value: fmt(totalAR),   color: 'text-slate-100' },
           { label: '% Current',      value: totalAR > 0 ? `${((totalCurrent/totalAR)*100).toFixed(1)}%` : '—', color: 'text-emerald-400' },
           { label: 'Past Due',       value: fmt(pastDue),   color: pastDue / Math.max(totalAR, 1) > 0.3 ? 'text-red-400' : 'text-amber-400' },
@@ -621,6 +789,34 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
         </div>
       </div>
 
+      {/* Operating Leverage Insight */}
+      {rev > 0 && (
+        <div className="bg-slate-900/30 border border-slate-800/40 rounded-xl px-5 py-3.5 flex items-center gap-4">
+          <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center flex-shrink-0 text-indigo-400 text-sm font-bold">%</div>
+          <div className="flex-1">
+            {(() => {
+              // Contribution margin: (Rev - COGS) / Rev  (COGS = variable proxy)
+              const contribMargin = rev > 0 ? ((rev - cogs) / rev) * 100 : 0;
+              // Operating leverage: 10% rev increase → EBITDA grows by (10% × contribution margin) / EBITDA margin
+              const ebitdaGrowthPer10 = ebitdaMargin > 0 ? (10 * contribMargin) / ebitdaMargin : 0;
+              return (
+                <>
+                  <div className="text-[12px] font-semibold text-slate-200">
+                    For every 10% revenue increase, EBITDA grows{' '}
+                    <span className={ebitdaGrowthPer10 >= 15 ? 'text-emerald-400' : 'text-amber-400'}>
+                      {ebitdaGrowthPer10 > 0 ? `${ebitdaGrowthPer10.toFixed(0)}%` : '—'}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">
+                    Contribution margin: {contribMargin.toFixed(1)}% (Revenue − COGS) / Revenue — COGS treated as variable cost proxy
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
       {/* P&L Waterfall + Collapsible Income Statement */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-5">
         <PLWaterfall data={data} />
@@ -662,6 +858,11 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
           </div>
         </div>
       </div>
+
+      {/* Period P&L Bridge — only when previous data available */}
+      {previousData && (
+        <PLBridge data={data} previousData={previousData} />
+      )}
 
       {/* Revenue + Margin charts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -778,7 +979,7 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
             <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em]">Accounts Receivable Aging</div>
             <div className="flex-1 h-px bg-orange-500/10"/>
           </div>
-          <ARAgingPanel buckets={data.arAging!} onAskAI={onAskAI}/>
+          <ARAgingPanel buckets={data.arAging!} revenue={rev} onAskAI={onAskAI}/>
         </div>
       ) : (
         <div className="bg-orange-500/4 border border-orange-500/15 rounded-xl p-4 flex items-center gap-4">

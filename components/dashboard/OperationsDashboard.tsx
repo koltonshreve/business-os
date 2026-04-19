@@ -387,12 +387,20 @@ export default function OperationsDashboard({ data, previousData, onAskAI }: Pro
   const cogsPerEmp   = headcount > 0 ? cogs / headcount : 0;
   const ebitdaPerEmp = headcount > 0 ? ebitda / headcount : 0;
   const costPerEmp   = headcount > 0 ? totalCost / headcount : 0;
+  const grossProfit  = rev - cogs;
+  const gpPerEmp     = headcount > 0 ? grossProfit / headcount : 0;
 
   const prevHeadcount   = previousData?.operations.headcount ?? 0;
   const prevRev         = previousData?.revenue.total ?? 0;
   const prevRevPerEmp   = prevHeadcount > 0 ? prevRev / prevHeadcount : 0;
   const chg = (cur: number, prev: number) =>
     prev > 0 ? ((cur - prev) / Math.abs(prev)) * 100 : 0;
+
+  const utilizationRate = operations.utilizationRate;
+  // Utilization impact: unused capacity revenue = (1 - utilization) × (revPerEmp × headcount)
+  const unusedCapacityRev = utilizationRate != null && utilizationRate < 0.9 && headcount > 0
+    ? (1 - utilizationRate) * (revPerEmp * headcount)
+    : null;
 
   const efficiencyMetrics = [
     {
@@ -402,13 +410,15 @@ export default function OperationsDashboard({ data, previousData, onAskAI }: Pro
       target: 100000,
       targetLabel: '$100k target',
       color: revPerEmp >= 100000 ? 'text-emerald-400' : revPerEmp >= 60000 ? 'text-amber-400' : 'text-red-400',
+      sub: undefined as string | undefined,
     },
     {
-      label: 'Total Cost / Employee',
-      value: costPerEmp,
+      label: 'GP / Employee',
+      value: gpPerEmp,
       change: undefined,
-      targetLabel: '',
-      color: 'text-slate-100',
+      targetLabel: '>$100k is strong',
+      color: gpPerEmp >= 100000 ? 'text-emerald-400' : gpPerEmp >= 60000 ? 'text-amber-400' : 'text-red-400',
+      sub: 'More meaningful than revenue/employee',
     },
     {
       label: 'EBITDA / Employee',
@@ -416,6 +426,7 @@ export default function OperationsDashboard({ data, previousData, onAskAI }: Pro
       change: undefined,
       targetLabel: '',
       color: ebitdaPerEmp > 0 ? 'text-emerald-400' : 'text-red-400',
+      sub: undefined as string | undefined,
     },
     {
       label: 'Revenue / $ of OpEx',
@@ -424,6 +435,7 @@ export default function OperationsDashboard({ data, previousData, onAskAI }: Pro
       targetLabel: 'operating leverage',
       color: rev / Math.max(opex, 1) >= 3 ? 'text-emerald-400' : 'text-amber-400',
       isMult: true,
+      sub: undefined as string | undefined,
     },
   ];
 
@@ -485,8 +497,28 @@ export default function OperationsDashboard({ data, previousData, onAskAI }: Pro
               {m.targetLabel && m.change === undefined && (
                 <div className="text-[11px] text-slate-600 mt-1">{m.targetLabel}</div>
               )}
+              {m.sub && (
+                <div className="text-[10px] text-slate-700 mt-0.5 leading-snug">{m.sub}</div>
+              )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Utilization Impact Analysis */}
+      {utilizationRate != null && utilizationRate < 0.9 && unusedCapacityRev != null && headcount > 0 && (
+        <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl px-5 py-3.5 flex items-center gap-4">
+          <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center flex-shrink-0 text-amber-400 font-bold text-sm">
+            {Math.round(utilizationRate * 100)}%
+          </div>
+          <div>
+            <div className="text-[12px] font-semibold text-amber-300">
+              At {(utilizationRate * 100).toFixed(0)}% utilization, you&apos;re leaving approximately {fmt(unusedCapacityRev)} of billable capacity unrealized.
+            </div>
+            <div className="text-[11px] text-slate-500 mt-0.5">
+              Unused capacity = (1 − utilization) × (revenue per employee × headcount). Reaching 90% utilization unlocks this revenue.
+            </div>
+          </div>
         </div>
       )}
 

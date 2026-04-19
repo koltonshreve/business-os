@@ -1,6 +1,21 @@
 import { useState } from 'react';
 import type { KPIDashboard, UnifiedBusinessData, KPIResult, Goals } from '../../types';
 
+// ── Linear regression helper ──────────────────────────────────────────────────
+function linReg(y: number[]): { slope: number; intercept: number } {
+  const n = y.length;
+  if (n < 2) return { slope: 0, intercept: y[0] ?? 0 };
+  const sx  = y.reduce((_, __, i) => _ + i, 0);
+  const sy  = y.reduce((s, v) => s + v, 0);
+  const sxy = y.reduce((s, v, i) => s + i * v, 0);
+  const sxx = y.reduce((s, _, i) => s + i * i, 0);
+  const denom = n * sxx - sx * sx;
+  if (denom === 0) return { slope: 0, intercept: sy / n };
+  const slope = (n * sxy - sx * sy) / denom;
+  const intercept = (sy - slope * sx) / n;
+  return { slope, intercept };
+}
+
 interface Props {
   dashboard: KPIDashboard | null;
   data: UnifiedBusinessData;
@@ -16,6 +31,7 @@ const BENCHMARKS: Record<string, { label: string; value: string; good: string }>
   'customer-concentration':{ label: 'Safe max',   value: '20%',  good: '<15% per customer' },
   'retention-rate':        { label: 'LMM median', value: '88%',  good: '>92% is best-in-class' },
   'rev-per-employee':      { label: 'LMM median', value: '$85k', good: '>$120k is strong' },
+  'gp-per-employee':       { label: 'Prof. services', value: '$60k', good: '>$100k is strong for professional services' },
 };
 
 // Maps KPI IDs to Goals keys
@@ -181,7 +197,10 @@ function computeKPIs(data: UnifiedBusinessData, prev?: UnifiedBusinessData): KPI
     { id: 'customer-concentration', name: 'Top 3 Concentration', value: top3,           formattedValue: fmtV(top3,'%'),                  unit: '%', trend: 'unknown',              status: top3 > 60 ? 'red' : top3 > 40 ? 'yellow' : 'green', description: '% of revenue from top 3 customers', formula: 'Sum(Top3 Revenue) / Total Revenue', category: 'customers' },
     { id: 'retention-rate',         name: 'Retention Rate',      value: retention,      formattedValue: fmtV(retention,'%'),             unit: '%', trend: 'unknown',              status: statusFn(retention, 90, 80), description: '% of customers retained this period', formula: '(End Customers − New) / Start Customers', category: 'customers' },
     { id: 'net-new-customers',      name: 'Net New',             value: netNew,         formattedValue: netNew >= 0 ? `+${netNew}` : `${netNew}`, unit: '', trend: netNew > 0 ? 'up' : netNew < 0 ? 'down' : 'flat', status: netNew > 0 ? 'green' : netNew === 0 ? 'yellow' : 'red', description: 'New customers minus churned', formula: 'New Added − Churned', category: 'customers' },
-    ...(headcount ? [{ id: 'rev-per-employee', name: 'Rev / Employee', value: revPerEmp, formattedValue: fmtV(revPerEmp,'$'), unit: '$', trend: 'unknown' as const, status: 'neutral' as const, description: 'Revenue generated per team member', formula: 'Revenue / Headcount', category: 'operations' as const }] : []),
+    ...(headcount ? [
+      { id: 'rev-per-employee', name: 'Rev / Employee', value: revPerEmp, formattedValue: fmtV(revPerEmp,'$'), unit: '$', trend: 'unknown' as const, status: 'neutral' as const, description: 'Revenue generated per team member', formula: 'Revenue / Headcount', category: 'operations' as const },
+      { id: 'gp-per-employee',  name: 'GP / Employee',  value: grossProfit / headcount, formattedValue: fmtV(grossProfit / headcount,'$'), unit: '$', trend: 'unknown' as const, status: (grossProfit/headcount) >= 100000 ? 'green' as const : (grossProfit/headcount) >= 60000 ? 'yellow' as const : 'red' as const, description: 'Gross profit generated per team member — shows delivery efficiency', formula: '(Revenue − COGS) / Headcount', category: 'operations' as const },
+    ] : []),
     ...cashKPIs,
   ];
 }
@@ -221,6 +240,28 @@ function KPIDetailModal({ kpi, goal, onClose }: { kpi: KPIResult; goal?: number;
             </div>
           )}
         </div>
+
+        {/* Trajectory projection */}
+        {kpi.sparkline && kpi.sparkline.length >= 2 && (() => {
+          const { slope, intercept } = linReg(kpi.sparkline);
+          const n = kpi.sparkline.length;
+          const proj3 = intercept + slope * (n + 2); // 3 periods ahead (0-indexed: n+2)
+          const isImproving = kpi.id.includes('concentration') ? slope < 0 : slope > 0;
+          const projFmt = kpi.unit === '$'
+            ? (Math.abs(proj3) >= 1_000_000 ? `$${(proj3/1_000_000).toFixed(1)}M` : Math.abs(proj3) >= 1_000 ? `$${(proj3/1_000).toFixed(0)}k` : `$${proj3.toFixed(0)}`)
+            : `${proj3.toFixed(1)}%`;
+          return (
+            <div className={`rounded-xl border px-3.5 py-3 mb-4 ${isImproving ? 'bg-emerald-500/5 border-emerald-500/15' : 'bg-red-500/5 border-red-500/15'}`}>
+              <div className="text-[10px] font-semibold uppercase tracking-wider mb-1.5 text-slate-500">Trend Projection</div>
+              <div className={`text-[12px] font-semibold ${isImproving ? 'text-emerald-400' : 'text-red-400'}`}>
+                At the current trend, {kpi.name} will reach {projFmt} in 3 periods
+              </div>
+              <div className="text-[10px] text-slate-600 mt-1">
+                Based on linear regression of {n} data points · slope: {slope >= 0 ? '+' : ''}{kpi.unit === '$' ? `$${slope.toFixed(0)}` : `${slope.toFixed(2)}pp`}/period
+              </div>
+            </div>
+          );
+        })()}
         {/* Goal attainment */}
         {attainment !== undefined && goalFmt && (
           <div className="bg-slate-900/40 border border-slate-800/40 rounded-xl p-3.5 mb-4">

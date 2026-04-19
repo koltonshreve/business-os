@@ -4,6 +4,88 @@ import { fmtMoney } from '../../lib/format';
 import type { UnifiedBusinessData } from '../../types';
 import RevenueRetentionChart from '../charts/RevenueRetentionChart';
 
+// ── Customer Economics (LTV / LTV:CAC) ───────────────────────────────────────
+function CustomerEconomics({ data }: { data: UnifiedBusinessData }) {
+  const [cac, setCac] = useState('');
+  const { customers } = data;
+  const rev = data.revenue.total;
+  const retentionRate = customers.retentionRate ?? 0.9;
+  const annualChurn = Math.max(1 - retentionRate, 0.01); // cap at 1% to avoid infinite LTV
+  const avgRevPerCustomer = customers.avgRevenuePerCustomer ?? (rev / Math.max(customers.totalCount, 1));
+  const ltv = avgRevPerCustomer / annualChurn;
+
+  const cacNum = parseFloat(cac);
+  const hasCAC = !isNaN(cacNum) && cacNum > 0;
+  const ltvCacRatio = hasCAC ? ltv / cacNum : null;
+  const ltvCacColor = ltvCacRatio == null ? 'text-slate-400'
+    : ltvCacRatio >= 3 ? 'text-emerald-400'
+    : ltvCacRatio >= 2 ? 'text-amber-400'
+    : 'text-red-400';
+
+  const fmt2 = fmtMoney;
+
+  return (
+    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+      <div className="text-[13px] font-semibold text-slate-100 mb-4">Customer Economics</div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <div className="bg-slate-900/40 border border-slate-800/40 rounded-xl p-3">
+          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-1.5">Avg Rev / Customer</div>
+          <div className="text-[18px] font-bold text-slate-100">{fmt2(avgRevPerCustomer)}</div>
+          <div className="text-[10px] text-slate-600 mt-0.5">per period</div>
+        </div>
+        <div className="bg-slate-900/40 border border-slate-800/40 rounded-xl p-3">
+          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-1.5">Annual Churn Rate</div>
+          <div className={`text-[18px] font-bold ${annualChurn <= 0.05 ? 'text-emerald-400' : annualChurn <= 0.15 ? 'text-amber-400' : 'text-red-400'}`}>
+            {(annualChurn * 100).toFixed(1)}%
+          </div>
+          <div className="text-[10px] text-slate-600 mt-0.5">1 − retention rate</div>
+        </div>
+        <div className="bg-slate-900/40 border border-slate-800/40 rounded-xl p-3">
+          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-1.5">Estimated LTV</div>
+          <div className="text-[18px] font-bold text-indigo-400">{fmt2(ltv)}</div>
+          <div className="text-[10px] text-slate-600 mt-0.5">Avg Rev / Churn Rate</div>
+        </div>
+        <div className="bg-slate-900/40 border border-slate-800/40 rounded-xl p-3">
+          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-1.5">LTV:CAC Ratio</div>
+          {hasCAC ? (
+            <>
+              <div className={`text-[18px] font-bold ${ltvCacColor}`}>{ltvCacRatio!.toFixed(1)}×</div>
+              <div className="text-[10px] text-slate-600 mt-0.5">
+                {ltvCacRatio! >= 3 ? 'Strong unit economics' : ltvCacRatio! >= 2 ? 'Acceptable — watch trends' : 'Below target — review acquisition costs'}
+              </div>
+            </>
+          ) : (
+            <div className="text-[11px] text-slate-600 mt-1">Enter CAC below</div>
+          )}
+        </div>
+      </div>
+
+      {/* CAC input */}
+      <div className="flex items-center gap-3">
+        <label className="text-[11px] text-slate-500 flex-shrink-0">Customer Acquisition Cost (CAC):</label>
+        <div className="relative">
+          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-[11px]">$</span>
+          <input
+            type="number"
+            value={cac}
+            onChange={e => setCac(e.target.value)}
+            placeholder="e.g. 2500"
+            className="bg-slate-800/50 border border-slate-700/60 rounded-lg pl-6 pr-3 py-1.5 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 w-36"
+          />
+        </div>
+        {hasCAC && ltvCacRatio !== null && (
+          <div className={`text-[12px] font-semibold ${ltvCacColor}`}>
+            For every $1 spent acquiring a customer, you recover ${ltvCacRatio.toFixed(1)} over their lifetime.
+          </div>
+        )}
+        {!hasCAC && (
+          <div className="text-[11px] text-slate-600 italic">Enter your CAC to see LTV:CAC ratio</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface Props {
   data: UnifiedBusinessData;
   previousData?: UnifiedBusinessData;
@@ -73,7 +155,7 @@ function getSegmentId(pct: number): string {
 
 function CustomerSegmentGroup({
   segmentId, customers, totalRevenue, retentionPct, periodCount, onAskAI,
-  defaultExpanded, selectedCustomer, onSelectCustomer,
+  defaultExpanded, selectedCustomer, onSelectCustomer, previousData,
 }: {
   segmentId: string;
   customers: UnifiedBusinessData['customers']['topCustomers'];
@@ -84,6 +166,7 @@ function CustomerSegmentGroup({
   defaultExpanded?: boolean;
   selectedCustomer: string | null;
   onSelectCustomer: (id: string | null) => void;
+  previousData?: UnifiedBusinessData;
 }) {
   const [open, setOpen] = useState(defaultExpanded ?? false);
   const cfg = SEGMENT_CONFIGS[segmentId];
@@ -156,6 +239,20 @@ function CustomerSegmentGroup({
               const isSelected = selectedCustomer === c.id;
               const annualRev  = Math.round(c.revenue * (12 / periodCount));
               const ltvEst     = c.revenue / Math.max(1 - (retentionPct / 100), 0.01);
+
+              // Trend signal vs previousData
+              let trendBadge: { label: string; cls: string } | null = null;
+              if (previousData) {
+                const prevByCustomer = previousData.revenue.byCustomer;
+                const prevEntry = prevByCustomer?.find(x => x.id === c.id || x.name === c.name);
+                if (prevEntry) {
+                  const delta = c.percentOfTotal - prevEntry.percent;
+                  if (delta > 2) trendBadge = { label: '▲ Growing', cls: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' };
+                  else if (delta < -2) trendBadge = { label: '▼ Declining', cls: 'bg-red-500/10 border-red-500/20 text-red-400' };
+                  else trendBadge = { label: '→ Stable', cls: 'bg-slate-800/60 border-slate-700/40 text-slate-400' };
+                }
+              }
+
               return (
                 <div key={c.id}>
                   <button
@@ -180,7 +277,13 @@ function CustomerSegmentGroup({
                         <span className="text-[12px] text-slate-400">{c.percentOfTotal.toFixed(1)}%</span>
                       </div>
                     </div>
-                    <div className="text-[12px] text-slate-500 text-right">—</div>
+                    <div className="text-right">
+                      {trendBadge ? (
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${trendBadge.cls}`}>{trendBadge.label}</span>
+                      ) : (
+                        <span className="text-[11px] text-slate-600">—</span>
+                      )}
+                    </div>
                     <div className="text-right">
                       <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${riskBg(c.percentOfTotal)} ${riskColor(c.percentOfTotal)}`}>
                         {riskLabel(c.percentOfTotal)}
@@ -399,6 +502,38 @@ export default function CustomerDashboard({ data, previousData, onAskAI }: Props
         </div>
       </div>
 
+      {/* NRR KPI Card — prominent, above retention chart */}
+      {(() => {
+        // Derive NRR from retention data: NRR = retention × (1 + expansion) — approximate using retentionRate
+        // If the data has nrr directly, use it; otherwise approximate from retentionRate
+        const nrrPct = (data.customers as { nrr?: number }).nrr != null
+          ? ((data.customers as { nrr?: number }).nrr! * 100)
+          : retentionPct; // fallback: NRR ≈ retention when no expansion data
+        const nrrColor = nrrPct >= 100 ? 'text-emerald-400' : nrrPct >= 90 ? 'text-amber-400' : 'text-red-400';
+        const nrrBorderColor = nrrPct >= 100 ? 'border-emerald-500/25' : nrrPct >= 90 ? 'border-amber-500/25' : 'border-red-500/25';
+        const nrrBg = nrrPct >= 100 ? 'bg-emerald-500/5' : nrrPct >= 90 ? 'bg-amber-500/5' : 'bg-red-500/5';
+        return (
+          <div className={`rounded-xl border ${nrrBorderColor} ${nrrBg} px-5 py-4 flex items-center gap-5`}>
+            <div className="flex-shrink-0">
+              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-1">Net Revenue Retention (NRR)</div>
+              <div className={`text-[32px] font-black tracking-tight ${nrrColor}`}>{nrrPct.toFixed(1)}%</div>
+            </div>
+            <div className="flex-1 border-l border-slate-800/60 pl-5">
+              <div className={`text-[13px] font-semibold ${nrrColor}`}>
+                {nrrPct >= 100
+                  ? 'Expanding revenue from existing customers — upsell/expansion is working'
+                  : nrrPct >= 90
+                  ? 'Near-neutral — some revenue shrinkage from churn, offset partially by expansion'
+                  : 'Revenue shrinking from churn — retention must improve before growth is sustainable'}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">
+                {'>100% = expanding revenue from existing customers · <100% = revenue shrinking from churn'}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Customer Health Score + Revenue Retention */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Portfolio Health Score */}
@@ -471,6 +606,9 @@ export default function CustomerDashboard({ data, previousData, onAskAI }: Props
         <RevenueRetentionChart data={data} />
       </div>
 
+      {/* Customer Economics: LTV / LTV:CAC */}
+      <CustomerEconomics data={data} />
+
       {/* Customer list — segmented by concentration tier */}
       <div className="space-y-2">
         {/* Toolbar */}
@@ -497,6 +635,7 @@ export default function CustomerDashboard({ data, previousData, onAskAI }: Props
             defaultExpanded={id === 'anchor' || id === 'watch'}
             selectedCustomer={selectedCustomer}
             onSelectCustomer={setSelectedCustomer}
+            previousData={previousData}
           />
         ))}
 

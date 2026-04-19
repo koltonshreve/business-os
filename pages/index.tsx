@@ -118,6 +118,175 @@ function NarrativeBar({ data, previousData }: { data: UnifiedBusinessData; previ
   );
 }
 
+// ── CEO Watchlist ─────────────────────────────────────────────────────────────
+function CEOWatchlist({ data, previousData }: { data: UnifiedBusinessData; previousData?: UnifiedBusinessData }) {
+  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+
+  const rev      = data.revenue.total;
+  const cogs     = data.costs.totalCOGS;
+  const opex     = data.costs.totalOpEx;
+  const gp       = rev - cogs;
+  const ebitda   = gp - opex;
+  const gpMargin = rev > 0 ? (gp / rev) * 100 : 0;
+  const ebitdaMargin = rev > 0 ? (ebitda / rev) * 100 : 0;
+  const prevRev  = previousData?.revenue.total;
+  const revGrowth = prevRev && prevRev > 0 ? ((rev - prevRev) / prevRev) * 100 : null;
+  const topCust  = data.customers.topCustomers[0];
+  const retention = (data.customers.retentionRate ?? 0.9) * 100;
+
+  // Cash runway
+  const cf = data.cashFlow ?? [];
+  const latestCash = cf.length ? cf[cf.length - 1].closingBalance : null;
+  const avgBurn = cf.length ? cf.reduce((s, p) => s + (p.netCashFlow ?? 0), 0) / cf.length : null;
+  const runway = latestCash != null && avgBurn != null && avgBurn < 0
+    ? Math.abs(latestCash / avgBurn) : null;
+
+  interface WatchItem {
+    priority: number;
+    metric: string;
+    current: string;
+    benchmark: string;
+    action: string;
+    severity: 'red' | 'amber';
+  }
+
+  const items: WatchItem[] = [];
+
+  // Rules checked in priority order
+  if (runway !== null && runway < 6) {
+    const deadlineMonth = new Date();
+    deadlineMonth.setMonth(deadlineMonth.getMonth() + Math.round(runway));
+    items.push({
+      priority: 1, metric: 'Cash Runway', current: `${runway.toFixed(1)} months`,
+      benchmark: '6+ months minimum',
+      action: `Extend runway: raise or cut costs before ${deadlineMonth.toLocaleString('default', { month: 'long', year: 'numeric' })} deadline`,
+      severity: 'red',
+    });
+  }
+
+  if (ebitda < 0) {
+    const revenueNeeded = opex > 0 ? ((cogs + opex) - rev) / (1 - cogs / Math.max(rev, 1)) : -ebitda;
+    const costCut = -ebitda;
+    items.push({
+      priority: items.length + 1, metric: 'EBITDA', current: fmtN(ebitda),
+      benchmark: 'Breakeven minimum',
+      action: `Reach breakeven: need ${fmtN(Math.max(revenueNeeded, 0))} more revenue at current margins OR cut ${fmtN(costCut)} in costs`,
+      severity: 'red',
+    });
+  }
+
+  if (topCust && topCust.percentOfTotal > 30) {
+    items.push({
+      priority: items.length + 1, metric: 'Customer Concentration',
+      current: `${topCust.percentOfTotal.toFixed(0)}% (${topCust.name})`,
+      benchmark: '<20% single customer',
+      action: `Reduce concentration: ${topCust.name} at ${topCust.percentOfTotal.toFixed(0)}% poses existential churn risk`,
+      severity: 'red',
+    });
+  }
+
+  if (retention < 80) {
+    const lostPerYear = Math.round(data.customers.totalCount * (1 - retention / 100));
+    items.push({
+      priority: items.length + 1, metric: 'Retention Rate',
+      current: `${retention.toFixed(1)}%`,
+      benchmark: '88%+ sector median',
+      action: `Fix churn: ${retention.toFixed(0)}% retention means losing ~${lostPerYear} customers/year`,
+      severity: 'red',
+    });
+  }
+
+  if (gpMargin < 30) {
+    items.push({
+      priority: items.length + 1, metric: 'Gross Margin',
+      current: `${gpMargin.toFixed(1)}%`,
+      benchmark: '40%+ healthy services',
+      action: `Improve gross margins: at ${gpMargin.toFixed(1)}% you're below the minimum for a healthy services business`,
+      severity: 'red',
+    });
+  }
+
+  if (ebitda >= 0 && ebitdaMargin < 10 && ebitdaMargin >= 0) {
+    const gap = 15 - ebitdaMargin;
+    items.push({
+      priority: items.length + 1, metric: 'EBITDA Margin',
+      current: `${ebitdaMargin.toFixed(1)}%`,
+      benchmark: '14% LMM median',
+      action: `Expand EBITDA margin from ${ebitdaMargin.toFixed(1)}% to 15%+ — closes ${gap.toFixed(1)}pp gap to benchmark`,
+      severity: 'amber',
+    });
+  }
+
+  if (revGrowth !== null && revGrowth < 5) {
+    items.push({
+      priority: items.length + 1, metric: 'Revenue Growth',
+      current: `${revGrowth.toFixed(1)}%`,
+      benchmark: '10%+ sustainable pace',
+      action: `Accelerate growth: ${revGrowth.toFixed(1)}% growth is below sustainable pace for a services business`,
+      severity: 'amber',
+    });
+  }
+
+  if (topCust && topCust.percentOfTotal > 20 && topCust.percentOfTotal <= 30) {
+    items.push({
+      priority: items.length + 1, metric: 'Concentration Watch',
+      current: `${topCust.percentOfTotal.toFixed(0)}% (${topCust.name})`,
+      benchmark: '<20% threshold',
+      action: `Watch concentration: ${topCust.name} trending toward risk threshold`,
+      severity: 'amber',
+    });
+  }
+
+  const top3 = items.slice(0, 3);
+
+  const severityStyles = {
+    red:   { dot: 'bg-red-500',   num: 'bg-red-500/15 text-red-400 border-red-500/25',   row: 'border-red-500/15 bg-red-500/4' },
+    amber: { dot: 'bg-amber-400', num: 'bg-amber-500/15 text-amber-400 border-amber-500/25', row: 'border-amber-500/15 bg-amber-500/4' },
+  };
+
+  return (
+    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <div className="text-[13px] font-semibold text-slate-100">CEO Watchlist</div>
+        <div className="text-[11px] text-slate-600">— top issues ranked by business impact</div>
+      </div>
+
+      {top3.length === 0 ? (
+        <div className="flex items-center gap-3 px-4 py-3.5 bg-emerald-500/5 border border-emerald-500/20 rounded-xl">
+          <div className="w-7 h-7 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-emerald-400 font-bold text-sm flex-shrink-0">✓</div>
+          <div>
+            <div className="text-[13px] font-semibold text-emerald-400">Strong foundation — focus on growth</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">No critical issues detected across runway, profitability, concentration, retention, or margins.</div>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {top3.map(item => {
+            const s = severityStyles[item.severity];
+            return (
+              <div key={item.priority} className={`flex items-start gap-3 rounded-xl border px-4 py-3.5 ${s.row}`}>
+                <div className={`w-6 h-6 rounded-full border flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5 ${s.num}`}>
+                  {item.priority}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="text-[12px] font-bold text-slate-100">{item.metric}</span>
+                    <span className="text-[11px] font-semibold text-slate-400">{item.current}</span>
+                    <span className="text-[10px] text-slate-600">· benchmark: {item.benchmark}</span>
+                  </div>
+                  <div className={`text-[12px] font-medium leading-relaxed ${item.severity === 'red' ? 'text-red-300' : 'text-amber-300'}`}>
+                    {item.action}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Business Health Score ──────────────────────────────────────────────────────
 function BusinessHealthScore({ data, previousData, onAskAI }: { data: UnifiedBusinessData; previousData?: UnifiedBusinessData; onAskAI?: (msg: string) => void }) {
   const rev      = data.revenue.total;
@@ -1381,6 +1550,7 @@ export default function BusinessOS() {
                 </div>
               )}
 
+              <CEOWatchlist data={data} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
               <ExecutiveSummary data={data} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
               {prevSnapshot && <BiggestMovers data={data} previous={prevSnapshot.data}/>}
               <NarrativeBar data={data} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
