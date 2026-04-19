@@ -2,9 +2,10 @@ interface Props {
   alerts: { severity: string; title: string; message: string; action: string }[];
   onRunAlerts: () => void;
   loading: boolean;
+  onDismiss?: (index: number) => void;
 }
 
-export default function AlertFeed({ alerts, onRunAlerts, loading }: Props) {
+export default function AlertFeed({ alerts, onRunAlerts, loading, onDismiss }: Props) {
   const pillStyle = (s: string) =>
     s === 'HIGH'   ? 'text-red-400 bg-red-500/10 border-red-500/25' :
     s === 'MEDIUM' ? 'text-amber-400 bg-amber-500/10 border-amber-500/25' :
@@ -51,12 +52,20 @@ export default function AlertFeed({ alerts, onRunAlerts, loading }: Props) {
         ) : (
           <div className="divide-y divide-slate-800/50">
             {alerts.map((a, i) => (
-              <div key={i} className="px-4 py-3">
+              <div key={i} className="px-4 py-3 group">
                 <div className="flex items-center gap-2 mb-1.5">
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${pillStyle(a.severity)}`}>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex-shrink-0 ${pillStyle(a.severity)}`}>
                     {a.severity}
                   </span>
-                  <span className="text-[12px] font-medium text-slate-200 truncate">{a.title}</span>
+                  <span className="text-[12px] font-medium text-slate-200 truncate flex-1">{a.title}</span>
+                  {onDismiss && (
+                    <button
+                      onClick={() => onDismiss(i)}
+                      title="Mark as reviewed"
+                      className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-slate-600 hover:text-slate-300 text-lg leading-none transition-all ml-1">
+                      ×
+                    </button>
+                  )}
                 </div>
                 <div className="text-[11px] text-slate-500 leading-relaxed mb-1.5">{a.message}</div>
                 <div className="text-[11px] text-indigo-400/80 font-medium">→ {a.action}</div>

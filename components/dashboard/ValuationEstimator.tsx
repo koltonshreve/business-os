@@ -272,6 +272,48 @@ export default function ValuationEstimator({ data, previousData, onAskAI }: Prop
             </div>
           </div>
 
+          {/* EV Sensitivity Matrix */}
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-800/40 flex items-center justify-between">
+              <div className="text-[12px] font-semibold text-slate-200">EV Sensitivity Matrix</div>
+              <div className="text-[10px] text-slate-600">EBITDA scenario × multiple</div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[380px]">
+                <thead>
+                  <tr className="border-b border-slate-800/40">
+                    <th className="px-4 py-2 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">EBITDA</th>
+                    {[`${adjLow.toFixed(1)}× Low`, `${adjMid.toFixed(1)}× Mid`, `${adjHigh.toFixed(1)}× High`].map(h => (
+                      <th key={h} className="px-4 py-2 text-right text-[10px] font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/30">
+                  {[
+                    { label: `Base — ${fmt(ebitda)}`,      ebitdaMult: 1.0 },
+                    { label: `+10% — ${fmt(ebitda * 1.1)}`, ebitdaMult: 1.1 },
+                    { label: `+20% — ${fmt(ebitda * 1.2)}`, ebitdaMult: 1.2 },
+                    { label: `+30% — ${fmt(ebitda * 1.3)}`, ebitdaMult: 1.3 },
+                  ].map((row, ri) => (
+                    <tr key={ri} className={ri === 0 ? 'bg-indigo-500/[0.03]' : ''}>
+                      <td className={`px-4 py-2.5 text-[11px] font-medium ${ri === 0 ? 'text-slate-200' : 'text-slate-500'}`}>
+                        {row.label}
+                      </td>
+                      {[adjLow, adjMid, adjHigh].map((mult, ci) => {
+                        const ev = ebitda * row.ebitdaMult * mult;
+                        return (
+                          <td key={ci} className={`px-4 py-2.5 text-right tabular-nums text-[12px] font-semibold ${
+                            ri === 0 && ci === 1 ? 'text-indigo-300' : ri === 0 ? 'text-slate-300' : 'text-slate-500'
+                          }`}>{fmt(ev)}</td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           {/* Quality of Earnings factors */}
           <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
             <button

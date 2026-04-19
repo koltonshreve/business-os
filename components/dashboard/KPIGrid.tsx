@@ -259,6 +259,15 @@ function KPIDetailModal({ kpi, goal, onClose }: { kpi: KPIResult; goal?: number;
 // ── KPI card ───────────────────────────────────────────────────────────────────
 function KPICard({ kpi, goal }: { kpi: KPIResult; goal?: number }) {
   const [showDetail, setShowDetail] = useState(false);
+  const [copied, setCopied]         = useState(false);
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard?.writeText(kpi.formattedValue).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
 
   const statusStyles = {
     green:   { border: 'border-l-emerald-500', bg: 'bg-emerald-500/[0.04]' },
@@ -294,7 +303,13 @@ function KPICard({ kpi, goal }: { kpi: KPIResult; goal?: number }) {
         {BENCHMARKS[kpi.id] && !kpi.isAnomalous && <div className="absolute top-2.5 right-2.5 text-[8px] text-slate-700 group-hover:text-slate-500 font-bold transition-colors">BENCH</div>}
         <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] truncate mb-2">{kpi.name}</div>
         <div className="flex items-end justify-between gap-1">
-          <div className="text-[18px] font-bold tracking-tight text-slate-100 leading-none">{kpi.formattedValue}</div>
+          <div
+            className="text-[18px] font-bold tracking-tight text-slate-100 leading-none cursor-copy group-hover:text-indigo-100 transition-colors relative"
+            onClick={handleCopy}
+            title="Click to copy"
+          >
+            {copied ? <span className="text-[13px] text-emerald-400 font-semibold">✓ Copied</span> : kpi.formattedValue}
+          </div>
           {kpi.changePercent !== undefined && (
             <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md flex-shrink-0 ${pillCls}`}>
               {arrow}{Math.abs(kpi.changePercent).toFixed(1)}%

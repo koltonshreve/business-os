@@ -505,6 +505,151 @@ const Icons = {
   Alert: () => <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 flex-shrink-0"><path d="M7.02 1.5l-6 11A1 1 0 002 14h12a1 1 0 00.98-1.5l-6-11a1 1 0 00-1.96 0zM9 11H7v2h2v-2zm0-5H7v4h2V6z"/></svg>,
 };
 
+// ── Rule-based Executive Summary ─────────────────────────────────────────────
+function ExecutiveSummary({ data, previousData }: { data: UnifiedBusinessData; previousData?: UnifiedBusinessData }) {
+  const rev   = data.revenue.total;
+  const cogs  = data.costs.totalCOGS;
+  const opex  = data.costs.totalOpEx;
+  const gp    = rev - cogs;
+  const ebitda = gp - opex;
+  const prevRev = previousData?.revenue.total;
+  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const gpM   = rev > 0 ? (gp / rev) * 100 : 0;
+  const ebitdaM = rev > 0 ? (ebitda / rev) * 100 : 0;
+  const growth  = prevRev && prevRev > 0 ? ((rev - prevRev) / prevRev) * 100 : null;
+  const topCust = data.customers.topCustomers[0];
+  const retention = (data.customers.retentionRate ?? 0) * 100;
+  const cf = data.cashFlow ?? [];
+  const cash = cf.length ? cf[cf.length - 1].closingBalance : null;
+  const avgBurn = cf.length ? cf.reduce((s, p) => s + (p.netCashFlow ?? 0), 0) / cf.length : null;
+
+  const sentences: string[] = [];
+
+  // Revenue sentence
+  if (growth !== null) {
+    sentences.push(
+      `Revenue is ${fmtN(rev)}, ${growth >= 0 ? 'up' : 'down'} ${Math.abs(growth).toFixed(1)}% vs the prior period, with gross margin at ${gpM.toFixed(1)}% and EBITDA margin at ${ebitdaM.toFixed(1)}%.`
+    );
+  } else {
+    sentences.push(
+      `Revenue totals ${fmtN(rev)} with ${gpM.toFixed(1)}% gross margin and ${ebitdaM.toFixed(1)}% EBITDA margin.`
+    );
+  }
+
+  // Profitability / margin sentence
+  if (ebitdaM < 0) {
+    sentences.push(`The business is operating at a loss — EBITDA is ${fmtN(ebitda)}, suggesting the cost structure needs review before profitability can be achieved.`);
+  } else if (ebitdaM < 10) {
+    sentences.push(`EBITDA margin of ${ebitdaM.toFixed(1)}% is below the lower-middle-market median of 14%; improving delivery efficiency or pricing could close this gap.`);
+  } else if (ebitdaM >= 20) {
+    sentences.push(`EBITDA margin of ${ebitdaM.toFixed(1)}% is above the 20% threshold that typically commands premium valuation multiples.`);
+  }
+
+  // Customer / concentration risk
+  if (topCust && topCust.percentOfTotal > 25) {
+    sentences.push(`Customer concentration is elevated — ${topCust.name} represents ${topCust.percentOfTotal.toFixed(0)}% of revenue, which poses meaningful churn risk.`);
+  } else if (retention > 0 && retention < 85) {
+    sentences.push(`Retention at ${retention.toFixed(0)}% is below the 88% sector median — reducing churn by even 5 points would materially improve NRR and valuation.`);
+  } else if (data.customers.totalCount >= 20) {
+    sentences.push(`The customer base of ${data.customers.totalCount} accounts is reasonably diversified, with ${retention > 0 ? `${retention.toFixed(0)}% retention` : 'no retention data yet'}.`);
+  }
+
+  // Cash position
+  if (cash !== null && avgBurn !== null && avgBurn < 0) {
+    const runway = Math.abs(cash / avgBurn);
+    sentences.push(
+      runway < 6
+        ? `Cash runway is a critical ${runway.toFixed(1)} months — fundraising or cost reduction should be the immediate priority.`
+        : `Cash runway is approximately ${runway.toFixed(1)} months at current burn; ${runway < 12 ? 'preserve runway while working toward breakeven' : 'the balance sheet is in a healthy position'}.`
+    );
+  } else if (cash !== null && avgBurn !== null && avgBurn > 0) {
+    sentences.push(`The business is cash flow positive, generating an average of ${fmtN(avgBurn)} per period with ${fmtN(cash)} in current cash.`);
+  }
+
+  if (sentences.length === 0) return null;
+
+  return (
+    <div className="bg-slate-900/40 border border-slate-800/40 rounded-xl px-4 sm:px-5 py-3.5">
+      <div className="text-[10px] font-bold text-slate-600 uppercase tracking-[0.1em] mb-2">Executive Summary</div>
+      <div className="space-y-1">
+        {sentences.map((s, i) => (
+          <p key={i} className="text-[12px] text-slate-400 leading-relaxed">{s}</p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Biggest Movers Widget ─────────────────────────────────────────────────────
+function BiggestMovers({ data, previous }: { data: UnifiedBusinessData; previous: UnifiedBusinessData }) {
+  const calc = (d: UnifiedBusinessData) => {
+    const rev = d.revenue.total, cogs = d.costs.totalCOGS, opex = d.costs.totalOpEx;
+    const gp = rev - cogs, ebitda = gp - opex;
+    return {
+      'Revenue':        rev,
+      'Gross Margin':   rev > 0 ? (gp / rev) * 100 : 0,
+      'EBITDA Margin':  rev > 0 ? (ebitda / rev) * 100 : 0,
+      'Customers':      d.customers.totalCount,
+      'Retention':      (d.customers.retentionRate ?? 0) * 100,
+      'Top Cust %':     d.customers.topCustomers[0]?.percentOfTotal ?? 0,
+    };
+  };
+  const cur  = calc(data);
+  const prev = calc(previous);
+
+  // Inverse metrics (lower = better)
+  const inverse = new Set(['Top Cust %']);
+
+  const movers = (Object.keys(cur) as (keyof typeof cur)[]).map(key => {
+    const c = cur[key], p = prev[key];
+    const delta = p !== 0 ? ((c - p) / Math.abs(p)) * 100 : 0;
+    const isGood = inverse.has(key) ? delta < 0 : delta > 0;
+    return { key, delta, isGood };
+  }).filter(m => Math.abs(m.delta) >= 0.5)
+    .sort((a, b) => (b.isGood ? 1 : -1) - (a.isGood ? 1 : -1) || Math.abs(b.delta) - Math.abs(a.delta));
+
+  const gainers = movers.filter(m => m.isGood  && m.delta > 0).slice(0, 3);
+  const laggards = movers.filter(m => !m.isGood).slice(0, 3);
+
+  if (!gainers.length && !laggards.length) return null;
+
+  return (
+    <div className="bg-slate-900/40 border border-slate-800/40 rounded-xl px-4 sm:px-5 py-3.5">
+      <div className="text-[10px] font-bold text-slate-600 uppercase tracking-[0.1em] mb-3">Biggest Movers vs Prior Period</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {gainers.length > 0 && (
+          <div>
+            <div className="text-[10px] font-semibold text-emerald-500/60 uppercase tracking-[0.08em] mb-1.5">Improved</div>
+            <div className="space-y-1.5">
+              {gainers.map(m => (
+                <div key={m.key} className="flex items-center gap-2">
+                  <span className="text-emerald-400 text-xs flex-shrink-0">▲</span>
+                  <span className="text-[12px] text-slate-300 flex-1">{m.key}</span>
+                  <span className="text-[12px] font-semibold text-emerald-400 tabular-nums">{m.delta > 0 ? '+' : ''}{m.delta.toFixed(1)}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {laggards.length > 0 && (
+          <div>
+            <div className="text-[10px] font-semibold text-red-500/60 uppercase tracking-[0.08em] mb-1.5">Declined</div>
+            <div className="space-y-1.5">
+              {laggards.map(m => (
+                <div key={m.key} className="flex items-center gap-2">
+                  <span className="text-red-400 text-xs flex-shrink-0">▼</span>
+                  <span className="text-[12px] text-slate-300 flex-1">{m.key}</span>
+                  <span className="text-[12px] font-semibold text-red-400 tabular-nums">{m.delta.toFixed(1)}%</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Period Comparison Strip ────────────────────────────────────────────────────
 function ComparisonStrip({ current, previous, currentLabel, previousLabel }: {
   current: UnifiedBusinessData;
@@ -775,6 +920,7 @@ export default function BusinessOS() {
   const [compareMode, setCompareMode]           = useState(false);
   const [panelNotes, setPanelNotesState]        = useState<Record<string, string>>({});
   const [shortcutsOpen, setShortcutsOpen]       = useState(false);
+  const [dismissedAlerts, setDismissedAlerts]   = useState<number[]>([]);
 
   // Hydrate persisted state from localStorage (client-side only)
   useEffect(() => {
@@ -878,11 +1024,31 @@ export default function BusinessOS() {
   const dismissToast = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), []);
 
   // Derived state
-  const activeSnapshot = snapshots.find(s => s.id === activeSnapshotId) ?? snapshots[0];
-  const data           = activeSnapshot.data;
-  const usingDemo      = activeSnapshot.id === DEMO_SNAPSHOT.id || activeSnapshot.id === PREV_SNAPSHOT.id;
-  const prevSnapshot   = snapshots.find(s => s.id !== activeSnapshotId);
-  const highAlerts     = alerts.filter(a => a.severity === 'HIGH');
+  const activeSnapshot  = snapshots.find(s => s.id === activeSnapshotId) ?? snapshots[0];
+  const data            = activeSnapshot.data;
+  const usingDemo       = activeSnapshot.id === DEMO_SNAPSHOT.id || activeSnapshot.id === PREV_SNAPSHOT.id;
+  const prevSnapshot    = snapshots.find(s => s.id !== activeSnapshotId);
+  const visibleAlerts   = alerts.filter((_, i) => !dismissedAlerts.includes(i));
+  const highAlerts      = visibleAlerts.filter(a => a.severity === 'HIGH');
+  const triggeredCount  = thresholds.filter(t => {
+    if (!t.enabled) return false;
+    const rev = data.revenue.total, cogs = data.costs.totalCOGS, opex = data.costs.totalOpEx;
+    const gp = rev - cogs, ebitda = gp - opex;
+    const vals: Record<string, number | null> = {
+      grossMargin:  rev > 0 ? (gp / rev) * 100 : null,
+      ebitdaMargin: rev > 0 ? (ebitda / rev) * 100 : null,
+      revenue: rev, cogsMargin: rev > 0 ? (cogs / rev) * 100 : null,
+      retentionRate: (data.customers.retentionRate ?? null) != null ? data.customers.retentionRate! * 100 : null,
+      topCustomerPct: data.customers.topCustomers[0]?.percentOfTotal ?? null,
+      cashBalance: data.cashFlow?.length ? data.cashFlow[data.cashFlow.length - 1].closingBalance : null,
+    };
+    const cur = vals[t.metricKey];
+    return cur !== null && (t.operator === '<' ? cur < t.value : cur > t.value);
+  }).length;
+
+  const dismissAlert = useCallback((index: number) => {
+    setDismissedAlerts(prev => [...prev, index]);
+  }, []);
 
   const runAction = useCallback(async (action: string) => {
     setLoading(action);
@@ -914,6 +1080,7 @@ export default function BusinessOS() {
       }
       if (result.alerts) {
         setAlerts(result.alerts);
+        setDismissedAlerts([]);
         const high = (result.alerts as {severity: string}[]).filter(a => a.severity === 'HIGH').length;
         addToast(high > 0 ? 'error' : 'success', `${result.alerts.length} risk alert${result.alerts.length !== 1 ? 's' : ''} identified${high > 0 ? ` — ${high} high priority` : ''}`);
         setActiveView('intelligence');
@@ -978,7 +1145,7 @@ export default function BusinessOS() {
   const isLoading = (action: string) => loading === action;
 
   const navItems: { id: ActiveView; label: string; Icon: () => JSX.Element; badge?: number; activeClass: string }[] = [
-    { id: 'overview',     label: 'Overview',     Icon: Icons.Overview,     activeClass: 'bg-slate-800/80 text-slate-100' },
+    { id: 'overview',     label: 'Overview',     Icon: Icons.Overview,     activeClass: 'bg-slate-800/80 text-slate-100', badge: triggeredCount || undefined },
     { id: 'financial',    label: 'Financial',    Icon: Icons.Financial,    activeClass: 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/20' },
     { id: 'customers',    label: 'Customers',    Icon: Icons.Customers,    activeClass: 'bg-violet-500/15 text-violet-300 border border-violet-500/20' },
     { id: 'operations',   label: 'Operations',   Icon: Icons.Operations,   activeClass: 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/20' },
@@ -1214,8 +1381,25 @@ export default function BusinessOS() {
                 </div>
               )}
 
+              <ExecutiveSummary data={data} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
+              {prevSnapshot && <BiggestMovers data={data} previous={prevSnapshot.data}/>}
               <NarrativeBar data={data} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
               <BusinessHealthScore data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
+
+              {/* Data quality warnings */}
+              {data.metadata.warnings.length > 0 && (
+                <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl px-4 py-3 flex items-start gap-2.5">
+                  <span className="text-amber-400/70 text-sm flex-shrink-0 mt-0.5">⚠</span>
+                  <div>
+                    <div className="text-[11px] font-semibold text-amber-400/80 mb-1">Data quality notes</div>
+                    <ul className="space-y-0.5">
+                      {data.metadata.warnings.map((w, i) => (
+                        <li key={i} className="text-[11px] text-amber-400/60">· {w}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
               <GoalsPanel data={data} goals={goals} onSetGoal={setGoal}/>
               <KPIGrid dashboard={dashboard} data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} goals={goals}/>
               <RevenueChart data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} revenueGoal={goals.revenue} annotations={annotations} onAnnotate={setAnnotation} onAskAI={openChat}/>
@@ -1225,7 +1409,7 @@ export default function BusinessOS() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5">
                 <CostBreakdownChart data={data}/>
                 <CustomerMetricsChart data={data}/>
-                <AlertFeed alerts={alerts} onRunAlerts={() => runAction('alerts')} loading={isLoading('alerts')}/>
+                <AlertFeed alerts={visibleAlerts} onRunAlerts={() => runAction('alerts')} loading={isLoading('alerts')} onDismiss={dismissAlert}/>
               </div>
 
               <MetricThresholdsPanel data={data} thresholds={thresholds} onChange={saveThresholds}/>

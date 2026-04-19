@@ -20,6 +20,30 @@ const fmt = (n: number) =>
   n >= 1_000     ? `$${(n / 1_000).toFixed(0)}k` :
   `$${n.toFixed(0)}`;
 
+// ── Forecast helpers ──────────────────────────────────────────────────────────
+function linReg(y: number[]): { slope: number; intercept: number } {
+  const n = y.length;
+  if (n < 2) return { slope: 0, intercept: y[0] ?? 0 };
+  const sx = y.reduce((_, __, i) => _ + i, 0);
+  const sy = y.reduce((s, v) => s + v, 0);
+  const sxy = y.reduce((s, v, i) => s + i * v, 0);
+  const sxx = y.reduce((s, _, i) => s + i * i, 0);
+  const denom = n * sxx - sx * sx;
+  if (denom === 0) return { slope: 0, intercept: sy / n };
+  const slope = (n * sxy - sx * sy) / denom;
+  return { slope, intercept: (sy - slope * sx) / n };
+}
+
+function nextMonthLabel(last: string, offset: number): string {
+  const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const m = last.match(/^([A-Za-z]{3})\s+(\d{4})$/);
+  if (!m) return `+${offset}`;
+  const idx = M.indexOf(m[1]);
+  if (idx === -1) return `+${offset}`;
+  const total = idx + offset;
+  return `${M[((total % 12) + 12) % 12]} ${parseInt(m[2]) + Math.floor(total / 12)}`;
+}
+
 function PeriodDrawer({
   period, annotation, onAnnotate, onClose, onAskAI,
 }: {
@@ -140,6 +164,7 @@ export default function RevenueChart({ data, previousData, revenueGoal, annotati
   const [viewMode, setViewMode]             = useState<'area' | 'bar'>('area');
   const [showPrior, setShowPrior]           = useState(false);
   const [showMA, setShowMA]                 = useState(false);
+  const [showForecast, setShowForecast]     = useState(false);
 
   const periods = data.revenue.byPeriod;
   const prevPeriods = previousData?.revenue.byPeriod ?? [];
@@ -163,6 +188,30 @@ export default function RevenueChart({ data, previousData, revenueGoal, annotati
     const ma = Math.round(window.reduce((s, w) => s + w.revenue, 0) / window.length);
     return { ...d, ma };
   });
+
+  // Forecast: linear regression on revenue → 3 projected months
+  const n = chartData.length;
+  const { slope, intercept } = linReg(chartData.map(d => d.revenue));
+  const predict = (i: number) => Math.max(0, Math.round(intercept + slope * i));
+  const lastLabel = periods[periods.length - 1]?.period ?? '';
+  const displayData = showForecast
+    ? [
+        ...chartData.map((d, i) => ({
+          ...d,
+          forecast: i === n - 1 ? predict(i) : undefined as number | undefined,
+        })),
+        ...[1, 2, 3].map(j => ({
+          period: nextMonthLabel(lastLabel, j),
+          revenue: undefined as number | undefined,
+          grossProfit: undefined as number | undefined,
+          margin: null as number | null,
+          prior: undefined as number | undefined,
+          ma: undefined as number | undefined,
+          raw: null as typeof chartData[0]['raw'] | null,
+          forecast: predict(n - 1 + j),
+        })),
+      ]
+    : chartData.map(d => ({ ...d, forecast: undefined as number | undefined }));
 
   const avgRevenue = chartData.length
     ? Math.round(chartData.reduce((s, d) => s + d.revenue, 0) / chartData.length)
@@ -288,6 +337,13 @@ export default function RevenueChart({ data, previousData, revenueGoal, annotati
                 Prior
               </button>
             )}
+            {viewMode === 'area' && n >= 2 && (
+              <button onClick={() => setShowForecast(v => !v)}
+                className={`flex items-center gap-1.5 text-[11px] font-medium transition-colors ${showForecast ? 'text-violet-400' : 'text-slate-600 hover:text-slate-400'}`}>
+                <div className={`w-4 h-[2px] ${showForecast ? 'bg-violet-400' : 'bg-slate-700'}`} style={{ borderTop: '2px dashed', borderColor: showForecast ? '#a78bfa' : '#334155' }}/>
+                Forecast
+              </button>
+            )}
             {revenueGoal && (
               <div className="flex items-center gap-1.5">
                 <div className="w-2.5 h-[3px] rounded-full border-t border-dashed border-amber-500/60"/>
@@ -303,7 +359,7 @@ export default function RevenueChart({ data, previousData, revenueGoal, annotati
         {viewMode === 'area' ? (
           <ResponsiveContainer width="100%" height={200}>
             <ComposedChart
-              data={chartData}
+              data={displayData}
               margin={{ top: 4, right: 2, left: 0, bottom: 0 }}
               onClick={(d) => { if (d?.activePayload?.[0]) handleClick(d.activePayload[0].payload); }}>
               <defs>
@@ -340,6 +396,11 @@ export default function RevenueChart({ data, previousData, revenueGoal, annotati
               {showMA && (
                 <Line type="monotone" dataKey="ma" stroke="rgba(245,158,11,0.7)" strokeWidth={1.5}
                   dot={false} strokeDasharray="3 2"/>
+              )}
+              {showForecast && (
+                <Line type="monotone" dataKey="forecast" stroke="#a78bfa" strokeWidth={1.5}
+                  strokeDasharray="6 3" dot={{ r: 3, fill: '#a78bfa', stroke: '#0f172a', strokeWidth: 1.5 }}
+                  activeDot={{ r: 4, fill: '#a78bfa' }} connectNulls/>
               )}
             </ComposedChart>
           </ResponsiveContainer>

@@ -163,6 +163,47 @@ export default function TransactionLedger({ transactions, onAskAI }: Props) {
           ))}
         </div>
 
+        {/* Category breakdown */}
+        {(() => {
+          const byCategory = Object.entries(
+            transactions.reduce<Record<string, { in: number; out: number }>>((acc, t) => {
+              if (!acc[t.category]) acc[t.category] = { in: 0, out: 0 };
+              if (t.amount > 0) acc[t.category].in += t.amount;
+              else acc[t.category].out += Math.abs(t.amount);
+              return acc;
+            }, {})
+          )
+            .map(([cat, v]) => ({ cat, total: v.in + v.out, net: v.in - v.out, inflow: v.in, outflow: v.out }))
+            .sort((a, b) => b.total - a.total)
+            .slice(0, 8);
+          const maxTotal = Math.max(...byCategory.map(c => c.total), 1);
+          return (
+            <div className="mb-3">
+              <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-2">By Category</div>
+              <div className="space-y-1.5">
+                {byCategory.map(c => (
+                  <button
+                    key={c.cat}
+                    onClick={() => { setCatFilter(c.cat === catFilter ? 'all' : c.cat); setPage(0); }}
+                    className={`w-full flex items-center gap-2.5 text-left group transition-all rounded-lg px-2 py-1 ${catFilter === c.cat ? 'bg-indigo-500/10' : 'hover:bg-slate-800/40'}`}
+                  >
+                    <div className="text-[11px] font-medium text-slate-400 truncate w-28 flex-shrink-0">{c.cat}</div>
+                    <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${c.net >= 0 ? 'bg-emerald-500/60' : 'bg-red-500/60'}`}
+                        style={{ width: `${(c.total / maxTotal) * 100}%` }}
+                      />
+                    </div>
+                    <div className={`text-[11px] font-semibold tabular-nums flex-shrink-0 w-16 text-right ${c.net >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {c.net >= 0 ? '+' : '−'}{fmt(c.net)}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-2">
           <input
