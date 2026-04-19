@@ -161,7 +161,8 @@ const CSV_TEMPLATES: Record<string, { label: string; content: string }> = {
   pipeline:   { label: 'Pipeline',     content: 'DealName,Stage,Value,Probability,CloseDate,Owner\nAcme Expansion,Proposal,85000,60,2025-06-30,Jane Smith\nNew Corp Deal,Negotiation,140000,80,2025-05-15,John Doe\nSmall Account,Qualified,22000,40,2025-07-01,Jane Smith\nEnterprise RFP,Discovery,300000,25,2025-09-30,John Doe\n' },
   payroll:    { label: 'Payroll/HR',   content: 'Department,Headcount,TotalSalary,AvgSalary\nEngineering,5,650000,130000\nSales,3,360000,120000\nOperations,4,340000,85000\nG&A,2,220000,110000\nMarketing,2,200000,100000\n' },
   cashflow:   { label: 'Cash Flow',    content: 'Period,OpeningBalance,Receipts,Payments,ClosingBalance\nJan 2025,180000,245000,210000,215000\nFeb 2025,215000,268000,225000,258000\nMar 2025,258000,290000,240000,308000\n' },
-  ar_aging:   { label: 'AR Aging',     content: 'Customer,Current,Days30,Days60,Days90,Over90\nAcme Corp,45000,12000,0,0,0\nBeta Industries,30000,8000,5000,0,0\nGamma LLC,22000,0,0,3000,2000\nDelta Partners,18000,6000,0,0,0\n' },
+  ar_aging:     { label: 'AR Aging',      content: 'Customer,Current,Days30,Days60,Days90,Over90\nAcme Corp,45000,12000,0,0,0\nBeta Industries,30000,8000,5000,0,0\nGamma LLC,22000,0,0,3000,2000\nDelta Partners,18000,6000,0,0,0\n' },
+  transactions: { label: 'Transactions',  content: 'Date,Description,Amount,Type,Category,Customer,InvoiceId\n2025-01-05,Invoice #1001 - Acme Corp,45000,revenue,Services,Acme Corp,INV-1001\n2025-01-10,AWS Hosting,−3200,expense,Technology,,\n2025-01-15,Office Rent,−8500,expense,Facilities,,\n2025-01-20,Invoice #1002 - Beta Inc,32000,revenue,Services,Beta Inc,INV-1002\n2025-01-25,Payroll - Engineering,−28000,expense,Payroll,,\n' },
 };
 
 function downloadTemplate(type: string) {
@@ -255,6 +256,15 @@ const UPLOAD_CATEGORIES: {
     hint:       'Headcount, Utilization, OpenPositions',
     accent:     'text-cyan-400',
     accentText: 'bg-cyan-500/8 border-cyan-500/20',
+  },
+  {
+    type:       'transactions',
+    label:      'Transaction Ledger',
+    emoji:      '🗂️',
+    desc:       'Individual transactions with date, amount, category, and counterparty',
+    hint:       'Date, Description, Amount, Type, Category, Customer',
+    accent:     'text-slate-400',
+    accentText: 'bg-slate-800/40 border-slate-700/40',
   },
 ];
 

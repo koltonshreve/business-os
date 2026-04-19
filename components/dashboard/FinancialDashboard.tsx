@@ -728,6 +728,38 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
             <div className="flex-1 h-px bg-emerald-500/10"/>
           </div>
           <CashFlowPanel periods={data.cashFlow!} onAskAI={onAskAI}/>
+          {/* Runway Scenarios — only when burning cash */}
+          {(() => {
+            const cf = data.cashFlow!;
+            const latest = cf[cf.length - 1];
+            const avgNet = cf.reduce((s, p) => s + (p.netCashFlow ?? 0), 0) / Math.max(cf.length, 1);
+            if (avgNet >= 0 || !latest) return null;
+            const cash = latest.closingBalance;
+            const scenarios = [
+              { label: 'Conservative', burnMult: 1.25, color: 'text-red-400',   bg: 'bg-red-500/8 border-red-500/15' },
+              { label: 'Base Case',    burnMult: 1.0,  color: 'text-amber-400', bg: 'bg-amber-500/8 border-amber-500/15' },
+              { label: 'Optimistic',   burnMult: 0.75, color: 'text-emerald-400', bg: 'bg-emerald-500/8 border-emerald-500/15' },
+            ].map(s => ({
+              ...s,
+              months: Math.abs(cash / (avgNet * s.burnMult)),
+              burnRate: fmt(Math.abs(avgNet * s.burnMult)) + '/mo',
+            }));
+            return (
+              <div className="mt-4 bg-slate-900/30 border border-slate-800/40 rounded-xl p-4">
+                <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-[0.08em] mb-3">Runway Scenarios</div>
+                <div className="grid grid-cols-3 gap-3">
+                  {scenarios.map(s => (
+                    <div key={s.label} className={`rounded-xl border px-4 py-3 text-center ${s.bg}`}>
+                      <div className="text-[10px] font-semibold text-slate-600 mb-1">{s.label}</div>
+                      <div className={`text-[20px] font-bold ${s.color}`}>{s.months.toFixed(1)}<span className="text-[12px] font-medium ml-0.5">mo</span></div>
+                      <div className="text-[10px] text-slate-600 mt-0.5">{s.burnRate}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="text-[10px] text-slate-600 mt-2.5 text-center">Conservative assumes 25% higher burn · Optimistic assumes 25% lower</div>
+              </div>
+            );
+          })()}
         </div>
       ) : (
         <div className="bg-emerald-500/4 border border-emerald-500/15 rounded-xl p-4 flex items-center gap-4">

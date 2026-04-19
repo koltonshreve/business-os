@@ -55,7 +55,8 @@ export function parseCSVUpload(upload: CSVUpload): Partial<UnifiedBusinessData> 
     case 'pipeline':   return { pipeline: parsePipelineDeals(rows), operations: parsePipelineSummary(rows) };
     case 'payroll':    return { payrollByDept: parsePayrollDepts(rows), operations: parsePayrollCSV(rows), costs: parsePayrollCostCSV(rows) };
     case 'cashflow':   return { cashFlow: parseCashFlowData(rows) };
-    case 'ar_aging':   return { arAging: parseARAgingData(rows) };
+    case 'ar_aging':      return { arAging: parseARAgingData(rows) };
+    case 'transactions':  return { transactions: parseTransactionsData(rows) };
     default: throw new Error(`Unknown upload type: ${upload.type}`);
   }
 }
@@ -97,6 +98,7 @@ export function mergeDataSources(
     if (source.payrollByDept) merged.payrollByDept = source.payrollByDept;
     if (source.cashFlow) merged.cashFlow = source.cashFlow;
     if (source.arAging) merged.arAging = source.arAging;
+    if (source.transactions) merged.transactions = source.transactions;
   }
 
   merged.metadata.completeness = calculateCompleteness(merged);
@@ -416,6 +418,53 @@ function calculateCompleteness(data: Partial<UnifiedBusinessData>): number {
   if (data.customers?.totalCount) score += 0.2;
   if (data.customers?.topCustomers?.length) score += 0.1;
   return score;
+}
+
+function parseTransactionsData(rows: string[][]): import('../../types').Transaction[] {
+  if (rows.length < 2) return [];
+  const headers = rows[0].map(h => h.toLowerCase().trim());
+  const col = (...keys: string[]) => {
+    for (const k of keys) {
+      const idx = headers.indexOf(k.toLowerCase());
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  };
+  const dateIdx  = col('date', 'transaction_date', 'trans_date');
+  const descIdx  = col('description', 'memo', 'name', 'narrative');
+  const amtIdx   = col('amount', 'debit', 'credit', 'value');
+  const typeIdx  = col('type', 'transaction_type', 'trans_type');
+  const catIdx   = col('category', 'account_category', 'class');
+  const custIdx  = col('customer', 'client');
+  const vendIdx  = col('vendor', 'payee', 'supplier');
+  const invIdx   = col('invoiceid', 'invoice_id', 'invoice', 'ref', 'reference');
+  const accIdx   = col('account', 'bank_account', 'account_name');
+
+  return rows.slice(1)
+    .filter(r => dateIdx >= 0 && r[dateIdx])
+    .map(r => {
+      const g = (idx: number) => (idx >= 0 ? r[idx] ?? '' : '');
+      const rawAmt = parseFloat(g(amtIdx).replace(/[$,]/g, ''));
+      const amt    = isNaN(rawAmt) ? 0 : rawAmt;
+      const typeRaw = g(typeIdx).toLowerCase();
+      const type: import('../../types').Transaction['type'] =
+        typeRaw.includes('revenue') || typeRaw.includes('income') || typeRaw.includes('receipt') ? 'revenue'
+        : typeRaw.includes('expense') || typeRaw.includes('payment') || typeRaw.includes('debit') ? 'expense'
+        : typeRaw.includes('transfer') ? 'transfer'
+        : amt > 0 ? 'revenue' : amt < 0 ? 'expense' : 'other';
+      return {
+        date:        g(dateIdx),
+        description: g(descIdx) || '(no description)',
+        amount:      amt,
+        type,
+        category:    g(catIdx) || 'Uncategorized',
+        customer:    g(custIdx) || undefined,
+        vendor:      g(vendIdx) || undefined,
+        invoiceId:   g(invIdx) || undefined,
+        account:     g(accIdx) || undefined,
+      };
+    })
+    .filter(t => t.date);
 }
 
 function detectWarnings(data: Partial<UnifiedBusinessData>): string[] {

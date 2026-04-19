@@ -15,6 +15,8 @@ import ScenarioModeler from '../components/dashboard/ScenarioModeler';
 import CustomKPIPanel from '../components/dashboard/CustomKPIPanel';
 import TrendSignalsPanel from '../components/dashboard/TrendSignalsPanel';
 import AIChat from '../components/AIChat';
+import TransactionLedger from '../components/dashboard/TransactionLedger';
+import MetricThresholdsPanel, { type Threshold } from '../components/dashboard/MetricThresholdsPanel';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type ActiveView = 'overview' | 'financial' | 'customers' | 'operations' | 'intelligence' | 'scenarios' | 'data';
@@ -40,6 +42,78 @@ function ToastContainer({ toasts, dismiss }: { toasts: ToastItem[]; dismiss: (id
           <button onClick={() => dismiss(t.id)} className="flex-shrink-0 text-slate-600 hover:text-slate-300 text-xl leading-none ml-1 transition-colors">×</button>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── Narrative Summary Bar ─────────────────────────────────────────────────────
+function NarrativeBar({ data, previousData }: { data: UnifiedBusinessData; previousData?: UnifiedBusinessData }) {
+  const rev      = data.revenue.total;
+  const cogs     = data.costs.totalCOGS;
+  const opex     = data.costs.totalOpEx;
+  const gp       = rev - cogs;
+  const ebitda   = gp - opex;
+  const prevRev  = previousData?.revenue.total;
+  const fmtN     = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const gpMargin = rev > 0 ? (gp / rev) * 100 : 0;
+  const ebitdaM  = rev > 0 ? (ebitda / rev) * 100 : 0;
+  const revGrowth = prevRev && prevRev > 0 ? ((rev - prevRev) / prevRev) * 100 : null;
+  const topCust  = data.customers.topCustomers[0];
+  const hasCash  = data.cashFlow && data.cashFlow.length > 0;
+  const cash     = hasCash ? data.cashFlow![data.cashFlow!.length - 1].closingBalance : null;
+  const avgBurn  = hasCash ? data.cashFlow!.reduce((s,p) => s + (p.netCashFlow ?? 0), 0) / data.cashFlow!.length : null;
+  const runway   = cash != null && avgBurn != null && avgBurn < 0 ? Math.abs(cash / avgBurn) : null;
+
+  const insights: { text: string; color: string; icon: string }[] = [];
+
+  if (revGrowth !== null) {
+    const dir = revGrowth >= 0 ? 'up' : 'down';
+    insights.push({
+      text: `Revenue ${dir} ${Math.abs(revGrowth).toFixed(1)}% vs prior period — ${fmtN(rev)} total`,
+      color: revGrowth >= 0 ? 'text-emerald-400' : 'text-red-400',
+      icon: revGrowth >= 0 ? '↑' : '↓',
+    });
+  }
+
+  insights.push({
+    text: `Gross margin ${gpMargin.toFixed(1)}% · EBITDA margin ${ebitdaM.toFixed(1)}%`,
+    color: ebitdaM >= 15 ? 'text-emerald-400' : ebitdaM >= 5 ? 'text-amber-400' : 'text-red-400',
+    icon: '◆',
+  });
+
+  if (topCust && topCust.percentOfTotal > 20) {
+    insights.push({
+      text: `Concentration risk: ${topCust.name} is ${topCust.percentOfTotal.toFixed(0)}% of revenue`,
+      color: 'text-amber-400',
+      icon: '⚠',
+    });
+  } else if (runway !== null && runway < 6) {
+    insights.push({
+      text: `Cash runway: ~${runway.toFixed(1)} months at current burn rate`,
+      color: runway < 3 ? 'text-red-400' : 'text-amber-400',
+      icon: '⚡',
+    });
+  } else if (ebitda > 0) {
+    insights.push({
+      text: `EBITDA positive — ${fmtN(ebitda)} operating profit this period`,
+      color: 'text-emerald-400',
+      icon: '✓',
+    });
+  }
+
+  if (insights.length === 0) return null;
+
+  return (
+    <div className="bg-slate-900/40 border border-slate-800/50 rounded-xl px-4 sm:px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+      <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em] flex-shrink-0 sm:w-20">Snapshot</div>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-5 flex-1 min-w-0">
+        {insights.map((ins, i) => (
+          <div key={i} className="flex items-center gap-1.5 min-w-0">
+            <span className={`text-[11px] flex-shrink-0 ${ins.color}`}>{ins.icon}</span>
+            <span className={`text-[12px] font-medium truncate ${ins.color}`}>{ins.text}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -549,6 +623,7 @@ export default function BusinessOS() {
   const [budget, setBudget]                     = useState<Budget>({});
   const [annotations, setAnnotations]           = useState<Record<string, string>>({});
   const [customKPIs, setCustomKPIs]             = useState<CustomKPI[]>([]);
+  const [thresholds, setThresholds]             = useState<Threshold[]>([]);
 
   // Hydrate persisted state from localStorage (client-side only)
   useEffect(() => {
@@ -569,6 +644,10 @@ export default function BusinessOS() {
     try {
       const savedCustomKPIs = localStorage.getItem('bos_custom_kpis');
       if (savedCustomKPIs) setCustomKPIs(JSON.parse(savedCustomKPIs));
+    } catch { /* ignore */ }
+    try {
+      const savedThresholds = localStorage.getItem('bos_thresholds');
+      if (savedThresholds) setThresholds(JSON.parse(savedThresholds));
     } catch { /* ignore */ }
   }, []);
 
@@ -599,6 +678,11 @@ export default function BusinessOS() {
   const saveCustomKPIs = useCallback((kpis: CustomKPI[]) => {
     setCustomKPIs(kpis);
     localStorage.setItem('bos_custom_kpis', JSON.stringify(kpis));
+  }, []);
+
+  const saveThresholds = useCallback((t: Threshold[]) => {
+    setThresholds(t);
+    localStorage.setItem('bos_thresholds', JSON.stringify(t));
   }, []);
 
   const setAnnotation = useCallback((period: string, note: string) => {
@@ -924,6 +1008,7 @@ export default function BusinessOS() {
                 </div>
               )}
 
+              <NarrativeBar data={data} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
               <BusinessHealthScore data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
               <GoalsPanel data={data} goals={goals} onSetGoal={setGoal}/>
               <KPIGrid dashboard={dashboard} data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} goals={goals}/>
@@ -936,6 +1021,8 @@ export default function BusinessOS() {
                 <CustomerMetricsChart data={data}/>
                 <AlertFeed alerts={alerts} onRunAlerts={() => runAction('alerts')} loading={isLoading('alerts')}/>
               </div>
+
+              <MetricThresholdsPanel data={data} thresholds={thresholds} onChange={saveThresholds}/>
 
               <CustomKPIPanel kpis={customKPIs} onChange={saveCustomKPIs} onAskAI={openChat}/>
 
@@ -968,6 +1055,15 @@ export default function BusinessOS() {
                 <div className="h-px flex-1 bg-indigo-500/10"/>
               </div>
               <FinancialDashboard data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} dashboard={dashboard} budget={budget} onSetBudget={setBudgetLine} annotations={annotations} onAnnotate={setAnnotation} onAskAI={openChat}/>
+              {data.transactions && data.transactions.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em]">Transaction Ledger</div>
+                    <div className="flex-1 h-px bg-slate-800/50"/>
+                  </div>
+                  <TransactionLedger transactions={data.transactions} onAskAI={openChat}/>
+                </div>
+              )}
             </div>
           )}
           {activeView === 'customers' && (

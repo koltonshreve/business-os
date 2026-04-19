@@ -11,6 +11,7 @@ export interface UnifiedBusinessData {
   payrollByDept?: PayrollRecord[];
   cashFlow?: CashFlowPeriod[];
   arAging?: ARAgingBucket[];
+  transactions?: Transaction[];
 }
 
 export interface RevenueData {
@@ -204,7 +205,7 @@ export interface GoogleSheetsConfig {
 }
 
 export interface CSVUpload {
-  type: 'revenue' | 'costs' | 'customers' | 'operations' | 'pipeline' | 'payroll' | 'cashflow' | 'ar_aging';
+  type: 'revenue' | 'costs' | 'customers' | 'operations' | 'pipeline' | 'payroll' | 'cashflow' | 'ar_aging' | 'transactions';
   filename: string;
   content: string; // CSV text
 }
@@ -216,7 +217,22 @@ export interface PipelineDeal {
   value: number;
   probability: number; // 0-100
   closeDate?: string;
+  createdDate?: string;
   owner?: string;
+  daysInStage?: number;
+}
+
+export interface Transaction {
+  date: string;
+  description: string;
+  amount: number;
+  /** Positive = inflow (revenue/receipt), negative = outflow (expense) */
+  type: 'revenue' | 'expense' | 'transfer' | 'other';
+  category: string;
+  customer?: string;
+  vendor?: string;
+  invoiceId?: string;
+  account?: string;
 }
 
 export interface PayrollRecord {

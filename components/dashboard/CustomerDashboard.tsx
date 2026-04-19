@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { fmtMoney } from '../../lib/format';
 import type { UnifiedBusinessData } from '../../types';
+import RevenueRetentionChart from '../charts/RevenueRetentionChart';
 
 interface Props {
   data: UnifiedBusinessData;
@@ -396,6 +397,78 @@ export default function CustomerDashboard({ data, previousData, onAskAI }: Props
             <div className="text-[10px] text-slate-600 mt-0.5">Avg Rev / (1 - Retention)</div>
           </div>
         </div>
+      </div>
+
+      {/* Customer Health Score + Revenue Retention */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Portfolio Health Score */}
+        {(() => {
+          const topPct  = customers.topCustomers[0]?.percentOfTotal ?? 0;
+          const top3    = customers.topCustomers.slice(0,3).reduce((s,c) => s + c.percentOfTotal, 0);
+          // HHI-based concentration score: lower is safer
+          const hhi     = customers.topCustomers.reduce((s,c) => s + (c.percentOfTotal/100)**2, 0);
+          const hhiNorm = Math.min(hhi * 100, 100); // 0-100, lower = good
+          // Scoring components
+          const concScore   = Math.round(Math.max(0, 100 - hhiNorm * 1.2)); // concentration
+          const retScore    = Math.round(Math.max(0, Math.min(100, retentionPct >= 95 ? 100 : retentionPct >= 90 ? 85 : retentionPct >= 80 ? 65 : retentionPct >= 70 ? 45 : 25)));
+          const growthScore = netNew > 0 ? Math.min(100, 60 + netNew * 8) : netNew === 0 ? 55 : Math.max(20, 55 + netNew * 10);
+          const divScore    = Math.min(100, customers.totalCount >= 20 ? 100 : customers.totalCount >= 10 ? 80 : customers.totalCount >= 5 ? 60 : 40);
+          const overallScore = Math.round(concScore * 0.35 + retScore * 0.30 + growthScore * 0.20 + divScore * 0.15);
+          const grade   = overallScore >= 85 ? 'A' : overallScore >= 70 ? 'B' : overallScore >= 55 ? 'C' : overallScore >= 40 ? 'D' : 'F';
+          const gc      = overallScore >= 85 ? 'text-emerald-400' : overallScore >= 70 ? 'text-sky-400' : overallScore >= 55 ? 'text-amber-400' : 'text-red-400';
+          const bc      = overallScore >= 85 ? 'bg-emerald-500/60' : overallScore >= 70 ? 'bg-sky-500/60' : overallScore >= 55 ? 'bg-amber-500/60' : 'bg-red-500/60';
+          const components = [
+            { label: 'Concentration', score: concScore,   hint: topPct > 25 ? `Top customer at ${topPct.toFixed(0)}%` : `HHI: ${hhiNorm.toFixed(0)}` },
+            { label: 'Retention',     score: retScore,    hint: `${retentionPct.toFixed(1)}% retention` },
+            { label: 'Growth',        score: growthScore, hint: netNew >= 0 ? `+${netNew} net new` : `${netNew} net loss` },
+            { label: 'Diversification', score: divScore,  hint: `${customers.totalCount} active accounts` },
+          ];
+          return (
+            <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+              <div className="text-[13px] font-semibold text-slate-100 mb-4">Customer Portfolio Health</div>
+              <div className="flex items-start gap-5 mb-5">
+                <div className="flex-shrink-0 text-center">
+                  <div className={`text-[44px] font-black tracking-tight leading-none ${gc}`}>{grade}</div>
+                  <div className={`text-[12px] font-semibold mt-1 ${gc}`}>{overallScore}/100</div>
+                </div>
+                <div className="flex-1 space-y-2">
+                  {components.map(c => (
+                    <div key={c.label}>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="text-[11px] text-slate-500">{c.label}</span>
+                        <span className="text-[11px] text-slate-400 font-medium">{c.score}/100 · <span className="text-slate-600">{c.hint}</span></span>
+                      </div>
+                      <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${c.score >= 75 ? 'bg-emerald-500/60' : c.score >= 50 ? 'bg-amber-500/60' : 'bg-red-500/60'}`}
+                          style={{ width: `${c.score}%` }}/>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {onAskAI && (
+                <button
+                  onClick={() => onAskAI(
+                    `Customer portfolio health score: ${overallScore}/100 (${grade}). ` +
+                    `Concentration score: ${concScore}, Retention: ${retScore} (${retentionPct.toFixed(1)}%), ` +
+                    `Growth: ${growthScore} (${netNew >= 0 ? '+' : ''}${netNew} net new), Diversification: ${divScore}. ` +
+                    `Top customer is ${topPct.toFixed(1)}% of revenue. What are the highest-priority improvements?`
+                  )}
+                  className="w-full flex items-center justify-center gap-1.5 text-[11px] text-violet-400 hover:text-violet-300 border border-violet-500/25 hover:border-violet-500/40 px-3 py-2 rounded-lg transition-all font-medium"
+                >
+                  <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3">
+                    <path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/>
+                    <rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/>
+                  </svg>
+                  Improve my customer health score
+                </button>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Revenue Retention Dynamics */}
+        <RevenueRetentionChart data={data} />
       </div>
 
       {/* Customer list — segmented by concentration tier */}

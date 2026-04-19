@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { UnifiedBusinessData, Budget } from '../../types';
+import BudgetVarianceWaterfall from '../charts/BudgetVarianceWaterfall';
 
 interface Props {
   data: UnifiedBusinessData;
@@ -405,6 +406,11 @@ export default function BudgetPanel({ data, budget, onSetBudget, onAskAI }: Prop
           </div>
           </div>
         </div>
+      )}
+
+      {/* Budget Variance Waterfall — shown when budget is fully set */}
+      {hasBudget && budget.revenue != null && budget.cogs != null && budget.opex != null && (
+        <BudgetVarianceWaterfall data={data} budget={budget} />
       )}
 
       {/* Tip when no budget set */}

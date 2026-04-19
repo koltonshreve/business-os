@@ -125,9 +125,27 @@ function normalizeStage(stage: string): string {
 // ── Pipeline Panel ─────────────────────────────────────────────────────────────
 function PipelinePanel({ deals, totalRevenue }: { deals: PipelineDeal[]; totalRevenue: number }) {
   const activeDeals = deals.filter(d => !['closed won','closed lost'].includes(normalizeStage(d.stage)));
+  const wonDeals    = deals.filter(d => normalizeStage(d.stage) === 'closed won');
+  const lostDeals   = deals.filter(d => normalizeStage(d.stage) === 'closed lost');
   const totalPipeline  = deals.reduce((s, d) => s + d.value, 0);
   const weightedPipeline = deals.reduce((s, d) => s + d.value * (d.probability / 100), 0);
   const avgDealSize = activeDeals.length > 0 ? activeDeals.reduce((s, d) => s + d.value, 0) / activeDeals.length : 0;
+
+  // Deal Velocity: avg days from created to closed (for won deals with dates)
+  const closedWithDates = wonDeals.filter(d => d.createdDate && d.closeDate);
+  const avgDaysToClose  = closedWithDates.length > 0
+    ? closedWithDates.reduce((s, d) => {
+        const ms = new Date(d.closeDate!).getTime() - new Date(d.createdDate!).getTime();
+        return s + ms / (1000 * 60 * 60 * 24);
+      }, 0) / closedWithDates.length
+    : null;
+
+  // Stuck deals: daysInStage > 30 (or derived from stageEnteredDate)
+  const stuckDeals = activeDeals.filter(d => (d.daysInStage ?? 0) > 30);
+
+  // Win rate
+  const closedDeals = wonDeals.length + lostDeals.length;
+  const winRate = closedDeals > 0 ? (wonDeals.length / closedDeals) * 100 : null;
 
   // Stage grouping
   const byStage: Record<string, { count: number; value: number }> = {};
@@ -159,6 +177,54 @@ function PipelinePanel({ deals, totalRevenue }: { deals: PipelineDeal[]; totalRe
           </div>
         ))}
       </div>
+
+      {/* Deal Velocity Metrics */}
+      {(avgDaysToClose !== null || winRate !== null || stuckDeals.length > 0) && (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {avgDaysToClose !== null && (
+            <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
+              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-2">Avg Days to Close</div>
+              <div className={`text-[20px] font-bold tracking-tight ${avgDaysToClose <= 30 ? 'text-emerald-400' : avgDaysToClose <= 60 ? 'text-amber-400' : 'text-red-400'}`}>
+                {Math.round(avgDaysToClose)}d
+              </div>
+              <div className="text-[11px] text-slate-600 mt-0.5">{closedWithDates.length} won deals w/ dates</div>
+            </div>
+          )}
+          {winRate !== null && (
+            <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
+              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-2">Win Rate</div>
+              <div className={`text-[20px] font-bold tracking-tight ${winRate >= 40 ? 'text-emerald-400' : winRate >= 25 ? 'text-amber-400' : 'text-red-400'}`}>
+                {winRate.toFixed(0)}%
+              </div>
+              <div className="text-[11px] text-slate-600 mt-0.5">{wonDeals.length}W / {lostDeals.length}L</div>
+            </div>
+          )}
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
+            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-2">Stuck Deals</div>
+            <div className={`text-[20px] font-bold tracking-tight ${stuckDeals.length === 0 ? 'text-emerald-400' : stuckDeals.length <= 2 ? 'text-amber-400' : 'text-red-400'}`}>
+              {stuckDeals.length}
+            </div>
+            <div className="text-[11px] text-slate-600 mt-0.5">30+ days in same stage</div>
+          </div>
+        </div>
+      )}
+
+      {/* Stuck deals callout */}
+      {stuckDeals.length > 0 && (
+        <div className="bg-amber-500/4 border border-amber-500/15 rounded-xl p-4">
+          <div className="text-[12px] font-semibold text-amber-300 mb-2">
+            {stuckDeals.length} deal{stuckDeals.length !== 1 ? 's' : ''} stalled for 30+ days
+          </div>
+          <div className="space-y-1">
+            {stuckDeals.slice(0,5).map((d, i) => (
+              <div key={i} className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-400 truncate">{d.name}</span>
+                <span className="text-amber-400/70 flex-shrink-0 ml-2">{d.daysInStage}d in {d.stage}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Pipeline coverage */}
       {totalRevenue > 0 && (
