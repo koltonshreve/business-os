@@ -110,22 +110,43 @@ export default function TransactionLedger({ transactions, onAskAI }: Props) {
             <div className="text-[13px] font-semibold text-slate-100">Transaction Ledger</div>
             <div className="text-[11px] text-slate-500 mt-0.5">{transactions.length.toLocaleString()} transactions</div>
           </div>
-          {onAskAI && (
+          <div className="flex items-center gap-2 flex-shrink-0">
             <button
-              onClick={() => onAskAI(
-                `My transaction ledger has ${transactions.length} transactions. ` +
-                `Total inflows: ${fmt(totalIn)}, outflows: ${fmt(totalOut)}, net: ${net >= 0 ? '+' : ''}${fmt(net)}. ` +
-                `What patterns or anomalies should I be aware of?`
-              )}
-              className="flex items-center gap-1.5 text-[11px] text-indigo-400 hover:text-indigo-300 border border-indigo-500/25 hover:border-indigo-500/50 px-2.5 py-1 rounded-lg transition-all font-medium flex-shrink-0"
+              onClick={() => {
+                const header = 'Date,Description,Amount,Type,Category,Customer,Vendor,Invoice\n';
+                const rows = filtered.map(t =>
+                  [t.date, `"${t.description.replace(/"/g, '""')}"`, t.amount, t.type,
+                   `"${t.category}"`, t.customer ?? '', t.vendor ?? '', t.invoiceId ?? ''].join(',')
+                ).join('\n');
+                const blob = new Blob([header + rows], { type: 'text/csv' });
+                const url  = URL.createObjectURL(blob);
+                const a    = document.createElement('a');
+                a.href = url; a.download = 'transactions.csv'; a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-slate-200 border border-slate-700/50 hover:border-slate-600 px-2.5 py-1 rounded-lg transition-all font-medium"
+              title="Download filtered transactions as CSV"
             >
-              <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3">
-                <path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/>
-                <rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/>
-              </svg>
-              Ask AI
+              <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3"><path d="M7 1v8M4 6l3 3 3-3M2 11h10v2H2v-2z"/></svg>
+              Export
             </button>
-          )}
+            {onAskAI && (
+              <button
+                onClick={() => onAskAI(
+                  `My transaction ledger has ${transactions.length} transactions. ` +
+                  `Total inflows: ${fmt(totalIn)}, outflows: ${fmt(totalOut)}, net: ${net >= 0 ? '+' : ''}${fmt(net)}. ` +
+                  `What patterns or anomalies should I be aware of?`
+                )}
+                className="flex items-center gap-1.5 text-[11px] text-indigo-400 hover:text-indigo-300 border border-indigo-500/25 hover:border-indigo-500/50 px-2.5 py-1 rounded-lg transition-all font-medium"
+              >
+                <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3">
+                  <path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/>
+                  <rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/>
+                </svg>
+                Ask AI
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Summary KPIs */}

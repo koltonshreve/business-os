@@ -505,6 +505,154 @@ const Icons = {
   Alert: () => <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 flex-shrink-0"><path d="M7.02 1.5l-6 11A1 1 0 002 14h12a1 1 0 00.98-1.5l-6-11a1 1 0 00-1.96 0zM9 11H7v2h2v-2zm0-5H7v4h2V6z"/></svg>,
 };
 
+// ── Period Comparison Strip ────────────────────────────────────────────────────
+function ComparisonStrip({ current, previous, currentLabel, previousLabel }: {
+  current: UnifiedBusinessData;
+  previous: UnifiedBusinessData;
+  currentLabel: string;
+  previousLabel: string;
+}) {
+  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const calc = (d: UnifiedBusinessData) => {
+    const rev = d.revenue.total, cogs = d.costs.totalCOGS, opex = d.costs.totalOpEx;
+    const gp = rev - cogs, ebitda = gp - opex;
+    return {
+      revenue: rev,
+      grossMargin:  rev > 0 ? (gp / rev) * 100 : 0,
+      ebitdaMargin: rev > 0 ? (ebitda / rev) * 100 : 0,
+      customers: d.customers.totalCount,
+      retention: (d.customers.retentionRate ?? 0) * 100,
+      cash: d.cashFlow?.length ? d.cashFlow[d.cashFlow.length - 1].closingBalance : null,
+    };
+  };
+  const cur  = calc(current);
+  const prev = calc(previous);
+
+  const metrics: { label: string; cur: string; prev: string; delta: number | null; isPoint?: boolean }[] = [
+    { label: 'Revenue',      cur: fmtN(cur.revenue),                   prev: fmtN(prev.revenue),                   delta: prev.revenue > 0 ? ((cur.revenue - prev.revenue) / prev.revenue) * 100 : null },
+    { label: 'Gross Margin', cur: `${cur.grossMargin.toFixed(1)}%`,    prev: `${prev.grossMargin.toFixed(1)}%`,    delta: cur.grossMargin - prev.grossMargin,  isPoint: true },
+    { label: 'EBITDA Margin',cur: `${cur.ebitdaMargin.toFixed(1)}%`,   prev: `${prev.ebitdaMargin.toFixed(1)}%`,   delta: cur.ebitdaMargin - prev.ebitdaMargin, isPoint: true },
+    { label: 'Customers',    cur: String(cur.customers),               prev: String(prev.customers),               delta: prev.customers > 0 ? ((cur.customers - prev.customers) / prev.customers) * 100 : null },
+    ...(cur.cash !== null && prev.cash !== null ? [
+      { label: 'Cash Balance', cur: fmtN(cur.cash), prev: fmtN(prev.cash), delta: prev.cash > 0 ? ((cur.cash - prev.cash) / prev.cash) * 100 : null }
+    ] : [
+      { label: 'Retention',  cur: `${cur.retention.toFixed(1)}%`, prev: `${prev.retention.toFixed(1)}%`, delta: cur.retention - prev.retention, isPoint: true }
+    ]),
+  ];
+
+  return (
+    <div className="mb-5 bg-slate-900/50 border border-slate-700/40 rounded-xl overflow-hidden">
+      <div className="px-4 sm:px-5 py-2 border-b border-slate-800/40 flex items-center gap-2.5 flex-wrap">
+        <span className="text-[10px] font-bold text-slate-600 uppercase tracking-[0.1em]">Comparing</span>
+        <span className="text-[12px] font-semibold text-indigo-300">{currentLabel}</span>
+        <span className="text-[10px] text-slate-700">vs</span>
+        <span className="text-[12px] font-medium text-slate-500">{previousLabel}</span>
+      </div>
+      <div className="grid grid-cols-3 sm:grid-cols-5">
+        {metrics.map((m, i) => {
+          const up    = m.delta !== null && m.delta > 0;
+          const down  = m.delta !== null && m.delta < 0;
+          const color = up ? 'text-emerald-400' : down ? 'text-red-400' : 'text-slate-500';
+          return (
+            <div key={m.label} className={`px-3 sm:px-5 py-3.5 ${i > 0 ? 'border-l border-slate-800/40' : ''}`}>
+              <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.07em] mb-1 leading-tight">{m.label}</div>
+              <div className="text-[15px] font-bold text-slate-100 tabular-nums">{m.cur}</div>
+              {m.delta !== null ? (
+                <div className={`text-[11px] font-semibold mt-0.5 tabular-nums ${color}`}>
+                  {up ? '▲' : down ? '▼' : '—'} {Math.abs(m.delta).toFixed(1)}{m.isPoint ? 'pp' : '%'}
+                </div>
+              ) : <div className="text-[11px] text-slate-700 mt-0.5">—</div>}
+              <div className="text-[10px] text-slate-600 mt-0.5 tabular-nums">prev: {m.prev}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Keyboard Shortcuts Modal ───────────────────────────────────────────────────
+function ShortcutsModal({ onClose }: { onClose: () => void }) {
+  const rows = [
+    { key: '1 – 7',  desc: 'Jump to Overview, Financial, Customers, Operations, Intelligence, Scenarios, or Data Sources' },
+    { key: '/',      desc: 'Open the AI chat assistant' },
+    { key: '?',      desc: 'Open this shortcuts guide' },
+    { key: 'Esc',    desc: 'Close any open overlay or modal' },
+  ];
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/65 backdrop-blur-sm"/>
+      <div className="relative bg-[#0d1117] border border-slate-700/60 rounded-2xl p-5 w-full max-w-xs shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-[13px] font-semibold text-slate-100">Keyboard Shortcuts</div>
+          <button onClick={onClose} className="text-slate-600 hover:text-slate-300 text-xl leading-none transition-colors">×</button>
+        </div>
+        <div className="space-y-2.5">
+          {rows.map(r => (
+            <div key={r.key} className="flex items-start gap-3">
+              <kbd className="text-[11px] font-mono font-bold bg-slate-800 border border-slate-700/60 text-slate-300 px-2 py-0.5 rounded-md flex-shrink-0 min-w-[38px] text-center mt-px">{r.key}</kbd>
+              <span className="text-[12px] text-slate-400 leading-snug">{r.desc}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 pt-3 border-t border-slate-800/60 text-[10px] text-slate-600">
+          Shortcuts are inactive when a text input is focused
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Section Note ──────────────────────────────────────────────────────────────
+function SectionNote({ noteKey, notes, onSave }: {
+  noteKey: string;
+  notes: Record<string, string>;
+  onSave: (key: string, note: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft]     = useState('');
+  const note = notes[noteKey] ?? '';
+
+  const open  = () => { setDraft(note); setEditing(true); };
+  const save  = () => { onSave(noteKey, draft.trim()); setEditing(false); };
+  const clear = (e: React.MouseEvent) => { e.stopPropagation(); onSave(noteKey, ''); setEditing(false); };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+        <input
+          autoFocus type="text" value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
+          placeholder="Add a note for this section…"
+          className="w-44 bg-slate-800/80 border border-indigo-500/40 rounded-lg px-2.5 py-1 text-[11px] text-slate-200 placeholder:text-slate-600 focus:outline-none"
+        />
+        <button onClick={save} className="text-[10px] text-indigo-400 hover:text-indigo-300 font-medium flex-shrink-0">Save</button>
+        {note && <button onClick={clear} className="text-[10px] text-slate-600 hover:text-red-400 font-medium flex-shrink-0">Clear</button>}
+        <button onClick={() => setEditing(false)} className="text-slate-600 hover:text-slate-300 text-lg leading-none flex-shrink-0">×</button>
+      </div>
+    );
+  }
+
+  if (note) {
+    return (
+      <button onClick={open}
+        title="Click to edit note"
+        className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 bg-slate-800/40 hover:bg-slate-800/70 border border-slate-700/40 px-2.5 py-1 rounded-lg transition-all max-w-[200px] group">
+        <span className="text-amber-400/70 flex-shrink-0">📝</span>
+        <span className="truncate">{note}</span>
+      </button>
+    );
+  }
+
+  return (
+    <button onClick={open}
+      className="text-[11px] text-slate-700 hover:text-slate-500 font-medium px-2 py-1 rounded-lg transition-colors">
+      + note
+    </button>
+  );
+}
+
 // ── Period selector ────────────────────────────────────────────────────────────
 function PeriodSelector({ snapshots, activeId, onSelect }: { snapshots: PeriodSnapshot[]; activeId: string; onSelect: (id: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -624,6 +772,9 @@ export default function BusinessOS() {
   const [annotations, setAnnotations]           = useState<Record<string, string>>({});
   const [customKPIs, setCustomKPIs]             = useState<CustomKPI[]>([]);
   const [thresholds, setThresholds]             = useState<Threshold[]>([]);
+  const [compareMode, setCompareMode]           = useState(false);
+  const [panelNotes, setPanelNotesState]        = useState<Record<string, string>>({});
+  const [shortcutsOpen, setShortcutsOpen]       = useState(false);
 
   // Hydrate persisted state from localStorage (client-side only)
   useEffect(() => {
@@ -649,6 +800,12 @@ export default function BusinessOS() {
       const savedThresholds = localStorage.getItem('bos_thresholds');
       if (savedThresholds) setThresholds(JSON.parse(savedThresholds));
     } catch { /* ignore */ }
+    try {
+      const savedPanelNotes = localStorage.getItem('bos_panel_notes');
+      if (savedPanelNotes) setPanelNotesState(JSON.parse(savedPanelNotes));
+    } catch { /* ignore */ }
+    const savedCompare = localStorage.getItem('bos_compare_mode');
+    if (savedCompare === 'true') setCompareMode(true);
   }, []);
 
   const saveCompanyName = useCallback((name: string) => {
@@ -683,6 +840,23 @@ export default function BusinessOS() {
   const saveThresholds = useCallback((t: Threshold[]) => {
     setThresholds(t);
     localStorage.setItem('bos_thresholds', JSON.stringify(t));
+  }, []);
+
+  const setPanelNote = useCallback((key: string, note: string) => {
+    setPanelNotesState(prev => {
+      const next = { ...prev };
+      if (note) next[key] = note;
+      else delete next[key];
+      localStorage.setItem('bos_panel_notes', JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const toggleCompareMode = useCallback(() => {
+    setCompareMode(prev => {
+      localStorage.setItem('bos_compare_mode', String(!prev));
+      return !prev;
+    });
   }, []);
 
   const setAnnotation = useCallback((period: string, note: string) => {
@@ -792,6 +966,8 @@ export default function BusinessOS() {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === '/') { e.preventDefault(); openChat(); return; }
+      if (e.key === '?') { e.preventDefault(); setShortcutsOpen(v => !v); return; }
+      if (e.key === 'Escape') { setShortcutsOpen(false); return; }
       const idx = parseInt(e.key, 10) - 1;
       if (idx >= 0 && idx < viewOrder.length) setActiveView(viewOrder[idx]);
     };
@@ -952,6 +1128,26 @@ export default function BusinessOS() {
                   {isLoading('compute-kpis') ? <><Icons.Spinner/>Computing…</> : '↺ Refresh KPIs'}
                 </button>
               )}
+              {prevSnapshot && (
+                <button
+                  onClick={toggleCompareMode}
+                  title="Toggle period comparison view"
+                  className={`flex items-center gap-1.5 text-[11px] font-medium px-3 py-1 rounded-lg transition-all border ${
+                    compareMode
+                      ? 'text-indigo-300 border-indigo-500/30 bg-indigo-500/10'
+                      : 'text-slate-500 hover:text-slate-300 border-slate-800/60 hover:border-slate-700'
+                  }`}>
+                  <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3 flex-shrink-0"><path d="M1 7h5V2L1 7zm7-5v5h5L8 2z"/></svg>
+                  Compare
+                </button>
+              )}
+              <button
+                onClick={() => setShortcutsOpen(true)}
+                title="Keyboard shortcuts (?)"
+                className="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 border border-slate-800/60 hover:border-slate-700 px-3 py-1 rounded-lg transition-all font-medium">
+                <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3 flex-shrink-0"><rect x="1" y="1" width="3" height="3" rx="0.5"/><rect x="5.5" y="1" width="3" height="3" rx="0.5"/><rect x="10" y="1" width="3" height="3" rx="0.5"/><rect x="1" y="5.5" width="3" height="3" rx="0.5"/><rect x="5.5" y="5.5" width="3" height="3" rx="0.5"/><rect x="10" y="5.5" width="3" height="3" rx="0.5"/><rect x="3" y="10" width="8" height="3" rx="0.5"/></svg>
+                Shortcuts
+              </button>
               <button
                 onClick={() => window.print()}
                 className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 border border-slate-800/60 hover:border-slate-700 px-3 py-1 rounded-lg transition-all font-medium"
@@ -967,6 +1163,16 @@ export default function BusinessOS() {
 
         {/* ── Content ── */}
         <main className="max-w-[1440px] mx-auto px-4 sm:px-6 py-5 sm:py-6 flex-1 w-full">
+
+          {/* Period comparison strip */}
+          {compareMode && prevSnapshot && (
+            <ComparisonStrip
+              current={data}
+              previous={prevSnapshot.data}
+              currentLabel={activeSnapshot.label}
+              previousLabel={prevSnapshot.label}
+            />
+          )}
 
           {/* High-priority alert banner (visible on all tabs except intelligence) */}
           {highAlerts.length > 0 && activeView !== 'intelligence' && (
@@ -1042,10 +1248,11 @@ export default function BusinessOS() {
 
           {activeView === 'financial' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
                 <div className="h-px flex-1 bg-indigo-500/10"/>
+                <SectionNote noteKey="financial" notes={panelNotes} onSave={setPanelNote}/>
                 <button onClick={() => openChat('Analyze my P&L: revenue, margins, cost structure. What are the biggest risks and the top 2 actions I should take?')}
-                  className="flex items-center gap-1.5 text-[12px] text-indigo-400 hover:text-indigo-300 bg-indigo-500/8 hover:bg-indigo-500/15 border border-indigo-500/25 hover:border-indigo-500/50 px-3 py-1.5 rounded-lg transition-all font-medium mx-3">
+                  className="flex items-center gap-1.5 text-[12px] text-indigo-400 hover:text-indigo-300 bg-indigo-500/8 hover:bg-indigo-500/15 border border-indigo-500/25 hover:border-indigo-500/50 px-3 py-1.5 rounded-lg transition-all font-medium">
                   <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5">
                     <path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/>
                     <rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/>
@@ -1068,10 +1275,11 @@ export default function BusinessOS() {
           )}
           {activeView === 'customers' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
                 <div className="h-px flex-1 bg-violet-500/10"/>
+                <SectionNote noteKey="customers" notes={panelNotes} onSave={setPanelNote}/>
                 <button onClick={() => openChat(`Analyze my customer base: ${data.customers.totalCount} total customers, top customer at ${data.customers.topCustomers[0]?.percentOfTotal?.toFixed(1)}%, ${((data.customers.retentionRate ?? 0.88)*100).toFixed(0)}% retention. What's the biggest customer risk and how do I address it?`)}
-                  className="flex items-center gap-1.5 text-[12px] text-violet-400 hover:text-violet-300 bg-violet-500/8 hover:bg-violet-500/15 border border-violet-500/25 hover:border-violet-500/50 px-3 py-1.5 rounded-lg transition-all font-medium mx-3">
+                  className="flex items-center gap-1.5 text-[12px] text-violet-400 hover:text-violet-300 bg-violet-500/8 hover:bg-violet-500/15 border border-violet-500/25 hover:border-violet-500/50 px-3 py-1.5 rounded-lg transition-all font-medium">
                   <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5">
                     <path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/>
                     <rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/>
@@ -1085,10 +1293,11 @@ export default function BusinessOS() {
           )}
           {activeView === 'operations' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
                 <div className="h-px flex-1 bg-cyan-500/10"/>
+                <SectionNote noteKey="operations" notes={panelNotes} onSave={setPanelNote}/>
                 <button onClick={() => openChat(`Analyze my operations: ${data.operations.headcount ?? 'unknown'} headcount, OpEx is ${((data.costs.totalOpEx / data.revenue.total)*100).toFixed(1)}% of revenue. Where are the biggest efficiency opportunities?`)}
-                  className="flex items-center gap-1.5 text-[12px] text-cyan-400 hover:text-cyan-300 bg-cyan-500/8 hover:bg-cyan-500/15 border border-cyan-500/25 hover:border-cyan-500/50 px-3 py-1.5 rounded-lg transition-all font-medium mx-3">
+                  className="flex items-center gap-1.5 text-[12px] text-cyan-400 hover:text-cyan-300 bg-cyan-500/8 hover:bg-cyan-500/15 border border-cyan-500/25 hover:border-cyan-500/50 px-3 py-1.5 rounded-lg transition-all font-medium">
                   <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5">
                     <path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/>
                     <rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/>
@@ -1103,10 +1312,11 @@ export default function BusinessOS() {
           {activeView === 'intelligence' && <IntelligenceDashboard weeklyInsight={weeklyInsight} boardDeck={boardDeck} alerts={alerts} loading={loading} onGenerate={runAction}/>}
           {activeView === 'scenarios'   && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
                 <div className="h-px flex-1 bg-amber-500/10"/>
+                <SectionNote noteKey="scenarios" notes={panelNotes} onSave={setPanelNote}/>
                 <button onClick={() => openChat('Help me understand what scenario I should be planning for. Based on my current financials, what are the most important variables to model — revenue growth, margins, or headcount?')}
-                  className="flex items-center gap-1.5 text-[12px] text-amber-400 hover:text-amber-300 bg-amber-500/8 hover:bg-amber-500/15 border border-amber-500/25 hover:border-amber-500/50 px-3 py-1.5 rounded-lg transition-all font-medium mx-3">
+                  className="flex items-center gap-1.5 text-[12px] text-amber-400 hover:text-amber-300 bg-amber-500/8 hover:bg-amber-500/15 border border-amber-500/25 hover:border-amber-500/50 px-3 py-1.5 rounded-lg transition-all font-medium">
                   <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5"><path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/><rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/></svg>
                   Ask AI what to model
                 </button>
@@ -1148,6 +1358,9 @@ export default function BusinessOS() {
           initialMessage={chatInitialMsg}
           onInitialMessageSent={() => setChatInitialMsg(undefined)}
         />
+
+        {/* ── Keyboard shortcuts modal ── */}
+        {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)}/>}
 
         {/* ── Toasts ── */}
         <ToastContainer toasts={toasts} dismiss={dismissToast}/>
