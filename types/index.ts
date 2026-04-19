@@ -284,3 +284,111 @@ export interface ARAgingBucket {
   over90: number;
   total: number;
 }
+
+// ─── CRM / Deal Pipeline ──────────────────────────────────────────────────────
+
+export type DealStage = 'lead' | 'qualified' | 'proposal' | 'negotiation' | 'closed-won' | 'closed-lost';
+
+export interface Deal {
+  id: string;
+  name: string;
+  company: string;
+  value: number;
+  stage: DealStage;
+  probability: number;
+  closeDate: string;
+  owner: string;
+  createdAt: string;
+  updatedAt: string;
+  notes?: string;
+  contactName?: string;
+  contactEmail?: string;
+  tags?: string[];
+  lostReason?: string;
+  source?: string;
+}
+
+// ─── Onboarding ───────────────────────────────────────────────────────────────
+
+export type CompanySize = '1-5' | '6-20' | '21-50' | '51-200' | '200+';
+export type UserRole = 'founder-ceo' | 'cfo' | 'vp-finance' | 'operations' | 'sales' | 'other';
+export type BusinessGoal =
+  | 'grow-revenue'
+  | 'improve-margins'
+  | 'reduce-churn'
+  | 'close-more-deals'
+  | 'manage-cash'
+  | 'hire-and-scale'
+  | 'prep-for-fundraise'
+  | 'understand-numbers';
+
+export interface OnboardingData {
+  companyName: string;
+  companySize: CompanySize;
+  industry: string;
+  role: UserRole;
+  goals: BusinessGoal[];
+  completedAt: string;
+}
+
+// ─── Automations ─────────────────────────────────────────────────────────────
+
+export type TriggerType = 'metric-below' | 'metric-above' | 'weekly' | 'monthly' | 'churn-detected' | 'new-deal-stage';
+export type ActionType = 'in-app-alert' | 'generate-report' | 'webhook' | 'add-note';
+
+export interface AutomationTrigger {
+  type: TriggerType;
+  metric?: 'ebitda-margin' | 'gross-margin' | 'revenue-growth' | 'retention' | 'cash-runway' | 'pipeline-coverage';
+  threshold?: number;
+  stage?: DealStage;
+}
+
+export interface AutomationAction {
+  type: ActionType;
+  message?: string;
+  reportType?: 'weekly-insight' | 'board-deck';
+  webhookUrl?: string;
+  noteText?: string;
+}
+
+export interface Automation {
+  id: string;
+  name: string;
+  enabled: boolean;
+  trigger: AutomationTrigger;
+  action: AutomationAction;
+  createdAt: string;
+  lastFiredAt?: string;
+  fireCount: number;
+}
+
+// ─── Plans / Pricing ──────────────────────────────────────────────────────────
+
+export type PlanId = 'starter' | 'growth' | 'pro';
+
+export interface PlanLimits {
+  snapshots: number;
+  dataConnectors: number;
+  aiQueriesPerMonth: number;
+  automations: number;
+  teamMembers: number;
+}
+
+export interface Plan {
+  id: PlanId;
+  name: string;
+  price: number; // monthly USD
+  description: string;
+  features: string[];
+  limits: PlanLimits;
+  badge?: string;
+}
+
+// ─── User Session ─────────────────────────────────────────────────────────────
+
+export interface AppSession {
+  planId: PlanId;
+  aiQueriesUsed: number;
+  aiQueriesResetAt: string; // ISO date, resets monthly
+  onboarded: boolean;
+}

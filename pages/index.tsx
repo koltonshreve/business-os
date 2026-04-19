@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import Head from 'next/head';
-import type { UnifiedBusinessData, KPIDashboard, WeeklyInsight, BoardDeck, Goals, Budget, CustomKPI } from '../types';
+import type { UnifiedBusinessData, KPIDashboard, WeeklyInsight, BoardDeck, Goals, Budget, CustomKPI, OnboardingData } from '../types';
 import { DEMO_CUSTOMERS } from '../lib/demo-customers';
+import { loadSession, saveSession, defaultSession } from '../lib/plan';
 import KPIGrid from '../components/dashboard/KPIGrid';
 import AlertFeed from '../components/dashboard/AlertFeed';
 import RevenueChart from '../components/charts/RevenueChart';
@@ -22,9 +23,12 @@ import AgentPanel from '../components/dashboard/AgentPanel';
 import IndustryBenchmarksPanel from '../components/dashboard/IndustryBenchmarksPanel';
 import PLStatement from '../components/PLStatement';
 import BudgetPanel from '../components/dashboard/BudgetPanel';
+import KanbanBoard from '../components/crm/KanbanBoard';
+import AutomationBuilder from '../components/automation/AutomationBuilder';
+import OnboardingFlow from '../components/onboarding/OnboardingFlow';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-type ActiveView = 'overview' | 'financial' | 'customers' | 'operations' | 'intelligence' | 'scenarios' | 'data';
+type ActiveView = 'overview' | 'financial' | 'customers' | 'operations' | 'intelligence' | 'scenarios' | 'data' | 'pipeline' | 'automations';
 type ToastType  = 'success' | 'error' | 'info';
 interface ToastItem { id: string; type: ToastType; message: string; }
 interface PeriodSnapshot { id: string; label: string; data: UnifiedBusinessData; createdAt: string; }
@@ -812,6 +816,8 @@ const Icons = {
   Intelligence: () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/><rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/></svg>,
   Data: () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><ellipse cx="7" cy="3.5" rx="4.5" ry="2"/><path d="M2.5 6c0 1.1 2 2 4.5 2s4.5-.9 4.5-2V3.5c0 1.1-2 2-4.5 2S2.5 4.6 2.5 3.5V6z"/><path d="M2.5 8.5c0 1.1 2 2 4.5 2s4.5-.9 4.5-2V6c0 1.1-2 2-4.5 2S2.5 7.1 2.5 6v2.5z"/><path d="M2.5 11c0 1.1 2 2 4.5 2s4.5-.9 4.5-2V8.5c0 1.1-2 2-4.5 2S2.5 9.6 2.5 8.5V11z"/></svg>,
   Scenarios: () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><path d="M1 10h3v3H1v-3zm4-4h2v7H5V6zm4-5h2v12H9V1z"/><path d="M7 4.5L9.5 2 12 4.5" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+  Pipeline:   () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><path d="M1 2h2.5v2H1V2zm0 4h2.5v2H1V6zm0 4h2.5v2H1v-2zm4-8h2.5v2H5V2zm0 4h2.5v2H5V6zm0 4h2.5v2H5v-2zm4-8h2.5v2H9V2zm0 4h2.5v2H9V6zm0 4h2.5v2H9v-2z"/></svg>,
+  Automations: () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><path d="M7 1L3 7h4l-1 6 5-6H8l1-6z"/></svg>,
   Spinner: () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 animate-spin flex-shrink-0"><path opacity="0.25" d="M7 1.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11z"/><path d="M7 1.5a5.5 5.5 0 015.5 5.5h-1.5A4 4 0 007 3V1.5z"/></svg>,
   Chevron: () => <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-2.5 h-2.5 flex-shrink-0"><path d="M2 3.5L5 6.5 8 3.5"/></svg>,
   Clock: () => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" className="w-3 h-3 flex-shrink-0"><circle cx="7" cy="7" r="5.5"/><path d="M7 4v3.5l2 1.5"/></svg>,
@@ -1778,7 +1784,7 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
   const rows = [
     { key: '⌘K',    desc: 'Open the AI chat assistant (Cmd+K / Ctrl+K)' },
     { key: '/',      desc: 'Open the AI chat assistant' },
-    { key: '1 – 7',  desc: 'Jump to Overview, Financial, Customers, Operations, Intelligence, Scenarios, or Data Sources' },
+    { key: '1 – 9',  desc: 'Jump to Overview, Financial, Customers, Operations, Intelligence, Pipeline, Automations, Scenarios, or Data Sources' },
     { key: '?',      desc: 'Open this shortcuts guide' },
     { key: 'Esc',    desc: 'Close any open overlay or modal' },
   ];
@@ -2186,6 +2192,7 @@ export default function BusinessOS() {
   const [showWelcome, setShowWelcome]           = useState(false);
   const [companyProfile, setCompanyProfileState] = useState<CompanyProfile>({});
   const [reportTimestamps, setReportTimestamps]   = useState<Record<string, string>>({});
+  const [showOnboarding, setShowOnboarding]       = useState(false);
 
   // Hydrate persisted state from localStorage (client-side only)
   useEffect(() => {
@@ -2252,9 +2259,15 @@ export default function BusinessOS() {
         }
       }
     } catch { /* ignore */ }
-    // Show welcome modal for first-time visitors (no saved data of any kind)
+    // Check onboarding status
+    const session = loadSession();
+    if (!session.onboarded) {
+      setShowOnboarding(true);
+    }
+
+    // Show welcome modal for first-time visitors with no prior session (fallback)
     const hasAnyPriorVisit = localStorage.getItem('bos_visited');
-    if (!hasAnyPriorVisit && !hasUserData) {
+    if (!hasAnyPriorVisit && !hasUserData && session.onboarded) {
       setShowWelcome(true);
     }
     localStorage.setItem('bos_visited', '1');
@@ -2482,9 +2495,26 @@ export default function BusinessOS() {
     setChatOpen(true);
   }, []);
 
-  // Keyboard shortcuts: 1–7 switch views, / or Cmd+K opens chat
+  const handleOnboardingComplete = useCallback((od: OnboardingData) => {
+    // Mark session as onboarded
+    const session = loadSession();
+    const updated = { ...session, onboarded: true };
+    saveSession(updated);
+    setShowOnboarding(false);
+    // Pre-fill company name from onboarding
+    if (od.companyName) saveCompanyName(od.companyName);
+    addToast('success', `Welcome, ${od.companyName}! Your dashboard is ready.`);
+  }, [addToast, saveCompanyName]);
+
+  const handleOnboardingSkip = useCallback(() => {
+    const session = loadSession();
+    saveSession({ ...session, onboarded: true });
+    setShowOnboarding(false);
+  }, []);
+
+  // Keyboard shortcuts: 1–9 switch views, / or Cmd+K opens chat
   useEffect(() => {
-    const viewOrder: ActiveView[] = ['overview', 'financial', 'customers', 'operations', 'intelligence', 'scenarios', 'data'];
+    const viewOrder: ActiveView[] = ['overview', 'financial', 'customers', 'operations', 'intelligence', 'scenarios', 'data', 'pipeline', 'automations'];
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return;
@@ -2538,6 +2568,8 @@ export default function BusinessOS() {
     { id: 'customers',    label: 'Customers',    Icon: Icons.Customers,    activeClass: 'bg-violet-500/15 text-violet-300 border border-violet-500/20' },
     { id: 'operations',   label: 'Operations',   Icon: Icons.Operations,   activeClass: 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/20' },
     { id: 'intelligence', label: 'Intelligence', Icon: Icons.Intelligence, activeClass: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20', badge: highAlerts.length || undefined },
+    { id: 'pipeline',     label: 'Pipeline',     Icon: Icons.Pipeline,     activeClass: 'bg-sky-500/15 text-sky-300 border border-sky-500/20' },
+    { id: 'automations',  label: 'Automations',  Icon: Icons.Automations,  activeClass: 'bg-rose-500/15 text-rose-300 border border-rose-500/20' },
     { id: 'scenarios',    label: 'Scenarios',    Icon: Icons.Scenarios,    activeClass: 'bg-amber-500/15 text-amber-300 border border-amber-500/20' },
     { id: 'data',         label: 'Data Sources', Icon: Icons.Data,         activeClass: 'bg-slate-800/80 text-slate-100' },
   ];
@@ -2548,6 +2580,8 @@ export default function BusinessOS() {
     customers:    'Customer Intelligence',
     operations:   'Operations & Efficiency',
     intelligence: 'AI Intelligence',
+    pipeline:     'Deal Pipeline',
+    automations:  'Automations',
     scenarios:    'Scenario Modeling',
     data:         'Data Sources',
   };
@@ -2558,6 +2592,8 @@ export default function BusinessOS() {
     customers:    'text-violet-400',
     operations:   'text-cyan-400',
     intelligence: 'text-emerald-400',
+    pipeline:     'text-sky-400',
+    automations:  'text-rose-400',
     scenarios:    'text-amber-400',
     data:         'text-slate-400',
   };
@@ -2746,7 +2782,7 @@ export default function BusinessOS() {
         </div>
 
         {/* ── Demo data banner (non-overview tabs) ── */}
-        {usingDemo && activeView !== 'overview' && activeView !== 'data' && (
+        {usingDemo && activeView !== 'overview' && activeView !== 'data' && activeView !== 'pipeline' && activeView !== 'automations' && (
           <div className="no-print border-b border-amber-500/10 bg-amber-500/[0.03]">
             <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-2 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
@@ -2968,8 +3004,40 @@ export default function BusinessOS() {
               <ScenarioModeler data={data} onAskAI={openChat}/>
             </div>
           )}
+          {activeView === 'pipeline' && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <div className="h-px flex-1 bg-sky-500/10"/>
+                <button onClick={() => openChat('Analyze my deal pipeline. What deals are at risk, which should I prioritize to hit my number this quarter, and what actions should I take today?')}
+                  className="flex items-center gap-1.5 text-[12px] text-sky-400 hover:text-sky-300 bg-sky-500/8 hover:bg-sky-500/15 border border-sky-500/25 hover:border-sky-500/50 px-3 py-1.5 rounded-lg transition-all font-medium">
+                  <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5"><path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/><rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/></svg>
+                  Ask AI about pipeline
+                </button>
+                <div className="h-px flex-1 bg-sky-500/10"/>
+              </div>
+              <KanbanBoard />
+            </div>
+          )}
+          {activeView === 'automations' && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <div className="h-px flex-1 bg-rose-500/10"/>
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em]">IF / THEN Rules</div>
+                <div className="h-px flex-1 bg-rose-500/10"/>
+              </div>
+              <AutomationBuilder />
+            </div>
+          )}
           {activeView === 'data'         && <DataSourcePanel data={data} onDataUpdate={handleDataUpdate} onSuccess={handleDataSuccess} companyProfile={companyProfile} onProfileChange={saveCompanyProfile}/>}
         </main>
+
+        {/* ── Onboarding flow ── */}
+        {showOnboarding && (
+          <OnboardingFlow
+            onComplete={handleOnboardingComplete}
+            onSkip={handleOnboardingSkip}
+          />
+        )}
 
         {/* ── Period name modal ── */}
         {showPeriodModal && (
