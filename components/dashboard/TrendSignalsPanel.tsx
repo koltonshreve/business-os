@@ -156,7 +156,31 @@ function computeSignals(data: UnifiedBusinessData, previousData?: UnifiedBusines
     }
   }
 
-  // ── 6. Period-over-period vs prior year ──────────────────────────────────
+  // ── 6. Revenue forecast via linear regression ───────────────────────────
+  if (n >= 3) {
+    const xMean = (n - 1) / 2;
+    const yMean = revs.reduce((s, v) => s + v, 0) / n;
+    const num   = revs.reduce((s, v, i) => s + (i - xMean) * (v - yMean), 0);
+    const den   = revs.reduce((s, _, i) => s + (i - xMean) ** 2, 0);
+    const slope = den !== 0 ? num / den : 0;
+    const intercept = yMean - slope * xMean;
+    const nextEst = intercept + slope * n;
+    const ssRes = revs.reduce((s, v, i) => s + (v - (intercept + slope * i)) ** 2, 0);
+    const ssTot = revs.reduce((s, v) => s + (v - yMean) ** 2, 0);
+    const rSq   = ssTot > 0 ? Math.max(0, 1 - ssRes / ssTot) : 0;
+    const projGrowth = revs[n - 1] > 0 ? ((nextEst - revs[n - 1]) / revs[n - 1]) * 100 : 0;
+    const confidence = rSq >= 0.85 ? 'high confidence' : rSq >= 0.55 ? 'moderate confidence' : 'low confidence';
+    if (nextEst > 0 && Math.abs(projGrowth) >= 1) {
+      signals.push({
+        icon: '🎯',
+        title: `Forecast: ${fmt(nextEst)} next period`,
+        body: `Linear trend projects ${projGrowth >= 0 ? '+' : ''}${projGrowth.toFixed(1)}% (${fmt(nextEst)}) in the next period. ${confidence} — R² = ${(rSq * 100).toFixed(0)}% based on ${n} periods.`,
+        severity: projGrowth >= 10 ? 'positive' : projGrowth >= 0 ? 'info' : projGrowth >= -5 ? 'warning' : 'negative',
+      });
+    }
+  }
+
+  // ── 7. Period-over-period vs prior year (previously 6) ───────────────────
   if (previousData && previousData.revenue.byPeriod.length > 0) {
     const curTotal  = data.revenue.total;
     const prevTotal = previousData.revenue.total;
@@ -173,7 +197,7 @@ function computeSignals(data: UnifiedBusinessData, previousData?: UnifiedBusines
     }
   }
 
-  // ── 7. Margin trend ──────────────────────────────────────────────────────
+  // ── 8. Margin trend ──────────────────────────────────────────────────────
   const periodsWithCOGS = periods.filter(p => p.cogs != null && p.cogs > 0);
   if (periodsWithCOGS.length >= 3) {
     const margins = periodsWithCOGS.map(p => ((p.revenue - p.cogs!) / p.revenue) * 100);

@@ -180,12 +180,27 @@ function MetricRow({ label, value, range }: MetricRowProps) {
         <span>{fmtBenchmark(range.high, range.unit)}</span>
       </div>
 
-      {/* Your value */}
-      <div className="flex items-baseline gap-1.5">
-        <span className={`text-[18px] font-bold tabular-nums ${valueColor}`}>
-          {fmtBenchmark(value, range.unit)}
-        </span>
-        <span className="text-[10px] text-slate-600">your value</span>
+      {/* Your value + gap to median */}
+      <div className="flex items-end justify-between gap-2">
+        <div className="flex items-baseline gap-1.5">
+          <span className={`text-[18px] font-bold tabular-nums ${valueColor}`}>
+            {fmtBenchmark(value, range.unit)}
+          </span>
+          <span className="text-[10px] text-slate-600">your value</span>
+        </div>
+        {(() => {
+          const gapRaw  = value - range.median;
+          const gapAbs  = Math.abs(gapRaw);
+          if (gapAbs < 0.5) return <span className="text-[10px] font-semibold text-slate-500">= median</span>;
+          const aboveMedian = range.higherIsBetter ? gapRaw > 0 : gapRaw < 0;
+          const sign  = gapRaw > 0 ? '+' : '−';
+          const color = aboveMedian ? 'text-emerald-400/80' : 'text-amber-400/80';
+          return (
+            <span className={`text-[10px] font-semibold tabular-nums ${color}`}>
+              {sign}{fmtBenchmark(gapAbs, range.unit)} vs median
+            </span>
+          );
+        })()}
       </div>
     </div>
   );
@@ -315,6 +330,43 @@ export default function IndustryBenchmarksPanel({ data, previousData, onAskAI }:
           />
         ))}
       </div>
+
+      {/* Priority improvement callout */}
+      {(() => {
+        const belowMedian = metrics
+          .filter(m => m.value != null)
+          .map(m => {
+            const b = benchmarks[m.key as keyof Omit<IndustryBenchmarks, 'label'>] as BenchmarkRange;
+            const pct = getPercentile(m.value!, b);
+            const isBelow = b.higherIsBetter ? pct < 50 : pct > 50;
+            const gapPct  = b.higherIsBetter
+              ? ((b.median - m.value!) / Math.abs(b.median)) * 100
+              : ((m.value! - b.median) / Math.abs(b.median)) * 100;
+            return { ...m, b, pct, isBelow, gapPct };
+          })
+          .filter(m => m.isBelow && m.gapPct >= 5)
+          .sort((a, b) => b.gapPct - a.gapPct);
+
+        if (belowMedian.length === 0) return null;
+        const worst = belowMedian[0];
+        return (
+          <div className="mt-4 bg-amber-500/5 border border-amber-500/20 rounded-xl px-4 py-3 flex items-start gap-3">
+            <span className="text-amber-400 text-sm flex-shrink-0 mt-0.5">⚠</span>
+            <div>
+              <div className="text-[12px] font-semibold text-amber-300 mb-0.5">
+                Priority gap: {worst.label}
+              </div>
+              <div className="text-[11px] text-slate-500 leading-relaxed">
+                Your {worst.label.toLowerCase()} is{' '}
+                <span className="text-amber-400 font-medium">{fmtBenchmark(worst.value!, worst.b.unit)}</span>{' '}
+                vs industry median of{' '}
+                <span className="text-slate-300 font-medium">{fmtBenchmark(worst.b.median, worst.b.unit)}</span>{' '}
+                — closing this gap to median would be the highest-leverage benchmark improvement.
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="mt-4 pt-3 border-t border-slate-800/40 text-[10px] text-slate-700">
         Benchmarks are typical ranges for {benchmarks.label} businesses. Low = bottom quartile, High = top quartile. Sources: industry surveys, Dun & Bradstreet, BizStats.

@@ -15,13 +15,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { action, data, previousData, csvUploads, reportType } = req.body as {
+    const { action, data, previousData, csvUploads, reportType, companyName, companyProfile } = req.body as {
       action: 'compute-kpis' | 'weekly-insight' | 'board-deck' | 'alerts' | 'full-report';
       data: UnifiedBusinessData;
       previousData?: UnifiedBusinessData;
       csvUploads?: CSVUpload[];
       reportType?: string;
+      companyName?: string;
+      companyProfile?: { industry?: string; revenueModel?: string };
     };
+    const profileContext = companyProfile?.industry || companyProfile?.revenueModel
+      ? `${companyProfile.industry ? `Industry: ${companyProfile.industry}` : ''}${companyProfile.revenueModel ? ` | Revenue model: ${companyProfile.revenueModel}` : ''}`.trim()
+      : undefined;
 
     // Merge CSV uploads if provided
     let businessData = data;
@@ -45,7 +50,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           : [];
         dashboard.anomalies = enrichedAnomalies;
 
-        const insight = await generateWeeklyInsight(businessData, dashboard, previousData);
+        const insight = await generateWeeklyInsight(businessData, dashboard, previousData, companyName, profileContext);
         return res.status(200).json({ dashboard, insight });
       }
 
@@ -55,7 +60,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       case 'board-deck': {
-        const deck = await generateBoardDeck(businessData, dashboard);
+        const deck = await generateBoardDeck(businessData, dashboard, undefined, companyName, profileContext);
         return res.status(200).json({ deck, dashboard });
       }
 
@@ -67,8 +72,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         dashboard.anomalies = enrichedAnomalies;
 
         const [insight, deck, alertData] = await Promise.all([
-          generateWeeklyInsight(businessData, dashboard, previousData),
-          generateBoardDeck(businessData, dashboard),
+          generateWeeklyInsight(businessData, dashboard, previousData, companyName, profileContext),
+          generateBoardDeck(businessData, dashboard, undefined, companyName, profileContext),
           generateAlerts(dashboard),
         ]);
 

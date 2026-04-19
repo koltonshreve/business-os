@@ -1,8 +1,154 @@
 import { useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend } from 'recharts';
 import { fmtMoney } from '../../lib/format';
-import type { UnifiedBusinessData } from '../../types';
+import type { UnifiedBusinessData, CustomerIndustry, CustomerRevenueType } from '../../types';
+import { INDUSTRY_META, ALL_INDUSTRIES } from '../../lib/demo-customers';
 import RevenueRetentionChart from '../charts/RevenueRetentionChart';
+
+// ── Industry Revenue Mix ──────────────────────────────────────────────────────
+const INDUSTRY_COLORS: Record<string, string> = {
+  'healthcare':           '#f43f5e',
+  'professional-services':'#6366f1',
+  'saas-technology':      '#0ea5e9',
+  'manufacturing':        '#f59e0b',
+  'construction':         '#f97316',
+  'distribution':         '#14b8a6',
+  'financial-services':   '#10b981',
+  'retail':               '#8b5cf6',
+};
+
+function IndustryRevenueMix({ customers, totalRevenue }: {
+  customers: UnifiedBusinessData['customers']['topCustomers'];
+  totalRevenue: number;
+}) {
+  const hasIndustry = customers.some(c => c.industry);
+  if (!hasIndustry) return null;
+
+  // Aggregate by industry
+  const byIndustry: Record<string, { revenue: number; count: number; recurring: number; project: number }> = {};
+  for (const c of customers) {
+    if (!c.industry) continue;
+    if (!byIndustry[c.industry]) byIndustry[c.industry] = { revenue: 0, count: 0, recurring: 0, project: 0 };
+    byIndustry[c.industry].revenue += c.revenue;
+    byIndustry[c.industry].count++;
+    if (c.revenueType === 'recurring') byIndustry[c.industry].recurring += c.revenue;
+    else if (c.revenueType === 'project') byIndustry[c.industry].project += c.revenue;
+    else { // mixed: split 50/50
+      byIndustry[c.industry].recurring += c.revenue * 0.5;
+      byIndustry[c.industry].project += c.revenue * 0.5;
+    }
+  }
+
+  const sorted = Object.entries(byIndustry)
+    .map(([ind, data]) => ({
+      industry: ind as CustomerIndustry,
+      ...data,
+      pct: totalRevenue > 0 ? (data.revenue / totalRevenue) * 100 : 0,
+      recurringPct: data.revenue > 0 ? (data.recurring / data.revenue) * 100 : 0,
+    }))
+    .sort((a, b) => b.revenue - a.revenue);
+
+  const pieData = sorted.map(d => ({
+    name: INDUSTRY_META[d.industry]?.label ?? d.industry,
+    value: d.revenue,
+    color: INDUSTRY_COLORS[d.industry] ?? '#64748b',
+  }));
+
+  const fmtMon = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+
+  return (
+    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+      <div className="text-[13px] font-semibold text-slate-100 mb-4">Revenue by Industry</div>
+      <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-6 items-start">
+        {/* Donut chart */}
+        <div className="flex justify-center">
+          <ResponsiveContainer width={200} height={200}>
+            <PieChart>
+              <Pie
+                data={pieData}
+                cx="50%"
+                cy="50%"
+                innerRadius={52}
+                outerRadius={80}
+                paddingAngle={2}
+                dataKey="value"
+              >
+                {pieData.map((d, i) => <Cell key={i} fill={d.color} fillOpacity={0.85}/>)}
+              </Pie>
+              <Tooltip
+                content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null;
+                  const d = payload[0];
+                  return (
+                    <div className="bg-slate-900 border border-slate-700/60 rounded-lg px-3 py-2 text-xs shadow-xl">
+                      <div className="font-semibold text-slate-100">{d.name}</div>
+                      <div className="text-slate-300">{fmtMon(d.value as number)}</div>
+                      <div className="text-slate-500">{totalRevenue > 0 ? ((d.value as number / totalRevenue) * 100).toFixed(1) : 0}% of total</div>
+                    </div>
+                  );
+                }}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Ranked list */}
+        <div className="space-y-2">
+          {sorted.map(d => {
+            const meta = INDUSTRY_META[d.industry];
+            const color = INDUSTRY_COLORS[d.industry] ?? '#64748b';
+            return (
+              <div key={d.industry} className="flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }}/>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="text-[11px]">{meta?.icon}</span>
+                    <span className="text-[12px] font-medium text-slate-200">{meta?.label ?? d.industry}</span>
+                    <span className="text-[10px] text-slate-600">· {d.count} accounts</span>
+                  </div>
+                  <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all" style={{ width: `${d.pct * 1.5}%`, background: color, opacity: 0.6 }}/>
+                  </div>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <div className="text-[12px] font-semibold text-slate-200">{fmtMon(d.revenue)}</div>
+                  <div className="text-[10px] text-slate-600">{d.pct.toFixed(1)}%</div>
+                </div>
+                <div className={`text-[10px] font-medium flex-shrink-0 w-14 text-right ${d.recurringPct >= 70 ? 'text-emerald-400' : d.recurringPct >= 40 ? 'text-amber-400' : 'text-orange-400'}`}>
+                  {d.recurringPct.toFixed(0)}% rec
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Revenue quality callout */}
+      {(() => {
+        const totalRec = sorted.reduce((s, d) => s + d.recurring, 0);
+        const recPct = totalRevenue > 0 ? (totalRec / totalRevenue) * 100 : 0;
+        const topInd = sorted[0];
+        return (
+          <div className="mt-4 pt-3 border-t border-slate-800/40 flex flex-col sm:flex-row items-start sm:items-center gap-3 text-[12px]">
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500">Portfolio-wide recurring:</span>
+              <span className={`font-semibold ${recPct >= 60 ? 'text-emerald-400' : recPct >= 40 ? 'text-amber-400' : 'text-red-400'}`}>{recPct.toFixed(0)}%</span>
+            </div>
+            {topInd && (
+              <>
+                <span className="hidden sm:block text-slate-800">·</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500">Largest segment:</span>
+                  <span className="font-medium text-slate-300">{INDUSTRY_META[topInd.industry]?.label} ({topInd.pct.toFixed(1)}%)</span>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
 
 // ── Customer Economics (LTV / LTV:CAC) ───────────────────────────────────────
 function CustomerEconomics({ data }: { data: UnifiedBusinessData }) {
@@ -227,10 +373,11 @@ function CustomerSegmentGroup({
         <div className="border-t border-slate-800/40">
           <div className="overflow-x-auto">
           {/* Column headers */}
-          <div className="grid grid-cols-[2fr_1fr_1fr_1fr_80px] gap-4 px-5 py-2 text-[10px] font-semibold text-slate-600 uppercase tracking-wider bg-slate-900/30 min-w-[480px]">
+          <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_80px] gap-4 px-5 py-2 text-[10px] font-semibold text-slate-600 uppercase tracking-wider bg-slate-900/30 min-w-[580px]">
             <div>Customer</div>
             <div className="text-right">Revenue</div>
             <div className="text-right">% of Total</div>
+            <div>Industry</div>
             <div className="text-right">Share Trend</div>
             <div className="text-right">Risk</div>
           </div>
@@ -257,7 +404,7 @@ function CustomerSegmentGroup({
                 <div key={c.id}>
                   <button
                     onClick={() => onSelectCustomer(isSelected ? null : c.id)}
-                    className={`w-full grid grid-cols-[2fr_1fr_1fr_1fr_80px] gap-4 px-5 py-3 transition-colors text-left min-w-[480px] ${
+                    className={`w-full grid grid-cols-[2fr_1fr_1fr_1fr_1fr_80px] gap-4 px-5 py-3 transition-colors text-left min-w-[580px] ${
                       isSelected ? 'bg-indigo-500/8 border-l-2 border-l-indigo-500/60' : 'hover:bg-slate-800/20 border-l-2 border-l-transparent'
                     }`}>
                     <div className="flex items-center gap-2">
@@ -276,6 +423,23 @@ function CustomerSegmentGroup({
                         </div>
                         <span className="text-[12px] text-slate-400">{c.percentOfTotal.toFixed(1)}%</span>
                       </div>
+                    </div>
+                    <div>
+                      {c.industry ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-[11px]">{INDUSTRY_META[c.industry as CustomerIndustry]?.icon ?? ''}</span>
+                          <span className={`text-[10px] font-medium truncate max-w-[80px] ${INDUSTRY_META[c.industry as CustomerIndustry]?.accent ?? 'text-slate-500'}`}>
+                            {INDUSTRY_META[c.industry as CustomerIndustry]?.label ?? c.industry}
+                          </span>
+                          {c.revenueType && (
+                            <span className={`text-[9px] ml-0.5 ${c.revenueType === 'recurring' ? 'text-emerald-500/60' : c.revenueType === 'project' ? 'text-amber-500/60' : 'text-slate-600'}`}>
+                              {c.revenueType === 'recurring' ? '↻' : c.revenueType === 'project' ? '◈' : '⊕'}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-slate-600">—</span>
+                      )}
                     </div>
                     <div className="text-right">
                       {trendBadge ? (
@@ -349,10 +513,95 @@ function CustomerSegmentGroup({
   );
 }
 
+// ── Industry Stats Panel ─────────────────────────────────────────────────────
+function IndustryStatsPanel({ industry, customers, totalRevenue }: {
+  industry: CustomerIndustry;
+  customers: UnifiedBusinessData['customers']['topCustomers'];
+  totalRevenue: number;
+}) {
+  const meta = INDUSTRY_META[industry];
+  if (!customers.length) return null;
+
+  const industryCustomers = customers.filter(c => c.industry === industry);
+  if (!industryCustomers.length) return null;
+
+  const indRev   = industryCustomers.reduce((s, c) => s + c.revenue, 0);
+  const indPct   = totalRevenue > 0 ? (indRev / totalRevenue) * 100 : 0;
+  const avgRev   = indRev / industryCustomers.length;
+  const recurring = industryCustomers.filter(c => c.revenueType === 'recurring');
+  const project   = industryCustomers.filter(c => c.revenueType === 'project');
+  const mixed     = industryCustomers.filter(c => c.revenueType === 'mixed');
+  const recurringRev = recurring.reduce((s, c) => s + c.revenue, 0);
+  const projectRev   = project.reduce((s, c) => s + c.revenue, 0);
+  const topCust  = [...industryCustomers].sort((a, b) => b.revenue - a.revenue)[0];
+
+  const fmtMon = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+
+  const industryKPIs: { label: string; value: string; sub?: string }[] = [
+    { label: 'Accounts', value: String(industryCustomers.length), sub: `${indPct.toFixed(1)}% of total rev` },
+    { label: 'Segment Revenue', value: fmtMon(indRev), sub: `avg ${fmtMon(avgRev)}/acct` },
+    { label: 'Recurring', value: `${indRev > 0 ? ((recurringRev / indRev) * 100).toFixed(0) : 0}%`, sub: `${recurring.length} accounts` },
+    { label: 'Project-Based', value: `${indRev > 0 ? ((projectRev / indRev) * 100).toFixed(0) : 0}%`, sub: `${project.length + mixed.length} accounts` },
+  ];
+
+  // Industry-specific bonus KPI
+  const bonusKPI = (() => {
+    switch (industry) {
+      case 'saas-technology': {
+        const mrrEst = recurringRev / 6; // ~6 periods
+        return { label: 'Est. Avg MRR/Acct', value: fmtMon(mrrEst / Math.max(recurring.length, 1)), sub: 'from subscription rev' };
+      }
+      case 'construction':
+        return { label: 'Avg Project Value', value: fmtMon(indRev / Math.max(industryCustomers.length, 1)), sub: 'per engagement' };
+      case 'healthcare':
+        return { label: 'Compliance Accounts', value: `${recurring.length}`, sub: 'HIPAA-active contracts' };
+      case 'manufacturing':
+        return { label: 'Supply Contracts', value: `${recurring.length}`, sub: 'standing agreements' };
+      case 'financial-services':
+        return { label: 'AUA Est.', value: fmtMon(indRev * 15), sub: 'at 0.5% advisory fee rate' };
+      default:
+        return { label: 'Top Account', value: topCust ? topCust.name.split(' ').slice(0, 2).join(' ') : '—', sub: topCust ? fmtMon(topCust.revenue) : '' };
+    }
+  })();
+
+  return (
+    <div className={`rounded-xl border border-slate-700/40 bg-slate-800/20 p-4 mb-3`}>
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-base">{meta.icon}</span>
+        <span className={`text-[13px] font-semibold ${meta.accent}`}>{meta.label} — Industry Snapshot</span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {[...industryKPIs, bonusKPI].map(kpi => (
+          <div key={kpi.label} className="bg-slate-900/40 rounded-lg p-2.5">
+            <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider mb-1">{kpi.label}</div>
+            <div className={`text-[15px] font-bold ${meta.accent}`}>{kpi.value}</div>
+            {kpi.sub && <div className="text-[9px] text-slate-600 mt-0.5">{kpi.sub}</div>}
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+        {recurringRev > 0 && (
+          <div className="flex items-start gap-2 text-slate-500">
+            <span className="flex-shrink-0 text-emerald-400 mt-0.5">↻</span>
+            <span>{meta.recurringNote}</span>
+          </div>
+        )}
+        {projectRev > 0 && (
+          <div className="flex items-start gap-2 text-slate-500">
+            <span className="flex-shrink-0 text-amber-400 mt-0.5">◈</span>
+            <span>{meta.projectNote}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function CustomerDashboard({ data, previousData, onAskAI }: Props) {
-  const [sort, setSort]         = useState<SortKey>('revenue');
-  const [search, setSearch]     = useState('');
+  const [sort, setSort]             = useState<SortKey>('revenue');
+  const [search, setSearch]         = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
+  const [industryFilter, setIndustryFilter]     = useState<CustomerIndustry | 'all'>('all');
   const { customers } = data;
   const rev = data.revenue.total;
 
@@ -363,8 +612,15 @@ export default function CustomerDashboard({ data, previousData, onAskAI }: Props
   const avgRev       = customers.avgRevenuePerCustomer ?? (rev / Math.max(customers.totalCount, 1));
   const ltv          = avgRev * (1 / Math.max(1 - (retentionPct / 100), 0.01)); // simplified LTV
 
+  // Detect which industries are present in this data
+  const presentIndustries = ALL_INDUSTRIES.filter(ind =>
+    customers.topCustomers.some(c => c.industry === ind)
+  );
+  const hasIndustryData = presentIndustries.length > 0;
+
   const sorted = [...customers.topCustomers]
     .filter(c => {
+      if (industryFilter !== 'all' && c.industry !== industryFilter) return false;
       if (search && !c.name.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     })
@@ -398,15 +654,32 @@ export default function CustomerDashboard({ data, previousData, onAskAI }: Props
     </button>
   );
 
+  // Net Revenue Retention (NRR) approximation
+  const nrr = (() => {
+    const curRec  = data.revenue.recurring;
+    const prevRec = previousData?.revenue.recurring;
+    if (!curRec || !prevRec || prevRec <= 0) return null;
+    // Subtract estimated new-customer recurring to isolate retained cohort
+    const newCustFrac = customers.newThisPeriod / Math.max(customers.totalCount, 1);
+    const retainedRecurring = curRec * (1 - newCustFrac);
+    return (retainedRecurring / prevRec) * 100;
+  })();
+
   return (
     <div className="space-y-5">
       {/* Health KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className={`grid grid-cols-2 ${nrr !== null ? 'md:grid-cols-5' : 'md:grid-cols-4'} gap-3`}>
         {[
           { label: 'Total Customers', value: customers.totalCount.toString(), sub: 'active accounts', color: 'text-slate-100' },
           { label: 'Net New', value: netNew >= 0 ? `+${netNew}` : `${netNew}`, sub: `${customers.newThisPeriod} added · ${customers.churned} lost`, color: netNew > 0 ? 'text-emerald-400' : netNew < 0 ? 'text-red-400' : 'text-amber-400' },
           { label: 'Retention Rate', value: `${retentionPct.toFixed(1)}%`, sub: retentionPct >= 90 ? 'On target' : 'Below target', color: retentionPct >= 90 ? 'text-emerald-400' : retentionPct >= 80 ? 'text-amber-400' : 'text-red-400' },
           { label: 'Avg Rev / Customer', value: fmt(avgRev), sub: 'per period', color: 'text-slate-100' },
+          ...(nrr !== null ? [{
+            label: 'Net Rev Retention',
+            value: `${nrr.toFixed(0)}%`,
+            sub: nrr >= 110 ? 'Expansion growth ↑' : nrr >= 100 ? 'Retained + flat' : 'Revenue contracting',
+            color: nrr >= 110 ? 'text-emerald-400' : nrr >= 100 ? 'text-sky-400' : 'text-amber-400',
+          }] : []),
         ].map(kpi => (
           <div key={kpi.label} className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
             <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-2">{kpi.label}</div>
@@ -479,21 +752,39 @@ export default function CustomerDashboard({ data, previousData, onAskAI }: Props
               </div>
             ))}
           </div>
-          <div className="mt-4 pt-3 border-t border-slate-800/60">
-            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Risk Thresholds</div>
-            <div className="space-y-1">
-              {[
-                { color: 'bg-red-500', label: '>20% single customer — HIGH risk' },
-                { color: 'bg-amber-500', label: '15-20% — watch list' },
-                { color: 'bg-emerald-500', label: '<15% — acceptable' },
-              ].map(({ color, label }) => (
-                <div key={label} className="flex items-center gap-2 text-[10px] text-slate-500">
-                  <div className={`w-2 h-2 rounded-full ${color}`}/>
-                  {label}
+          {/* HHI Concentration Index */}
+          {(() => {
+            const hhi = customers.topCustomers.reduce((s, c) => s + (c.percentOfTotal / 100) ** 2, 0) * 10000;
+            const hhiLabel = hhi < 1000 ? 'Diversified' : hhi < 1800 ? 'Moderate' : hhi < 2500 ? 'Concentrated' : 'Highly Concentrated';
+            const hhiColor = hhi < 1000 ? 'text-emerald-400' : hhi < 1800 ? 'text-sky-400' : hhi < 2500 ? 'text-amber-400' : 'text-red-400';
+            const hhiBg    = hhi < 1000 ? 'bg-emerald-500/10 border-emerald-500/20' : hhi < 1800 ? 'bg-sky-500/10 border-sky-500/20' : hhi < 2500 ? 'bg-amber-500/10 border-amber-500/20' : 'bg-red-500/10 border-red-500/20';
+            // Gauge: HHI 0→4000 mapped to 0→100%
+            const gaugeW = Math.min((hhi / 4000) * 100, 100);
+            const hhiBuyerNote = hhi < 1000
+              ? 'Clean concentration profile — M&A buyers will not require a discount'
+              : hhi < 1800
+              ? 'Moderate concentration — sophisticated buyers may request customer history'
+              : hhi < 2500
+              ? 'Elevated concentration — expect buyer due diligence focus and possible multiple discount'
+              : 'High concentration — likely valuation haircut unless customer relationships are contractual';
+            return (
+              <div className="mt-4 pt-3 border-t border-slate-800/60">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">HHI Index</div>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${hhiBg} ${hhiColor}`}>{hhiLabel}</span>
                 </div>
-              ))}
-            </div>
-          </div>
+                <div className="flex items-baseline gap-2 mb-1.5">
+                  <span className={`text-[22px] font-bold tabular-nums ${hhiColor}`}>{Math.round(hhi).toLocaleString()}</span>
+                  <span className="text-[10px] text-slate-600">/ 10,000</span>
+                </div>
+                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden mb-2">
+                  <div className={`h-full rounded-full transition-all ${hhi < 1000 ? 'bg-emerald-500' : hhi < 1800 ? 'bg-sky-500' : hhi < 2500 ? 'bg-amber-500' : 'bg-red-500'}`}
+                    style={{ width: `${gaugeW}%` }}/>
+                </div>
+                <div className="text-[10px] text-slate-600 leading-relaxed">{hhiBuyerNote}</div>
+              </div>
+            );
+          })()}
           <div className="mt-4 pt-3 border-t border-slate-800/60">
             <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Est. LTV</div>
             <div className="text-[18px] font-bold text-slate-100">{fmt(ltv)}</div>
@@ -501,6 +792,9 @@ export default function CustomerDashboard({ data, previousData, onAskAI }: Props
           </div>
         </div>
       </div>
+
+      {/* Industry Revenue Mix */}
+      <IndustryRevenueMix customers={customers.topCustomers} totalRevenue={rev} />
 
       {/* NRR KPI Card — prominent, above retention chart */}
       {(() => {
@@ -609,11 +903,180 @@ export default function CustomerDashboard({ data, previousData, onAskAI }: Props
       {/* Customer Economics: LTV / LTV:CAC */}
       <CustomerEconomics data={data} />
 
+      {/* Churn Revenue at Risk */}
+      {(() => {
+        const retention = customers.retentionRate ?? 0.9;
+        const churnRate = 1 - retention;
+        if (churnRate <= 0) return null;
+
+        const totalCount = customers.totalCount;
+        const avgRevPerCustomer = totalCount > 0 ? rev / totalCount : 0;
+
+        // Customers at risk of churning this period
+        const customersAtRisk = totalCount * churnRate;
+        const revenueAtRisk = customersAtRisk * avgRevPerCustomer;
+
+        // Annualized churn revenue (assumes period-level data)
+        const periods = data.revenue.byPeriod.length || 1;
+        const periodsPerYear = periods >= 10 ? 12 : periods >= 4 ? 4 : 1;
+        const annualizedAtRisk = revenueAtRisk * periodsPerYear;
+
+        // Impact of +5pp retention improvement
+        const improvedRetention = Math.min(1, retention + 0.05);
+        const improvedChurn = 1 - improvedRetention;
+        const savedCustomers = (churnRate - improvedChurn) * totalCount;
+        const savedRevenue = savedCustomers * avgRevPerCustomer * periodsPerYear;
+
+        const churnPct = churnRate * 100;
+        const severity = churnPct > 20 ? 'red' : churnPct > 10 ? 'amber' : 'slate';
+        const severityText = severity === 'red' ? 'text-red-400' : severity === 'amber' ? 'text-amber-400' : 'text-slate-400';
+        const severityBg = severity === 'red' ? 'bg-red-500/5 border-red-500/15' : severity === 'amber' ? 'bg-amber-500/5 border-amber-500/15' : 'bg-slate-900/50 border-slate-800/50';
+
+        const fmtMon = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+
+        return (
+          <div className={`rounded-xl border p-5 ${severityBg}`}>
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <div className="text-[13px] font-semibold text-slate-100">Churn Revenue at Risk</div>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                  severity === 'red' ? 'text-red-400 bg-red-500/10 border-red-500/25' :
+                  severity === 'amber' ? 'text-amber-400 bg-amber-500/10 border-amber-500/25' :
+                  'text-slate-400 bg-slate-800 border-slate-700/50'
+                }`}>{churnPct.toFixed(1)}% churn rate</span>
+              </div>
+              {onAskAI && (
+                <button
+                  onClick={() => onAskAI(
+                    `My customer churn rate is ${churnPct.toFixed(1)}% (retention: ${(retention * 100).toFixed(1)}%). ` +
+                    `With ${totalCount} customers averaging ${fmtMon(avgRevPerCustomer)}/customer, ` +
+                    `I'm losing ~${fmtMon(annualizedAtRisk)}/year to churn. ` +
+                    `A +5pp retention improvement would save ${fmtMon(savedRevenue)}/year. ` +
+                    `What are the highest-ROI actions to reduce churn?`
+                  )}
+                  className="flex items-center gap-1.5 text-[11px] text-indigo-400 hover:text-indigo-300 font-medium border border-indigo-500/20 hover:border-indigo-500/40 px-2.5 py-1 rounded-lg transition-all"
+                >
+                  <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3">
+                    <path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/>
+                    <rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/>
+                  </svg>
+                  How to reduce churn
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+              <div>
+                <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] mb-1">Customers at Risk</div>
+                <div className={`text-[22px] font-bold tabular-nums leading-none ${severityText}`}>
+                  {customersAtRisk < 1 ? customersAtRisk.toFixed(1) : Math.round(customersAtRisk)}
+                </div>
+                <div className="text-[10px] text-slate-600 mt-0.5">per period</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] mb-1">Revenue at Risk</div>
+                <div className={`text-[22px] font-bold tabular-nums leading-none ${severityText}`}>
+                  {fmtMon(revenueAtRisk)}
+                </div>
+                <div className="text-[10px] text-slate-600 mt-0.5">per period</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] mb-1">Annualized Risk</div>
+                <div className="text-[22px] font-bold tabular-nums leading-none text-red-400">
+                  {fmtMon(annualizedAtRisk)}
+                </div>
+                <div className="text-[10px] text-slate-600 mt-0.5">projected annual loss</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] mb-1">+5pp Retention Saves</div>
+                <div className="text-[22px] font-bold tabular-nums leading-none text-emerald-400">
+                  {fmtMon(savedRevenue)}
+                </div>
+                <div className="text-[10px] text-slate-600 mt-0.5">annualized</div>
+              </div>
+            </div>
+
+            {/* Retention improvement impact bar */}
+            <div className="bg-slate-800/40 rounded-lg px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[11px] text-slate-500">Current retention: <span className="font-semibold text-slate-300">{(retention * 100).toFixed(1)}%</span></span>
+                  <span className="text-[11px] text-slate-500">Target: <span className="font-semibold text-emerald-400">{(improvedRetention * 100).toFixed(1)}% (+5pp)</span></span>
+                </div>
+                <div className="h-2 bg-slate-700/50 rounded-full overflow-hidden">
+                  <div className="h-full bg-emerald-500/40 rounded-full" style={{ width: `${retention * 100}%` }}/>
+                </div>
+                <div className="flex items-center gap-1 mt-1.5">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500/60 flex-shrink-0"/>
+                  <span className="text-[10px] text-slate-500">Each additional retention point saves ~{fmtMon(savedRevenue / 5)}/year</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Customer list — segmented by concentration tier */}
       <div className="space-y-2">
+        {/* Industry filter tabs */}
+        {hasIndustryData && (
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-3">
+            <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em] mb-2.5">Filter by Industry</div>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                onClick={() => { setIndustryFilter('all'); setSelectedCustomer(null); }}
+                className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border transition-colors ${
+                  industryFilter === 'all'
+                    ? 'bg-slate-700 text-slate-100 border-slate-600'
+                    : 'text-slate-500 border-slate-700/50 hover:text-slate-300 hover:border-slate-600'
+                }`}
+              >
+                All ({customers.topCustomers.length})
+              </button>
+              {presentIndustries.map(ind => {
+                const meta = INDUSTRY_META[ind];
+                const count = customers.topCustomers.filter(c => c.industry === ind).length;
+                const isActive = industryFilter === ind;
+                return (
+                  <button
+                    key={ind}
+                    onClick={() => { setIndustryFilter(ind); setSelectedCustomer(null); }}
+                    className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border transition-colors flex items-center gap-1.5 ${
+                      isActive
+                        ? `bg-slate-700 ${meta.accent} border-slate-600`
+                        : 'text-slate-500 border-slate-700/50 hover:text-slate-300 hover:border-slate-600'
+                    }`}
+                  >
+                    <span>{meta.icon}</span>
+                    <span>{meta.label}</span>
+                    <span className={`text-[10px] ${isActive ? 'opacity-70' : 'opacity-50'}`}>({count})</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Industry stats panel */}
+        {industryFilter !== 'all' && (
+          <IndustryStatsPanel
+            industry={industryFilter}
+            customers={customers.topCustomers}
+            totalRevenue={rev}
+          />
+        )}
+
         {/* Toolbar */}
         <div className="flex items-center gap-3 flex-wrap">
-          <div className="text-[13px] font-semibold text-slate-100">Customer Accounts</div>
+          <div className="text-[13px] font-semibold text-slate-100">
+            {industryFilter !== 'all' ? (
+              <span className="flex items-center gap-2">
+                <span>{INDUSTRY_META[industryFilter].icon}</span>
+                <span className={INDUSTRY_META[industryFilter].accent}>{INDUSTRY_META[industryFilter].label}</span>
+                <span className="text-slate-600 font-normal">accounts</span>
+              </span>
+            ) : 'Customer Accounts'}
+          </div>
           <div className="flex-1 min-w-0"/>
           <input
             type="text" placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)}
@@ -640,8 +1103,22 @@ export default function CustomerDashboard({ data, previousData, onAskAI }: Props
         ))}
 
         <div className="flex items-center justify-between text-[11px] text-slate-600 pt-1 px-1">
-          <div>Showing {sorted.length} account{sorted.length !== 1 ? 's' : ''} across {segments.length} tier{segments.length !== 1 ? 's' : ''}</div>
-          <div>Total: <span className="text-slate-400 font-medium">{fmt(rev)}</span></div>
+          <div>
+            Showing {sorted.length} account{sorted.length !== 1 ? 's' : ''}
+            {industryFilter !== 'all' && <span className="text-slate-500"> · {INDUSTRY_META[industryFilter].label} only</span>}
+            {' '}across {segments.length} tier{segments.length !== 1 ? 's' : ''}
+          </div>
+          <div>
+            {industryFilter !== 'all' ? (
+              <span>
+                Segment: <span className="text-slate-400 font-medium">
+                  {(() => { const v = sorted.reduce((s, c) => s + c.revenue, 0); return v >= 1_000_000 ? `$${(v/1_000_000).toFixed(1)}M` : v >= 1_000 ? `$${(v/1_000).toFixed(0)}k` : `$${v.toFixed(0)}`; })()}
+                </span>
+              </span>
+            ) : (
+              <span>Total: <span className="text-slate-400 font-medium">{fmt(rev)}</span></span>
+            )}
+          </div>
         </div>
       </div>
     </div>

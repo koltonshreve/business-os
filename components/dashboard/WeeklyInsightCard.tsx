@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { WeeklyInsight } from '../../types';
+
+const DONE_KEY = 'bos_weekly_done';
 
 interface Props {
   insight: WeeklyInsight | null;
@@ -33,9 +35,32 @@ function printInsight(insight: WeeklyInsight) {
 }
 
 export default function WeeklyInsightCard({ insight, onGenerate, loading }: Props) {
-  const [doneItems, setDoneItems] = useState<Set<number>>(new Set());
+  const [doneItems, setDoneItems] = useState<Set<number>>(() => {
+    try {
+      const saved = localStorage.getItem(DONE_KEY);
+      if (saved) return new Set<number>(JSON.parse(saved) as number[]);
+    } catch { /* ignore */ }
+    return new Set<number>();
+  });
   const [copied, setCopied]       = useState(false);
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
+
+  // Persist done items to localStorage whenever they change
+  useEffect(() => {
+    try { localStorage.setItem(DONE_KEY, JSON.stringify(Array.from(doneItems))); } catch { /* ignore */ }
+  }, [doneItems]);
+
+  // Clear done items when a new insight is generated (weekOf changes)
+  useEffect(() => {
+    if (!insight) return;
+    try {
+      const savedWeek = localStorage.getItem(`${DONE_KEY}_week`);
+      if (savedWeek !== insight.weekOf) {
+        setDoneItems(new Set());
+        localStorage.setItem(`${DONE_KEY}_week`, insight.weekOf);
+      }
+    } catch { /* ignore */ }
+  }, [insight?.weekOf]);
 
   if (!insight) {
     return (

@@ -204,6 +204,31 @@ export default function TransactionLedger({ transactions, onAskAI }: Props) {
           );
         })()}
 
+        {/* Top 5 Largest Transactions */}
+        {(() => {
+          const top5 = [...transactions]
+            .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
+            .slice(0, 5);
+          return (
+            <div className="mb-3">
+              <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-2">5 Largest Transactions</div>
+              <div className="space-y-1">
+                {top5.map((t, i) => (
+                  <div key={i} className="flex items-center gap-2.5 text-[11px] group cursor-pointer hover:bg-slate-800/30 rounded-lg px-1.5 py-0.5 -mx-1.5 transition-colors"
+                    onClick={() => { setSearch(t.description.slice(0, 20)); setPage(0); }}>
+                    <span className="w-4 text-[10px] font-bold text-slate-700 flex-shrink-0">{i + 1}</span>
+                    <span className="flex-1 text-slate-400 truncate">{t.description}</span>
+                    <span className="text-slate-600 flex-shrink-0">{t.date}</span>
+                    <span className={`font-semibold tabular-nums flex-shrink-0 w-14 text-right ${t.amount >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {t.amount >= 0 ? '+' : '−'}{fmt(t.amount)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-2">
           <input

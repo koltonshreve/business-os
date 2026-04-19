@@ -1,4 +1,4 @@
-import { useState, useCallback, useId } from 'react';
+import { useState, useCallback, useId, useEffect } from 'react';
 import type { UnifiedBusinessData } from '../../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts';
 
@@ -254,16 +254,29 @@ export default function ScenarioModeler({ data, onAskAI }: Props) {
     grossMarginPct: baseGM,
   });
 
-  const [saved, setSaved]     = useState<Scenario[]>([]);
+  const [saved, setSaved]         = useState<Scenario[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const s = localStorage.getItem('bos_scenarios');
+      if (s) return JSON.parse(s) as Scenario[];
+    } catch { /* ignore */ }
+    return [];
+  });
   const [nameInput, setNameInput] = useState('');
   const [showSave, setShowSave]   = useState(false);
   const [compareMode, setCompareMode] = useState(false);
+  const [targetMargin, setTargetMargin] = useState(0); // 0 = disabled
 
   const proj = project(data, active);
 
   const set = useCallback((key: keyof Scenario, val: number) => {
     setActive(prev => ({ ...prev, [key]: val }));
   }, []);
+
+  // Persist saved scenarios
+  useEffect(() => {
+    try { localStorage.setItem('bos_scenarios', JSON.stringify(saved)); } catch { /* ignore */ }
+  }, [saved]);
 
   const saveScenario = () => {
     const name = nameInput.trim() || `Scenario ${saved.length + 1}`;
@@ -277,8 +290,30 @@ export default function ScenarioModeler({ data, onAskAI }: Props) {
     setActive({ ...s });
   };
 
+  const deleteScenario = (id: string) => {
+    setSaved(prev => prev.filter(s => s.id !== id));
+  };
+
   const resetLevers = () => {
     setActive(prev => ({ ...prev, ...DEFAULT_SCENARIO, grossMarginPct: baseGM }));
+  };
+
+  const [copied, setCopied] = useState(false);
+  const copyScenario = async () => {
+    const lines = [
+      `SCENARIO: ${active.name}`,
+      `Revenue: ${fmt(proj.revenue, true)} (${proj.dRevenue >= 0 ? '+' : ''}${fmt(proj.dRevenue, true)} vs base)`,
+      `Gross Margin: ${proj.gmPct.toFixed(1)}%`,
+      `OpEx: ${fmt(proj.opex, true)}`,
+      `EBITDA: ${fmt(proj.ebitda, true)} (${proj.ebitdaMargin.toFixed(1)}% margin)`,
+      active.newHires ? `New Hires: ${active.newHires} @ $${active.avgCompK}k avg` : '',
+      active.priceIncreasePct ? `Price increase: ${active.priceIncreasePct}%` : '',
+    ].filter(Boolean).join('\n');
+    try {
+      await navigator.clipboard.writeText(lines);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* ignore */ }
   };
 
   const hasChanges = active.revenueGrowthPct !== 0 || active.opexChangePct !== 0 ||
@@ -506,6 +541,10 @@ export default function ScenarioModeler({ data, onAskAI }: Props) {
                     : `${fmt(proj.breakEven - proj.revenue, true)} below break-even`}
                 </div>
               </div>
+              <button onClick={copyScenario}
+                className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 font-medium border border-slate-700/50 hover:border-slate-600 px-3 py-2 rounded-lg transition-all flex-shrink-0">
+                {copied ? '✓ Copied' : '⎘ Copy'}
+              </button>
               {onAskAI && (
                 <button onClick={() => onAskAI(
                   `I'm modeling a scenario: revenue ${delta(proj.dRevenue)} to ${fmt(proj.revenue, true)}, gross margin ${proj.gmPct.toFixed(1)}%, OpEx ${delta(proj.dOpEx)} to ${fmt(proj.opex, true)}, EBITDA ${delta(ebitdaChange)} to ${fmt(proj.ebitda, true)} (${proj.ebitdaMargin.toFixed(1)}% margin). ` +
@@ -517,6 +556,92 @@ export default function ScenarioModeler({ data, onAskAI }: Props) {
                 </button>
               )}
             </div>
+          </div>
+
+          {/* Goal Calculator */}
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-[12px] font-semibold text-slate-300">Goal Calculator</div>
+              <div className="text-[11px] text-slate-500">What revenue do I need to hit a target margin?</div>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap mb-4">
+              <span className="text-[12px] text-slate-400">Target EBITDA margin:</span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {[10, 15, 20, 25, 30].map(t => (
+                  <button key={t} onClick={() => setTargetMargin(targetMargin === t ? 0 : t)}
+                    className={`text-[12px] font-semibold px-3 py-1 rounded-lg border transition-all ${
+                      targetMargin === t
+                        ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300'
+                        : 'bg-slate-800/50 border-slate-700/50 text-slate-500 hover:text-slate-300 hover:border-slate-600'
+                    }`}>
+                    {t}%
+                  </button>
+                ))}
+              </div>
+            </div>
+            {targetMargin > 0 && (() => {
+              const gmFrac = proj.gmPct / 100;
+              const targetFrac = targetMargin / 100;
+              const feasible = gmFrac > targetFrac;
+              // EBITDA = Rev × gmFrac - OpEx = Rev × targetFrac
+              // Rev × (gmFrac - targetFrac) = OpEx
+              const requiredRev  = feasible ? proj.opex / (gmFrac - targetFrac) : null;
+              const requiredDelta = requiredRev !== null ? requiredRev - baseRev : null;
+              const currentMargin = proj.revenue > 0 ? (proj.ebitda / proj.revenue) * 100 : 0;
+              const isAlreadyMet  = currentMargin >= targetMargin;
+
+              return (
+                <div className={`rounded-xl p-4 border ${
+                  isAlreadyMet ? 'bg-emerald-500/6 border-emerald-500/20' :
+                  !feasible    ? 'bg-red-500/6 border-red-500/20' :
+                                  'bg-indigo-500/6 border-indigo-500/20'
+                }`}>
+                  {isAlreadyMet ? (
+                    <div className="flex items-center gap-2 text-emerald-400">
+                      <span className="text-lg">✓</span>
+                      <span className="text-[13px] font-semibold">
+                        Current scenario already hits {targetMargin}% margin ({currentMargin.toFixed(1)}% projected)
+                      </span>
+                    </div>
+                  ) : !feasible ? (
+                    <div className="flex items-start gap-2 text-red-400">
+                      <span className="text-lg flex-shrink-0">⚠</span>
+                      <div>
+                        <div className="text-[13px] font-semibold">Not achievable at current gross margin</div>
+                        <div className="text-[11px] text-red-400/70 mt-0.5">
+                          Gross margin ({proj.gmPct.toFixed(1)}%) must exceed target EBITDA margin ({targetMargin}%).
+                          Improve GM first before this scenario can hit {targetMargin}%.
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Required Revenue</div>
+                        <div className="text-[18px] font-bold text-indigo-300">{fmt(requiredRev!, true)}</div>
+                        <div className={`text-[11px] mt-0.5 font-medium ${requiredDelta! >= 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                          {requiredDelta! >= 0 ? '+' : ''}{fmt(requiredDelta!, true)} vs current
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Required Growth</div>
+                        <div className="text-[18px] font-bold text-slate-200">
+                          {baseRev > 0 ? `${(((requiredRev! - baseRev) / baseRev) * 100).toFixed(1)}%` : '—'}
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">from base revenue</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Implied EBITDA</div>
+                        <div className="text-[18px] font-bold text-emerald-400">
+                          {fmt(requiredRev! * targetFrac, true)}
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">at {targetMargin}% margin</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Waterfall */}

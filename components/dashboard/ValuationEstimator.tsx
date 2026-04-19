@@ -3,8 +3,8 @@
  * M&A-grade EBITDA-multiple range with quality-of-earnings adjustments.
  * Designed for lower middle market ($2M–$50M revenue).
  */
-import { useState } from 'react';
-import type { UnifiedBusinessData } from '../../types';
+import { useState, useMemo } from 'react';
+import type { UnifiedBusinessData, CustomerIndustry } from '../../types';
 
 interface Props {
   data: UnifiedBusinessData;
@@ -30,6 +30,34 @@ const INDUSTRIES = [
 ] as const;
 
 type IndustryId = typeof INDUSTRIES[number]['id'];
+
+// ── Map CustomerIndustry → IndustryId ────────────────────────────────────────
+const INDUSTRY_MAP: Partial<Record<CustomerIndustry, IndustryId>> = {
+  'professional-services': 'professional',
+  'saas-technology':       'saas',
+  'manufacturing':         'manufacturing',
+  'healthcare':            'healthcare',
+  'construction':          'construction',
+  'distribution':          'distribution',
+  'financial-services':    'professional',
+  'retail':                'other',
+};
+
+function detectIndustry(data: UnifiedBusinessData): IndustryId {
+  const revByIndustry: Partial<Record<IndustryId, number>> = {};
+  for (const c of data.customers.topCustomers) {
+    if (!c.industry) continue;
+    const mapped = INDUSTRY_MAP[c.industry];
+    if (!mapped) continue;
+    revByIndustry[mapped] = (revByIndustry[mapped] ?? 0) + c.revenue;
+  }
+  let best: IndustryId = 'professional';
+  let bestRev = 0;
+  for (const [id, rev] of Object.entries(revByIndustry) as [IndustryId, number][]) {
+    if (rev > bestRev) { bestRev = rev; best = id; }
+  }
+  return best;
+}
 
 // ── Quality factor definitions ────────────────────────────────────────────────
 interface QualityFactor {
@@ -155,9 +183,229 @@ function computeQualityFactors(
   return factors;
 }
 
+// ── Value Creation Roadmap ────────────────────────────────────────────────────
+interface RoadmapItem {
+  id: string;
+  action: string;
+  currentDisplay: string;
+  targetDisplay: string;
+  potentialDelta: number; // additional × achievable
+  timeframe: string;
+  category: 'revenue' | 'margin' | 'risk' | 'scale';
+}
+
+const CATEGORY_STYLE: Record<RoadmapItem['category'], { label: string; color: string; bg: string }> = {
+  revenue: { label: 'Revenue',   color: 'text-indigo-400',  bg: 'bg-indigo-500/10 border-indigo-500/20' },
+  margin:  { label: 'Margin',    color: 'text-emerald-400', bg: 'bg-emerald-500/8 border-emerald-500/15' },
+  risk:    { label: 'Risk',      color: 'text-amber-400',   bg: 'bg-amber-500/8 border-amber-500/15' },
+  scale:   { label: 'Scale',     color: 'text-violet-400',  bg: 'bg-violet-500/8 border-violet-500/15' },
+};
+
+function buildRoadmap(data: UnifiedBusinessData, previousData?: UnifiedBusinessData): RoadmapItem[] {
+  const items: RoadmapItem[] = [];
+  const rev          = data.revenue.total;
+  const cogs         = data.costs.totalCOGS;
+  const opex         = data.costs.totalOpEx;
+  const gp           = rev - cogs;
+  const ebitda       = gp - opex;
+  const ebitdaMargin = rev > 0 ? (ebitda / rev) * 100 : 0;
+  const prevRev      = previousData?.revenue.total ?? 0;
+  const revGrowth    = prevRev > 0 ? ((rev - prevRev) / prevRev) * 100 : 0;
+  const topCustPct   = data.customers.topCustomers[0]?.percentOfTotal ?? 0;
+  const retention    = (data.customers.retentionRate ?? 0.88) * 100;
+  const recurringRev = data.revenue.recurring;
+  const recurringPct = recurringRev && rev > 0 ? (recurringRev / rev) * 100 : null;
+  const periodCount  = data.revenue.byPeriod.length || 1;
+  const annualRev    = Math.round((rev / periodCount) * 12);
+
+  // Revenue growth
+  if (prevRev > 0 && revGrowth < 25) {
+    const cur = revGrowth >= 15 ? 0.75 : revGrowth >= 5 ? 0 : revGrowth >= 0 ? -0.5 : -1.5;
+    const potential = 1.5 - cur;
+    if (potential > 0) items.push({
+      id: 'grow-revenue',
+      action: 'Accelerate revenue growth to 25%+ YoY',
+      currentDisplay: `${revGrowth.toFixed(1)}% growth`,
+      targetDisplay: '25%+ YoY',
+      potentialDelta: potential,
+      timeframe: '12–18 months',
+      category: 'revenue',
+    });
+  }
+
+  // Recurring mix
+  if (recurringPct !== null && recurringPct < 70) {
+    const cur = recurringPct >= 50 ? 0.75 : recurringPct >= 30 ? 0 : -0.25;
+    const potential = 1.5 - cur;
+    if (potential > 0) items.push({
+      id: 'grow-recurring',
+      action: 'Convert project work to recurring retainers',
+      currentDisplay: `${recurringPct.toFixed(0)}% recurring`,
+      targetDisplay: '70%+ recurring',
+      potentialDelta: potential,
+      timeframe: '12–24 months',
+      category: 'revenue',
+    });
+  }
+
+  // EBITDA margin
+  if (ebitdaMargin < 22) {
+    const cur = ebitdaMargin >= 15 ? 0.5 : ebitdaMargin >= 8 ? 0 : ebitdaMargin >= 0 ? -0.5 : -1.5;
+    const potential = 1.0 - cur;
+    if (potential > 0) items.push({
+      id: 'improve-margin',
+      action: 'Improve EBITDA margin above 22%',
+      currentDisplay: `${ebitdaMargin.toFixed(1)}% EBITDA`,
+      targetDisplay: '22%+ EBITDA',
+      potentialDelta: potential,
+      timeframe: '6–12 months',
+      category: 'margin',
+    });
+  }
+
+  // Customer concentration
+  if (topCustPct > 15) {
+    const cur = topCustPct > 35 ? -1.5 : topCustPct > 25 ? -1.0 : -0.5;
+    const potential = 0.5 - cur; // from negative → +0.5 (diversified)
+    items.push({
+      id: 'reduce-concentration',
+      action: 'Diversify — reduce top customer below 15%',
+      currentDisplay: `${topCustPct.toFixed(0)}% top customer`,
+      targetDisplay: '<15% top customer',
+      potentialDelta: potential,
+      timeframe: '18–24 months',
+      category: 'risk',
+    });
+  }
+
+  // Retention
+  if (retention < 95) {
+    const cur = retention >= 90 ? 0.5 : retention >= 80 ? 0 : retention >= 70 ? -0.5 : -1.0;
+    const potential = 1.0 - cur;
+    if (potential > 0) items.push({
+      id: 'improve-retention',
+      action: 'Improve customer retention to 95%+',
+      currentDisplay: `${retention.toFixed(0)}% retained`,
+      targetDisplay: '95%+ retention',
+      potentialDelta: potential,
+      timeframe: '6–18 months',
+      category: 'risk',
+    });
+  }
+
+  // Scale
+  if (annualRev < 10_000_000) {
+    items.push({
+      id: 'scale',
+      action: 'Scale annual revenue above $10M',
+      currentDisplay: `${fmt(annualRev)}/yr est.`,
+      targetDisplay: '$10M+ ARR',
+      potentialDelta: 0.25,
+      timeframe: '24–36 months',
+      category: 'scale',
+    });
+  }
+
+  return items.sort((a, b) => b.potentialDelta - a.potentialDelta);
+}
+
+function ValuationRoadmap({
+  items, currentAdjMid,
+}: { items: RoadmapItem[]; currentAdjMid: number }) {
+  const maxPotential = items.reduce((s, i) => s + i.potentialDelta, 0);
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-slate-800/20 transition-colors text-left">
+        <div className="flex items-center gap-3">
+          <span className="text-[13px] font-semibold text-slate-100">Value Creation Roadmap</span>
+          <span className="text-[11px] text-slate-500">
+            {items.length} action{items.length !== 1 ? 's' : ''} identified
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-[12px] font-semibold text-indigo-400">
+            Up to +{maxPotential.toFixed(1)}× potential
+          </span>
+          <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
+            className={`w-2.5 h-2.5 text-slate-600 transition-transform ${open ? 'rotate-180' : ''}`}>
+            <path d="M2 3.5L5 6.5 8 3.5"/>
+          </svg>
+        </div>
+      </button>
+
+      {open && (
+        <div className="border-t border-slate-800/40">
+          {/* Context bar */}
+          <div className="px-5 py-3 bg-slate-900/30 flex items-center gap-3 flex-wrap">
+            <div className="text-[11px] text-slate-500">
+              Current adjusted mid: <span className="text-slate-200 font-semibold">{currentAdjMid.toFixed(1)}×</span>
+            </div>
+            <div className="text-slate-700">·</div>
+            <div className="text-[11px] text-slate-500">
+              Max achievable: <span className="text-indigo-300 font-semibold">{(currentAdjMid + maxPotential).toFixed(1)}×</span>
+            </div>
+            <div className="text-slate-700">·</div>
+            <div className="text-[11px] text-slate-500">Actions ranked by multiple impact</div>
+          </div>
+
+          <div className="divide-y divide-slate-800/30">
+            {items.map((item, i) => {
+              const style = CATEGORY_STYLE[item.category];
+              const barWidth = Math.min(100, (item.potentialDelta / Math.max(...items.map(x => x.potentialDelta))) * 100);
+              return (
+                <div key={item.id} className="px-5 py-4 flex items-start gap-4">
+                  {/* Rank */}
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-800 border border-slate-700/50 flex items-center justify-center text-[11px] font-bold text-slate-400">
+                    {i + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-3 mb-1.5">
+                      <div>
+                        <div className="text-[13px] font-medium text-slate-100">{item.action}</div>
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${style.bg} ${style.color}`}>
+                            {style.label}
+                          </span>
+                          <span className="text-[11px] text-slate-500">{item.currentDisplay}</span>
+                          <span className="text-slate-700 text-[10px]">→</span>
+                          <span className="text-[11px] text-slate-300">{item.targetDisplay}</span>
+                          <span className="text-[10px] text-slate-600">·</span>
+                          <span className="text-[11px] text-slate-500">{item.timeframe}</span>
+                        </div>
+                      </div>
+                      <div className="flex-shrink-0 text-right">
+                        <div className="text-[14px] font-bold text-emerald-400">+{item.potentialDelta.toFixed(1)}×</div>
+                        <div className="text-[10px] text-slate-600">to multiple</div>
+                      </div>
+                    </div>
+                    {/* Impact bar */}
+                    <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full bg-emerald-500/50 transition-all" style={{ width: `${barWidth}%` }}/>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {items.length === 0 && (
+            <div className="px-5 py-6 text-center text-[12px] text-slate-500">
+              No major improvements identified — this business scores well across all valuation factors.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function ValuationEstimator({ data, previousData, onAskAI }: Props) {
-  const [industry, setIndustry] = useState<IndustryId>('professional');
+  const [industry, setIndustry] = useState<IndustryId>(() => detectIndustry(data));
   const [showFactors, setShowFactors] = useState(true);
 
   const rev    = data.revenue.total;
@@ -165,9 +413,10 @@ export default function ValuationEstimator({ data, previousData, onAskAI }: Prop
   const opex   = data.costs.totalOpEx;
   const ebitda = rev - cogs - opex;
 
-  const ind     = INDUSTRIES.find(i => i.id === industry) ?? INDUSTRIES[0];
-  const factors = computeQualityFactors(data, previousData);
+  const ind        = INDUSTRIES.find(i => i.id === industry) ?? INDUSTRIES[0];
+  const factors    = computeQualityFactors(data, previousData);
   const totalDelta = factors.reduce((s, f) => s + f.delta, 0);
+  const roadmap    = useMemo(() => buildRoadmap(data, previousData), [data, previousData]);
 
   // Apply quality delta to the midpoint, clamped sensibly
   const baseMid = (ind.low + ind.high) / 2;
@@ -198,8 +447,13 @@ export default function ValuationEstimator({ data, previousData, onAskAI }: Prop
   return (
     <div className="space-y-4">
       {/* Industry selector */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-[0.08em] flex-shrink-0">Industry</span>
+      <div className="flex items-start gap-3 flex-wrap">
+        <div className="flex-shrink-0 pt-0.5">
+          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-[0.08em]">Industry</span>
+          {detectIndustry(data) === industry && (
+            <div className="text-[9px] text-indigo-400/70 mt-0.5 whitespace-nowrap">auto-detected</div>
+          )}
+        </div>
         <div className="flex flex-wrap gap-1.5">
           {INDUSTRIES.map(i => (
             <button key={i.id} onClick={() => setIndustry(i.id)}
@@ -384,6 +638,11 @@ export default function ValuationEstimator({ data, previousData, onAskAI }: Prop
               </div>
             )}
           </div>
+
+          {/* Value Creation Roadmap */}
+          {roadmap.length > 0 && (
+            <ValuationRoadmap items={roadmap} currentAdjMid={adjMid}/>
+          )}
 
           {/* Disclaimer */}
           <div className="text-[10px] text-slate-700 leading-relaxed px-1">

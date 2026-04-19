@@ -2,10 +2,17 @@ import { useState, useCallback } from 'react';
 import type { UnifiedBusinessData, CSVUpload } from '../../types';
 import { parseCSVUpload, mergeDataSources } from '../../lib/data-connectors';
 
+export interface CompanyProfile {
+  industry?: string;
+  revenueModel?: string;
+}
+
 interface Props {
   data: UnifiedBusinessData;
   onDataUpdate: (data: UnifiedBusinessData) => void;
   onSuccess?: (message: string) => void;
+  companyProfile?: CompanyProfile;
+  onProfileChange?: (profile: CompanyProfile) => void;
 }
 
 type GsStep    = 'idle' | 'select-sheet' | 'map-columns' | 'connected';
@@ -873,8 +880,27 @@ const INTEGRATION_CATEGORIES = [
   },
 ];
 
+const INDUSTRIES = [
+  { id: 'professional-services', label: 'Professional Services' },
+  { id: 'saas-technology',       label: 'SaaS / Technology' },
+  { id: 'manufacturing',         label: 'Manufacturing' },
+  { id: 'distribution',          label: 'Distribution / Wholesale' },
+  { id: 'healthcare',            label: 'Healthcare Services' },
+  { id: 'construction',          label: 'Construction / Trades' },
+  { id: 'financial-services',    label: 'Financial Services' },
+  { id: 'retail',                label: 'Retail / E-commerce' },
+  { id: 'other',                 label: 'Other' },
+] as const;
+
+const REVENUE_MODELS = [
+  { id: 'recurring',  label: 'Recurring / Subscription' },
+  { id: 'project',    label: 'Project / Time & Materials' },
+  { id: 'transactional', label: 'Transactional / Product Sales' },
+  { id: 'mixed',      label: 'Mixed' },
+] as const;
+
 // ── Main Panel ────────────────────────────────────────────────────────────────
-export default function DataSourcePanel({ data, onDataUpdate, onSuccess }: Props) {
+export default function DataSourcePanel({ data, onDataUpdate, onSuccess, companyProfile, onProfileChange }: Props) {
   const completeness     = Math.round(data.metadata.completeness * 100);
   const isDemo           = data.metadata.sources.includes('Demo Data');
   const connectedSources = data.metadata.sources.filter(s => s !== 'Demo Data');
@@ -892,6 +918,114 @@ export default function DataSourcePanel({ data, onDataUpdate, onSuccess }: Props
 
   return (
     <div className="max-w-3xl space-y-6">
+
+      {/* Company Profile */}
+      {onProfileChange && (
+        <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+          <div className="text-[12px] font-semibold text-slate-300 mb-3">Company Profile</div>
+          <div className="text-[11px] text-slate-500 mb-4 leading-relaxed">
+            Industry and revenue model are used to benchmark your metrics against peers and improve AI analysis accuracy.
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Industry</label>
+              <select
+                value={companyProfile?.industry ?? ''}
+                onChange={e => onProfileChange({ ...(companyProfile ?? {}), industry: e.target.value || undefined })}
+                className="w-full bg-slate-800/60 border border-slate-700/60 rounded-xl px-3 py-2 text-[13px] text-slate-100 focus:outline-none focus:border-indigo-500/50 transition-colors">
+                <option value="">Select industry…</option>
+                {INDUSTRIES.map(i => <option key={i.id} value={i.id}>{i.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Revenue Model</label>
+              <select
+                value={companyProfile?.revenueModel ?? ''}
+                onChange={e => onProfileChange({ ...(companyProfile ?? {}), revenueModel: e.target.value || undefined })}
+                className="w-full bg-slate-800/60 border border-slate-700/60 rounded-xl px-3 py-2 text-[13px] text-slate-100 focus:outline-none focus:border-indigo-500/50 transition-colors">
+                <option value="">Select model…</option>
+                {REVENUE_MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+            </div>
+          </div>
+          {(companyProfile?.industry || companyProfile?.revenueModel) && (
+            <div className="flex items-center gap-1.5 mt-3">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0"/>
+              <span className="text-[11px] text-emerald-400/80 font-medium">Profile saved — AI will use this context for analysis</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Quick-start guide (demo only) */}
+      {isDemo && (
+        <div className="bg-slate-900/60 border border-slate-700/50 rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="w-6 h-6 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 text-[12px] font-bold flex-shrink-0">1</div>
+            <div className="text-[13px] font-semibold text-slate-100">Start here — 3 uploads unlock 90% of features</div>
+          </div>
+          <div className="space-y-3">
+            {[
+              {
+                step: '1', time: '2 min', icon: '📈', label: 'Revenue / P&L',
+                desc: 'Monthly revenue + COGS unlocks KPI grid, trend signals, health score, and AI analysis.',
+                type: 'revenue' as const,
+                tip: 'QuickBooks: Reports → P&L → Export CSV · Xero: Accounting → Reports · Excel: your monthly revenue sheet',
+              },
+              {
+                step: '2', time: '1 min', icon: '👥', label: 'Customer List',
+                desc: 'Customer names + revenue unlocks concentration risk, retention analysis, and customer dashboard.',
+                type: 'customers' as const,
+                tip: 'CRM export or spreadsheet: Customer Name, Revenue, Status (active/churned)',
+              },
+              {
+                step: '3', time: '2 min', icon: '🏦', label: 'Cash Flow',
+                desc: 'Monthly cash balances unlock runway calculator, burn rate analysis, and scenario modeling.',
+                type: 'cashflow' as const,
+                tip: 'Bank statement export or QuickBooks: Reports → Cash Flow Statement',
+              },
+            ].map((item, idx) => (
+              <div key={item.step} className="flex items-start gap-3 bg-slate-800/30 border border-slate-700/40 rounded-xl p-3.5">
+                <div className="w-7 h-7 rounded-lg bg-indigo-500/15 border border-indigo-500/20 flex items-center justify-center text-[12px] font-bold text-indigo-400 flex-shrink-0 mt-0.5">{item.step}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-[14px]">{item.icon}</span>
+                    <span className="text-[13px] font-semibold text-slate-100">{item.label}</span>
+                    <span className="text-[10px] text-slate-600 font-medium">{item.time}</span>
+                  </div>
+                  <div className="text-[11px] text-slate-400 leading-relaxed mb-1.5">{item.desc}</div>
+                  <div className="text-[10px] text-slate-600 leading-relaxed font-medium">{item.tip}</div>
+                </div>
+                <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                  <label className="cursor-pointer">
+                    <span className="flex items-center gap-1.5 text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-500 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap">
+                      Upload CSV
+                    </span>
+                    <input type="file" accept=".csv,.tsv" className="hidden" onChange={async e => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const content = await new Promise<string>(resolve => {
+                        const r = new FileReader(); r.onload = () => resolve(r.result as string); r.readAsText(file);
+                      });
+                      const res = await fetch('/api/data/csv', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ uploads: [{ type: item.type, filename: file.name, content }], existingData: data }),
+                      });
+                      const result = await res.json();
+                      if (result.data) { onDataUpdate(result.data); onSuccess?.(`${item.label} imported — ${result.results?.[0]?.rowCount ?? '?'} rows`); }
+                      e.target.value = '';
+                    }}/>
+                  </label>
+                  <button onClick={() => downloadTemplate(item.type)}
+                    className="text-[10px] text-slate-600 hover:text-slate-400 font-medium transition-colors whitespace-nowrap">
+                    ↓ template
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Progress banner */}
       <div className={`border rounded-xl p-5 ${isDemo

@@ -108,6 +108,38 @@ export default function CustomKPIPanel({ kpis, onChange, onAskAI }: Props) {
         </div>
       </div>
 
+      {/* Attainment summary bar */}
+      {kpis.length > 0 && (() => {
+        const withTargets = kpis.filter(k => k.target && k.target > 0);
+        if (withTargets.length === 0) return null;
+        const onTrack = withTargets.filter(k => {
+          const pct = (k.value / k.target!) * 100;
+          return k.higherIsBetter ? pct >= 100 : pct <= 100;
+        });
+        const allGood = onTrack.length === withTargets.length;
+        const noneGood = onTrack.length === 0;
+        return (
+          <div className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl mb-4 border text-[12px] font-medium ${
+            allGood  ? 'bg-emerald-500/6 border-emerald-500/20 text-emerald-400' :
+            noneGood ? 'bg-red-500/6 border-red-500/20 text-red-400' :
+                       'bg-amber-500/6 border-amber-500/20 text-amber-400'
+          }`}>
+            <div className="flex items-center gap-1">
+              {withTargets.map((k, i) => {
+                const pct = (k.value / k.target!) * 100;
+                const hit = k.higherIsBetter ? pct >= 100 : pct <= 100;
+                return <div key={i} className={`w-2 h-2 rounded-full ${hit ? 'bg-emerald-400' : pct >= 75 ? 'bg-amber-400' : 'bg-red-400'}`}/>;
+              })}
+            </div>
+            <span>
+              {onTrack.length}/{withTargets.length} metrics on target
+              {onTrack.length < withTargets.length && ` — ${withTargets.length - onTrack.length} need attention`}
+            </span>
+            {allGood && <span className="text-[11px] opacity-70">All targets met</span>}
+          </div>
+        );
+      })()}
+
       {/* KPI cards grid */}
       {kpis.length > 0 ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mb-4">

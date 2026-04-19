@@ -32,6 +32,8 @@ export interface PeriodData {
   grossProfit?: number;
   ebitda?: number;
   cashCollected?: number;
+  recurring?: number;   // recurring portion of revenue this period
+  oneTime?: number;     // project / one-time portion this period
 }
 
 export interface CostData {
@@ -43,11 +45,33 @@ export interface CostData {
   overheadCost?: number;
 }
 
+export type CustomerIndustry =
+  | 'professional-services'
+  | 'saas-technology'
+  | 'manufacturing'
+  | 'healthcare'
+  | 'construction'
+  | 'distribution'
+  | 'financial-services'
+  | 'retail';
+
+export type CustomerRevenueType = 'recurring' | 'project' | 'mixed';
+
+export interface CustomerRecord {
+  id: string;
+  name: string;
+  revenue: number;
+  percentOfTotal: number;
+  industry?: CustomerIndustry;
+  revenueType?: CustomerRevenueType;
+  notes?: string;
+}
+
 export interface CustomerData {
   totalCount: number;
   newThisPeriod: number;
   churned: number;
-  topCustomers: { id: string; name: string; revenue: number; percentOfTotal: number }[];
+  topCustomers: CustomerRecord[];
   avgRevenuePerCustomer: number;
   retentionRate?: number;
   nps?: number;

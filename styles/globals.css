@@ -68,6 +68,34 @@
     margin: 14mm 12mm;
   }
 
+  /* Light background for readability on paper */
+  html, body {
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  /* Override dark card backgrounds */
+  [class*="bg-slate-9"],
+  [class*="bg-[#0"],
+  [class*="bg-slate-8"] {
+    background-color: #f8fafc !important;
+    border-color: #e2e8f0 !important;
+  }
+
+  /* Fix text colors for print */
+  [class*="text-slate-1"],
+  [class*="text-slate-2"] {
+    color: #111827 !important;
+  }
+  [class*="text-slate-3"],
+  [class*="text-slate-4"] {
+    color: #374151 !important;
+  }
+  [class*="text-slate-5"],
+  [class*="text-slate-6"] {
+    color: #6b7280 !important;
+  }
+
   /* Hide interactive chrome */
   .no-print,
   header,
@@ -100,4 +128,15 @@
 
   /* Hide sticky header */
   .sticky { position: static !important; }
+
+  /* Show print-only company name header */
+  .print-header {
+    display: block !important;
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    color: #111827;
+    border-bottom: 2px solid #e2e8f0;
+    padding-bottom: 8px;
+  }
 }

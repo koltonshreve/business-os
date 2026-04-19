@@ -13,7 +13,27 @@ Be specific with numbers. Always answer "so what?" — causality-first, action-o
 No corporate jargon. Busy executives read the first sentence of each point only.
 `;
 
-function dataSummary(data: UnifiedBusinessData, prev?: UnifiedBusinessData): string {
+interface CompanyProfile { industry?: string; revenueModel?: string; }
+
+const INDUSTRY_LABELS: Record<string, string> = {
+  'professional-services': 'Professional Services',
+  'saas-technology': 'SaaS / Technology',
+  'manufacturing': 'Manufacturing',
+  'distribution': 'Distribution / Wholesale',
+  'healthcare': 'Healthcare Services',
+  'construction': 'Construction / Trades',
+  'financial-services': 'Financial Services',
+  'retail': 'Retail / E-commerce',
+  'other': 'Other',
+};
+const REVENUE_MODEL_LABELS: Record<string, string> = {
+  'recurring': 'Recurring / Subscription',
+  'project': 'Project / Time & Materials',
+  'transactional': 'Transactional / Product Sales',
+  'mixed': 'Mixed',
+};
+
+function dataSummary(data: UnifiedBusinessData, prev?: UnifiedBusinessData, companyName?: string, companyProfile?: CompanyProfile): string {
   const rev    = data.revenue.total;
   const cogs   = data.costs.totalCOGS;
   const opex   = data.costs.totalOpEx;
@@ -22,7 +42,10 @@ function dataSummary(data: UnifiedBusinessData, prev?: UnifiedBusinessData): str
   const fmt    = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(2)}M` : `$${(n/1_000).toFixed(0)}k`;
   const pct    = (n: number, d: number) => d > 0 ? `${((n/d)*100).toFixed(1)}%` : 'N/A';
 
-  return `
+  const industryLine = companyProfile?.industry ? `Industry:       ${INDUSTRY_LABELS[companyProfile.industry] ?? companyProfile.industry}\n` : '';
+  const revModelLine = companyProfile?.revenueModel ? `Revenue Model:  ${REVENUE_MODEL_LABELS[companyProfile.revenueModel] ?? companyProfile.revenueModel}\n` : '';
+
+  return `${companyName ? `Company: ${companyName}\n` : ''}${industryLine}${revModelLine}
 Revenue:        ${fmt(rev)}
 COGS:           ${fmt(cogs)} (${pct(cogs, rev)} of revenue)
 Gross Profit:   ${fmt(gp)} (${pct(gp, rev)} margin)
@@ -57,13 +80,13 @@ async function complete(prompt: string, maxTokens = 3000): Promise<string> {
 }
 
 // ── EXIT READINESS ─────────────────────────────────────────────────────────────
-async function exitReadiness(data: UnifiedBusinessData, prev?: UnifiedBusinessData) {
+async function exitReadiness(data: UnifiedBusinessData, prev?: UnifiedBusinessData, companyName?: string, companyProfile?: CompanyProfile) {
   const prompt = `${TONE}
 
 You are preparing a sell-side readiness assessment for a lower-middle-market company.
 
 COMPANY DATA:
-${dataSummary(data, prev)}
+${dataSummary(data, prev, companyName, companyProfile)}
 
 Return ONLY valid JSON with this exact structure (no markdown, no commentary):
 {
@@ -133,13 +156,13 @@ Be specific with every number. Use the actual company data provided. Do not use 
 }
 
 // ── BOARD MEETING PREP ─────────────────────────────────────────────────────────
-async function boardMeetingPrep(data: UnifiedBusinessData, prev?: UnifiedBusinessData) {
+async function boardMeetingPrep(data: UnifiedBusinessData, prev?: UnifiedBusinessData, companyName?: string, companyProfile?: CompanyProfile) {
   const prompt = `${TONE}
 
 Prepare a board member for their upcoming board meeting. They need to walk in confident and prepared.
 
 COMPANY DATA:
-${dataSummary(data, prev)}
+${dataSummary(data, prev, companyName, companyProfile)}
 
 Return ONLY valid JSON:
 {
@@ -183,13 +206,13 @@ Generate 6+ talking points, 5+ Q&A pairs, 2-3 key asks. Make answers specific to
 }
 
 // ── 90-DAY ACTION PLAN ─────────────────────────────────────────────────────────
-async function actionPlan90Day(data: UnifiedBusinessData, prev?: UnifiedBusinessData) {
+async function actionPlan90Day(data: UnifiedBusinessData, prev?: UnifiedBusinessData, companyName?: string, companyProfile?: CompanyProfile) {
   const prompt = `${TONE}
 
 Create a prioritized 90-day execution plan for this business. Focus on the highest-leverage actions.
 
 COMPANY DATA:
-${dataSummary(data, prev)}
+${dataSummary(data, prev, companyName, companyProfile)}
 
 Return ONLY valid JSON:
 {
@@ -246,13 +269,13 @@ Generate 3-4 actions per category. Be specific — no generic advice. Use actual
 }
 
 // ── GROWTH PLAYBOOK ────────────────────────────────────────────────────────────
-async function growthPlaybook(data: UnifiedBusinessData, prev?: UnifiedBusinessData) {
+async function growthPlaybook(data: UnifiedBusinessData, prev?: UnifiedBusinessData, companyName?: string, companyProfile?: CompanyProfile) {
   const prompt = `${TONE}
 
 Build a revenue growth playbook for this business. Identify the highest-ROI growth levers.
 
 COMPANY DATA:
-${dataSummary(data, prev)}
+${dataSummary(data, prev, companyName, companyProfile)}
 
 Return ONLY valid JSON:
 {
@@ -331,14 +354,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: 'ANTHROPIC_API_KEY is not configured. Add it in Vercel → Settings → Environment Variables.' });
   }
 
-  const { agent, data, previousData }: { agent: string; data: UnifiedBusinessData; previousData?: UnifiedBusinessData } = req.body;
+  const { agent, data, previousData, companyName, companyProfile }: { agent: string; data: UnifiedBusinessData; previousData?: UnifiedBusinessData; companyName?: string; companyProfile?: CompanyProfile } = req.body;
 
+  const name = (companyName && companyName !== 'My Company') ? companyName : undefined;
+  const profile = (companyProfile?.industry || companyProfile?.revenueModel) ? companyProfile : undefined;
   try {
     let result;
-    if      (agent === 'exit-readiness') result = await exitReadiness(data, previousData);
-    else if (agent === 'board-prep')     result = await boardMeetingPrep(data, previousData);
-    else if (agent === 'action-plan')    result = await actionPlan90Day(data, previousData);
-    else if (agent === 'growth-playbook')result = await growthPlaybook(data, previousData);
+    if      (agent === 'exit-readiness') result = await exitReadiness(data, previousData, name, profile);
+    else if (agent === 'board-prep')     result = await boardMeetingPrep(data, previousData, name, profile);
+    else if (agent === 'action-plan')    result = await actionPlan90Day(data, previousData, name, profile);
+    else if (agent === 'growth-playbook')result = await growthPlaybook(data, previousData, name, profile);
     else return res.status(400).json({ error: 'Unknown agent' });
 
     return res.json({ result, agent });

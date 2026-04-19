@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import Head from 'next/head';
 import type { UnifiedBusinessData, KPIDashboard, WeeklyInsight, BoardDeck, Goals, Budget, CustomKPI } from '../types';
+import { DEMO_CUSTOMERS } from '../lib/demo-customers';
 import KPIGrid from '../components/dashboard/KPIGrid';
 import AlertFeed from '../components/dashboard/AlertFeed';
 import RevenueChart from '../components/charts/RevenueChart';
@@ -10,13 +11,17 @@ import FinancialDashboard from '../components/dashboard/FinancialDashboard';
 import CustomerDashboard from '../components/dashboard/CustomerDashboard';
 import OperationsDashboard from '../components/dashboard/OperationsDashboard';
 import IntelligenceDashboard from '../components/dashboard/IntelligenceDashboard';
-import DataSourcePanel from '../components/dashboard/DataSourcePanel';
+import DataSourcePanel, { type CompanyProfile } from '../components/dashboard/DataSourcePanel';
 import ScenarioModeler from '../components/dashboard/ScenarioModeler';
 import CustomKPIPanel from '../components/dashboard/CustomKPIPanel';
 import TrendSignalsPanel from '../components/dashboard/TrendSignalsPanel';
 import AIChat from '../components/AIChat';
 import TransactionLedger from '../components/dashboard/TransactionLedger';
 import MetricThresholdsPanel, { type Threshold } from '../components/dashboard/MetricThresholdsPanel';
+import AgentPanel from '../components/dashboard/AgentPanel';
+import IndustryBenchmarksPanel from '../components/dashboard/IndustryBenchmarksPanel';
+import PLStatement from '../components/PLStatement';
+import BudgetPanel from '../components/dashboard/BudgetPanel';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type ActiveView = 'overview' | 'financial' | 'customers' | 'operations' | 'intelligence' | 'scenarios' | 'data';
@@ -287,6 +292,107 @@ function CEOWatchlist({ data, previousData }: { data: UnifiedBusinessData; previ
   );
 }
 
+// ── Score history sparkline ───────────────────────────────────────────────────
+function computeHealthScore(d: UnifiedBusinessData, prev?: UnifiedBusinessData): number {
+  const rev = d.revenue.total, cogs = d.costs.totalCOGS, opex = d.costs.totalOpEx;
+  const gp = rev - cogs, ebitda = gp - opex;
+  const gpM = rev > 0 ? (gp / rev) * 100 : 0;
+  const ebitdaM = rev > 0 ? (ebitda / rev) * 100 : 0;
+  const prevRev = prev?.revenue.total ?? 0;
+  const revGrowth = prevRev > 0 ? ((rev - prevRev) / prevRev) * 100 : 0;
+  const topCustPct = d.customers.topCustomers[0]?.percentOfTotal ?? 0;
+  const ret = (d.customers.retentionRate ?? 0.88) * 100;
+  const rs = Math.round(prevRev > 0 ? Math.max(0, Math.min(100, 50 + revGrowth * 2)) : 60);
+  const ms = Math.max(0, Math.min(100, ebitdaM >= 20 ? 100 : ebitdaM >= 10 ? 75 : ebitdaM >= 0 ? 50 : 25));
+  const gs = Math.max(0, Math.min(100, gpM >= 60 ? 100 : gpM >= 40 ? 80 : gpM >= 25 ? 60 : 40));
+  const cs = Math.max(0, Math.min(100, topCustPct <= 15 ? 100 : topCustPct <= 25 ? 75 : topCustPct <= 40 ? 50 : 25));
+  const res = Math.max(0, Math.min(100, ret >= 95 ? 100 : ret >= 85 ? 75 : ret >= 70 ? 50 : 25));
+  return Math.round(rs * 0.25 + ms * 0.25 + gs * 0.20 + cs * 0.15 + res * 0.15);
+}
+
+function HealthScoreHistory({ snapshots, activeId }: { snapshots: PeriodSnapshot[]; activeId: string }) {
+  // Only show for non-demo user snapshots
+  const userSnaps = snapshots.filter(s => !['demo', 'prev-demo'].includes(s.id));
+  if (userSnaps.length < 2) return null;
+
+  // Compute scores for each snapshot (each vs. the one before it in chronological order)
+  const sorted = [...userSnaps].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  const scored = sorted.map((snap, i) => ({
+    label: snap.label,
+    id: snap.id,
+    score: computeHealthScore(snap.data, sorted[i - 1]?.data),
+    isActive: snap.id === activeId,
+  }));
+
+  const min = Math.max(0, Math.min(...scored.map(s => s.score)) - 10);
+  const max = Math.min(100, Math.max(...scored.map(s => s.score)) + 10);
+  const range = max - min || 1;
+
+  const W = 240, H = 48, pad = 8;
+  const pts = scored.map((s, i) => {
+    const x = pad + (i / Math.max(scored.length - 1, 1)) * (W - pad * 2);
+    const y = H - pad - ((s.score - min) / range) * (H - pad * 2);
+    return { x, y, ...s };
+  });
+  const polyline = pts.map(p => `${p.x},${p.y}`).join(' ');
+
+  const latest = scored[scored.length - 1];
+  const prev2  = scored[scored.length - 2];
+  const delta  = latest && prev2 ? latest.score - prev2.score : null;
+
+  return (
+    <div className="bg-slate-900/40 border border-slate-800/40 rounded-xl px-4 py-3 flex items-center gap-4">
+      <div className="flex-shrink-0">
+        <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-1">Health Score Trend</div>
+        <div className="flex items-center gap-2">
+          <span className="text-[20px] font-bold text-slate-200 tabular-nums">{latest?.score ?? '—'}</span>
+          {delta !== null && (
+            <span className={`text-[11px] font-semibold ${delta > 0 ? 'text-emerald-400' : delta < 0 ? 'text-red-400' : 'text-slate-500'}`}>
+              {delta > 0 ? '▲' : delta < 0 ? '▼' : '→'} {Math.abs(delta)} pts
+            </span>
+          )}
+        </div>
+        <div className="text-[10px] text-slate-600 mt-0.5">{scored.length} periods tracked</div>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="flex-1 min-w-0 max-w-[240px]" style={{ height: H }}>
+        {/* Area fill */}
+        <defs>
+          <linearGradient id="hst-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#6366f1" stopOpacity="0.25"/>
+            <stop offset="100%" stopColor="#6366f1" stopOpacity="0.0"/>
+          </linearGradient>
+        </defs>
+        {pts.length > 1 && (
+          <polygon
+            points={`${pts[0].x},${H - pad} ${polyline} ${pts[pts.length - 1].x},${H - pad}`}
+            fill="url(#hst-grad)"
+          />
+        )}
+        {/* Line */}
+        {pts.length > 1 && (
+          <polyline points={polyline} fill="none" stroke="#6366f1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        )}
+        {/* Dots */}
+        {pts.map((p, i) => (
+          <circle key={i} cx={p.x} cy={p.y} r={p.isActive ? 4 : 2.5}
+            fill={p.isActive ? '#818cf8' : '#475569'}
+            stroke={p.isActive ? '#312e81' : 'none'} strokeWidth="1.5">
+            <title>{p.label}: {p.score}</title>
+          </circle>
+        ))}
+      </svg>
+      <div className="hidden sm:flex flex-col gap-1 flex-shrink-0 max-w-[100px]">
+        {scored.slice(-3).map((s, i) => (
+          <div key={i} className={`flex items-center justify-between gap-2 text-[10px] ${s.isActive ? 'text-indigo-300 font-semibold' : 'text-slate-600'}`}>
+            <span className="truncate">{s.label.slice(0, 12)}</span>
+            <span className="tabular-nums flex-shrink-0">{s.score}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Business Health Score ──────────────────────────────────────────────────────
 function BusinessHealthScore({ data, previousData, onAskAI }: { data: UnifiedBusinessData; previousData?: UnifiedBusinessData; onAskAI?: (msg: string) => void }) {
   const rev      = data.revenue.total;
@@ -302,13 +408,33 @@ function BusinessHealthScore({ data, previousData, onAskAI }: { data: UnifiedBus
   const retention    = (data.customers.retentionRate ?? 0.88) * 100;
 
   // Score components (0–100 each)
-  const revScore    = prevRev > 0 ? Math.max(0, Math.min(100, 50 + revGrowth * 2))           : 60;
+  const revScore    = Math.round(prevRev > 0 ? Math.max(0, Math.min(100, 50 + revGrowth * 2)) : 60);
   const marginScore = Math.max(0, Math.min(100, ebitdaMargin >= 20 ? 100 : ebitdaMargin >= 10 ? 75 : ebitdaMargin >= 0 ? 50 : 25));
   const gpScore     = Math.max(0, Math.min(100, gpMargin >= 60 ? 100 : gpMargin >= 40 ? 80 : gpMargin >= 25 ? 60 : 40));
   const custScore   = Math.max(0, Math.min(100, topCustPct <= 15 ? 100 : topCustPct <= 25 ? 75 : topCustPct <= 40 ? 50 : 25));
   const retScore    = Math.max(0, Math.min(100, retention >= 95 ? 100 : retention >= 85 ? 75 : retention >= 70 ? 50 : 25));
 
   const total = Math.round((revScore * 0.25 + marginScore * 0.25 + gpScore * 0.20 + custScore * 0.15 + retScore * 0.15));
+
+  // Previous period score for delta
+  const prevTotal = (() => {
+    if (!previousData) return null;
+    const pr = previousData.revenue.total, pc = previousData.costs.totalCOGS, po = previousData.costs.totalOpEx;
+    const pg = pr - pc, pe = pg - po;
+    const pPrevRev = prevRev; // already computed above
+    const prevRevGrowth = pPrevRev > 0 ? ((pr - pPrevRev) / pPrevRev) * 100 : 0;
+    const pRevS = Math.round(pPrevRev > 0 ? Math.max(0, Math.min(100, 50 + prevRevGrowth * 2)) : 60);
+    const pEM   = pr > 0 ? (pe / pr) * 100 : 0;
+    const pGM   = pr > 0 ? (pg / pr) * 100 : 0;
+    const pTopC = previousData.customers.topCustomers[0]?.percentOfTotal ?? 0;
+    const pRet  = (previousData.customers.retentionRate ?? 0.88) * 100;
+    const pMarS = Math.max(0, Math.min(100, pEM >= 20 ? 100 : pEM >= 10 ? 75 : pEM >= 0 ? 50 : 25));
+    const pGpS  = Math.max(0, Math.min(100, pGM >= 60 ? 100 : pGM >= 40 ? 80 : pGM >= 25 ? 60 : 40));
+    const pCuS  = Math.max(0, Math.min(100, pTopC <= 15 ? 100 : pTopC <= 25 ? 75 : pTopC <= 40 ? 50 : 25));
+    const pReS  = Math.max(0, Math.min(100, pRet >= 95 ? 100 : pRet >= 85 ? 75 : pRet >= 70 ? 50 : 25));
+    return Math.round(pRevS * 0.25 + pMarS * 0.25 + pGpS * 0.20 + pCuS * 0.15 + pReS * 0.15);
+  })();
+  const scoreDelta = prevTotal !== null ? total - prevTotal : null;
 
   const grade = total >= 85 ? 'A' : total >= 70 ? 'B' : total >= 55 ? 'C' : total >= 40 ? 'D' : 'F';
   const gradeColor = total >= 85 ? 'text-emerald-400' : total >= 70 ? 'text-sky-400' : total >= 55 ? 'text-amber-400' : 'text-red-400';
@@ -352,6 +478,11 @@ function BusinessHealthScore({ data, previousData, onAskAI }: { data: UnifiedBus
           <text x={cx} y={cy - 16} textAnchor="middle" style={{ fill: arcColor, fontSize: 11, fontWeight: 600 }}>{grade}</text>
         </svg>
         <div className="text-center -mt-2 text-[11px] font-semibold text-slate-500">Business Health</div>
+        {scoreDelta !== null && (
+          <div className={`text-center text-[10px] font-semibold mt-0.5 tabular-nums ${scoreDelta > 0 ? 'text-emerald-400/70' : scoreDelta < 0 ? 'text-red-400/70' : 'text-slate-600'}`}>
+            {scoreDelta > 0 ? `▲ +${scoreDelta} vs prior` : scoreDelta < 0 ? `▼ ${scoreDelta} vs prior` : '→ unchanged'}
+          </div>
+        )}
       </div>
 
       {/* Components */}
@@ -398,26 +529,19 @@ const DEMO_DATA: UnifiedBusinessData = {
     recurring: 737000,   // ~60% recurring (retainer / managed services)
     oneTime:   491000,   // ~40% project / one-time
     byPeriod: [
-      { period: 'Oct 2024', periodType: 'monthly', revenue: 178000, cogs: 107000, ebitda: 26700  },
-      { period: 'Nov 2024', periodType: 'monthly', revenue: 192000, cogs: 115000, ebitda: 28800  },
-      { period: 'Dec 2024', periodType: 'monthly', revenue: 205000, cogs: 123000, ebitda: 30750  },
-      { period: 'Jan 2025', periodType: 'monthly', revenue: 188000, cogs: 113000, ebitda: 28200  },
-      { period: 'Feb 2025', periodType: 'monthly', revenue: 220000, cogs: 132000, ebitda: 33000  },
-      { period: 'Mar 2025', periodType: 'monthly', revenue: 245000, cogs: 147000, ebitda: 36750  },
+      { period: 'Oct 2024', periodType: 'monthly', revenue: 178000, cogs: 107000, ebitda: 26700,  recurring: 104000, oneTime: 74000 },
+      { period: 'Nov 2024', periodType: 'monthly', revenue: 192000, cogs: 115000, ebitda: 28800,  recurring: 113000, oneTime: 79000 },
+      { period: 'Dec 2024', periodType: 'monthly', revenue: 205000, cogs: 123000, ebitda: 30750,  recurring: 122000, oneTime: 83000 },
+      { period: 'Jan 2025', periodType: 'monthly', revenue: 188000, cogs: 113000, ebitda: 28200,  recurring: 112000, oneTime: 76000 },
+      { period: 'Feb 2025', periodType: 'monthly', revenue: 220000, cogs: 132000, ebitda: 33000,  recurring: 132000, oneTime: 88000 },
+      { period: 'Mar 2025', periodType: 'monthly', revenue: 245000, cogs: 147000, ebitda: 36750,  recurring: 154000, oneTime: 91000 },
     ],
     byProduct: [
       { name: 'Managed Services',     amount: 614000, margin: 0.44 },
       { name: 'Consulting / Advisory', amount: 368000, margin: 0.42 },
       { name: 'Project Work',          amount: 246000, margin: 0.32 },
     ],
-    byCustomer: [
-      { id: 'acme',    name: 'Acme Corp',        amount: 245600, percent: 20   },
-      { id: 'beta',    name: 'Beta Industries',   amount: 184200, percent: 15   },
-      { id: 'gamma',   name: 'Gamma LLC',         amount: 147360, percent: 12   },
-      { id: 'delta',   name: 'Delta Partners',    amount: 98240,  percent: 8    },
-      { id: 'echo',    name: 'Echo Systems',       amount: 73680,  percent: 6    },
-      { id: 'foxtrot', name: 'Foxtrot Group',      amount: 61400,  percent: 5    },
-    ],
+    byCustomer: DEMO_CUSTOMERS.slice(0, 8).map(c => ({ id: c.id, name: c.name, amount: c.revenue, percent: c.percentOfTotal })),
   },
   costs: {
     // COGS (737,000) + OpEx (307,000) = 1,044,000 total costs
@@ -438,20 +562,9 @@ const DEMO_DATA: UnifiedBusinessData = {
     laborCost: 445000,
   },
   customers: {
-    totalCount: 52, newThisPeriod: 5, churned: 2,
-    topCustomers: [
-      { id: 'acme',    name: 'Acme Corp',        revenue: 245600, percentOfTotal: 20.0 },
-      { id: 'beta',    name: 'Beta Industries',   revenue: 184200, percentOfTotal: 15.0 },
-      { id: 'gamma',   name: 'Gamma LLC',         revenue: 147360, percentOfTotal: 12.0 },
-      { id: 'delta',   name: 'Delta Partners',    revenue: 98240,  percentOfTotal: 8.0  },
-      { id: 'echo',    name: 'Echo Systems',       revenue: 73680,  percentOfTotal: 6.0  },
-      { id: 'foxtrot', name: 'Foxtrot Group',      revenue: 61400,  percentOfTotal: 5.0  },
-      { id: 'golf',    name: 'Gulf Dynamics',      revenue: 49120,  percentOfTotal: 4.0  },
-      { id: 'hotel',   name: 'Harbor Tech',        revenue: 36840,  percentOfTotal: 3.0  },
-      { id: 'india',   name: 'Inland Logistics',   revenue: 24560,  percentOfTotal: 2.0  },
-      { id: 'juliet',  name: 'Juniper Capital',    revenue: 18420,  percentOfTotal: 1.5  },
-    ],
-    avgRevenuePerCustomer: 23615,
+    totalCount: 120, newThisPeriod: 8, churned: 3,
+    topCustomers: DEMO_CUSTOMERS,
+    avgRevenuePerCustomer: Math.round(1228000 / 120),
     retentionRate: 0.91,
     nps: 52,
   },
@@ -526,8 +639,14 @@ const PREV_DEMO: UnifiedBusinessData = {
   },
   customers: {
     ...DEMO_DATA.customers,
-    totalCount: 47, newThisPeriod: 3, churned: 3,
+    totalCount: 112, newThisPeriod: 4, churned: 5,
     retentionRate: 0.87,
+    // Scale prior-period revenues ~15% lower for byCustomer comparison
+    topCustomers: DEMO_CUSTOMERS.map(c => ({
+      ...c,
+      revenue: Math.round(c.revenue * 0.85),
+      percentOfTotal: parseFloat((c.percentOfTotal * 0.85).toFixed(1)),
+    })),
   },
   cashFlow: [
     { period: 'Apr 2024', openingBalance: 320000, receipts: 138000, payments: 118000, closingBalance: 340000, netCashFlow: 20000 },
@@ -592,10 +711,37 @@ function GoalsPanel({ data, goals, onSetGoal }: {
     setEditing(null);
   };
 
+  // Summary: how many goals are set and how many are on track
+  const setGoals = rows.filter(r => goals[r.key] != null && (goals[r.key] as number) > 0);
+  const onTrack  = setGoals.filter(r => {
+    const target = goals[r.key] as number;
+    return r.actual >= target;
+  });
+
   return (
     <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
       <div className="flex items-center justify-between mb-3 gap-2">
-        <div className="text-[12px] font-semibold text-slate-300">Performance Targets</div>
+        <div className="flex items-center gap-3">
+          <div className="text-[12px] font-semibold text-slate-300">Performance Targets</div>
+          {setGoals.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-0.5">
+                {setGoals.map(r => {
+                  const target = goals[r.key] as number;
+                  const pct = r.actual / target;
+                  return (
+                    <div key={r.key}
+                      className={`w-2 h-2 rounded-full ${pct >= 1 ? 'bg-emerald-400' : pct >= 0.75 ? 'bg-amber-400' : 'bg-slate-600'}`}
+                      title={`${r.label}: ${(pct * 100).toFixed(0)}% of target`}/>
+                  );
+                })}
+              </div>
+              <span className="text-[10px] font-semibold text-slate-500">
+                {onTrack.length}/{setGoals.length} on track
+              </span>
+            </div>
+          )}
+        </div>
         <div className="text-[10px] text-slate-600">Click any target to edit · Enter to save</div>
       </div>
       <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-5 gap-3">
@@ -673,6 +819,111 @@ const Icons = {
   Pencil: () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3 flex-shrink-0"><path d="M9.5 1.5l3 3-8 8H1.5v-3l8-8zM11 3l-1-1-7 7v1h1l7-7z"/></svg>,
   Alert: () => <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 flex-shrink-0"><path d="M7.02 1.5l-6 11A1 1 0 002 14h12a1 1 0 00.98-1.5l-6-11a1 1 0 00-1.96 0zM9 11H7v2h2v-2zm0-5H7v4h2V6z"/></svg>,
 };
+
+// ── Revenue Mix & Quality ─────────────────────────────────────────────────────
+function RevenueQuality({ data, previousData }: { data: UnifiedBusinessData; previousData?: UnifiedBusinessData }) {
+  const rev        = data.revenue.total;
+  const recurring  = data.revenue.recurring ?? 0;
+  const oneTime    = data.revenue.oneTime ?? (rev - recurring);
+  const recurringPct = rev > 0 ? (recurring / rev) * 100 : 0;
+  const oneTimePct   = rev > 0 ? (oneTime  / rev) * 100 : 0;
+  const products   = data.revenue.byProduct ?? [];
+
+  const prevRecurring    = previousData?.revenue.recurring;
+  const prevRev          = previousData?.revenue.total ?? 0;
+  const prevRecurringPct = prevRev > 0 && prevRecurring ? (prevRecurring / prevRev) * 100 : null;
+  const recDelta         = prevRecurringPct !== null ? recurringPct - prevRecurringPct : null;
+
+  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+
+  // Revenue quality score (0–100)
+  const recScore    = Math.min(100, recurringPct * 1.2);  // 83% recurring → 100
+  const productHHI  = products.length > 0
+    ? products.reduce((s, p) => { const pct = rev > 0 ? (p.amount / rev) * 100 : 0; return s + pct * pct; }, 0) / 10000
+    : 1;
+  const diversScore = Math.max(0, 100 - productHHI * 100 * 1.5);  // HHI 0→100
+  const qualScore   = Math.round(recScore * 0.6 + diversScore * 0.4);
+  const qualLabel   = qualScore >= 75 ? 'High Quality' : qualScore >= 50 ? 'Moderate' : 'Needs Work';
+  const qualColor   = qualScore >= 75 ? 'text-emerald-400' : qualScore >= 50 ? 'text-amber-400' : 'text-red-400';
+  const qualBg      = qualScore >= 75 ? 'bg-emerald-500/10 border-emerald-500/20' : qualScore >= 50 ? 'bg-amber-500/10 border-amber-500/20' : 'bg-red-500/10 border-red-500/20';
+
+  if (!recurring && !oneTime && products.length === 0) return null;
+
+  return (
+    <div className="bg-slate-900/40 border border-slate-800/40 rounded-xl px-4 sm:px-5 py-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-[10px] font-bold text-slate-600 uppercase tracking-[0.1em]">Revenue Mix & Quality</div>
+        <div className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${qualBg} ${qualColor}`}>
+          {qualLabel} · {qualScore}/100
+        </div>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-4">
+        {/* Recurring vs one-time bar */}
+        {(recurring > 0 || oneTime > 0) && (
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="text-[11px] font-medium text-slate-400">Recurring vs One-Time</div>
+              {recDelta !== null && Math.abs(recDelta) >= 0.5 && (
+                <div className={`text-[10px] font-semibold ${recDelta > 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {recDelta > 0 ? '↑' : '↓'}{Math.abs(recDelta).toFixed(1)}pp MoM
+                </div>
+              )}
+            </div>
+            <div className="flex h-3 rounded-full overflow-hidden gap-0.5">
+              {recurringPct > 0 && (
+                <div className="bg-emerald-500/50 rounded-l-full transition-all" style={{ width: `${recurringPct}%` }}
+                  title={`Recurring: ${fmtN(recurring)} (${recurringPct.toFixed(1)}%)`}/>
+              )}
+              {oneTimePct > 0 && (
+                <div className="bg-slate-600/60 rounded-r-full transition-all" style={{ width: `${oneTimePct}%` }}
+                  title={`One-time: ${fmtN(oneTime)} (${oneTimePct.toFixed(1)}%)`}/>
+              )}
+            </div>
+            <div className="flex items-center gap-3 mt-1.5">
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full bg-emerald-500/60 flex-shrink-0"/>
+                <span className="text-[11px] text-slate-400">Recurring <span className="font-semibold text-emerald-400">{recurringPct.toFixed(0)}%</span></span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full bg-slate-600/70 flex-shrink-0"/>
+                <span className="text-[11px] text-slate-400">One-time <span className="font-semibold text-slate-300">{oneTimePct.toFixed(0)}%</span></span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Product breakdown */}
+        {products.length > 0 && (
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] font-medium text-slate-400 mb-1.5">By Product / Service</div>
+            <div className="space-y-1.5">
+              {products.slice(0, 3).map((p, i) => {
+                const pct = rev > 0 ? (p.amount / rev) * 100 : 0;
+                const COLORS = ['bg-indigo-500/50', 'bg-sky-500/50', 'bg-violet-500/50'];
+                return (
+                  <div key={i} className="flex items-center gap-2">
+                    <div className="text-[11px] text-slate-500 truncate flex-1 min-w-0">{p.name}</div>
+                    <div className="w-20 h-1.5 bg-slate-800 rounded-full overflow-hidden flex-shrink-0">
+                      <div className={`h-full rounded-full ${COLORS[i]}`} style={{ width: `${pct}%` }}/>
+                    </div>
+                    <div className="text-[11px] font-medium text-slate-300 w-8 text-right tabular-nums">{pct.toFixed(0)}%</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {recurringPct < 40 && rev > 0 && (
+        <div className="mt-3 text-[11px] text-amber-400/80 font-medium">
+          ⚠ {recurringPct.toFixed(0)}% recurring revenue is below the 60% threshold that buyers reward with premium valuation multiples.
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Rule-based Executive Summary ─────────────────────────────────────────────
 function ExecutiveSummary({ data, previousData }: { data: UnifiedBusinessData; previousData?: UnifiedBusinessData }) {
@@ -819,6 +1070,643 @@ function BiggestMovers({ data, previous }: { data: UnifiedBusinessData; previous
   );
 }
 
+// ── Pipeline Snapshot ─────────────────────────────────────────────────────────
+function PipelineSnapshot({ data, onAskAI }: { data: UnifiedBusinessData; onAskAI?: (msg: string) => void }) {
+  const pipeline = data.pipeline;
+  if (!pipeline || pipeline.length === 0) return null;
+
+  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+
+  const totalValue    = pipeline.reduce((s, d) => s + d.value, 0);
+  const weightedValue = pipeline.reduce((s, d) => s + d.value * (d.probability / 100), 0);
+  const coverage      = data.revenue.total > 0 ? weightedValue / data.revenue.total : null;
+
+  // Group by stage
+  const byStage: Record<string, { count: number; value: number; weighted: number }> = {};
+  for (const deal of pipeline) {
+    if (!byStage[deal.stage]) byStage[deal.stage] = { count: 0, value: 0, weighted: 0 };
+    byStage[deal.stage].count++;
+    byStage[deal.stage].value  += deal.value;
+    byStage[deal.stage].weighted += deal.value * (deal.probability / 100);
+  }
+
+  const stageOrder = ['Prospect', 'Qualified', 'Proposal', 'Negotiation', 'Closing'];
+  const stages = Object.entries(byStage).sort(([a], [b]) => {
+    const ai = stageOrder.findIndex(s => a.toLowerCase().includes(s.toLowerCase()));
+    const bi = stageOrder.findIndex(s => b.toLowerCase().includes(s.toLowerCase()));
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+
+  const coverageColor = coverage === null ? 'text-slate-400' : coverage >= 2 ? 'text-emerald-400' : coverage >= 1 ? 'text-amber-400' : 'text-red-400';
+
+  return (
+    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <div className="w-5 h-5 rounded-md bg-sky-500/15 border border-sky-500/25 flex items-center justify-center flex-shrink-0 text-sky-400 text-[10px] font-bold">⬡</div>
+          <div className="text-[13px] font-semibold text-slate-100">Pipeline Snapshot</div>
+          <div className="text-[11px] text-slate-600">{pipeline.length} deal{pipeline.length !== 1 ? 's' : ''}</div>
+        </div>
+        {onAskAI && (
+          <button onClick={() => onAskAI(
+            `My sales pipeline has ${pipeline.length} deals. ` +
+            `Total pipeline value: ${fmtN(totalValue)}. Weighted (probability-adjusted): ${fmtN(weightedValue)}. ` +
+            `Coverage ratio: ${coverage !== null ? coverage.toFixed(2) + 'x' : 'N/A'}. ` +
+            `Stages: ${stages.map(([s, v]) => `${s}: ${v.count} deals worth ${fmtN(v.value)}`).join(', ')}. ` +
+            `What should I focus on to close more pipeline this period?`
+          )}
+            className="flex items-center gap-1.5 text-[11px] text-indigo-400 hover:text-indigo-300 font-medium border border-indigo-500/25 hover:border-indigo-500/50 px-2.5 py-1 rounded-lg transition-all">
+            <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3"><path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/><rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/></svg>
+            Ask AI
+          </button>
+        )}
+      </div>
+      <div className="p-5">
+        {/* Top stats */}
+        <div className="grid grid-cols-3 gap-4 mb-4">
+          <div>
+            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] mb-1">Total Pipeline</div>
+            <div className="text-[20px] font-bold text-slate-100 tabular-nums">{fmtN(totalValue)}</div>
+          </div>
+          <div>
+            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] mb-1">Weighted Value</div>
+            <div className="text-[20px] font-bold text-sky-400 tabular-nums">{fmtN(weightedValue)}</div>
+          </div>
+          <div>
+            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] mb-1">Coverage Ratio</div>
+            <div className={`text-[20px] font-bold tabular-nums ${coverageColor}`}>
+              {coverage !== null ? `${coverage.toFixed(1)}×` : '—'}
+            </div>
+            <div className="text-[10px] text-slate-600">vs current ARR</div>
+          </div>
+        </div>
+
+        {/* Stage funnel */}
+        <div className="space-y-1.5">
+          {stages.map(([stage, vals]) => {
+            const pct = totalValue > 0 ? (vals.value / totalValue) * 100 : 0;
+            return (
+              <div key={stage} className="flex items-center gap-3">
+                <div className="text-[11px] text-slate-500 w-24 flex-shrink-0 truncate">{stage}</div>
+                <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-full bg-sky-500/50 rounded-full" style={{ width: `${pct}%` }}/>
+                </div>
+                <div className="text-[11px] text-slate-400 font-medium tabular-nums w-14 text-right">{fmtN(vals.value)}</div>
+                <div className="text-[10px] text-slate-600 w-8 text-right">{vals.count}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {coverage !== null && coverage < 1 && (
+          <div className="mt-3 flex items-center gap-2 text-[11px] text-red-400/80 bg-red-500/5 border border-red-500/15 rounded-lg px-3 py-2">
+            <span className="flex-shrink-0">⚠</span>
+            Pipeline coverage below 1× — not enough deals to replace current revenue.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Exit Readiness Widget (reads persisted exit-readiness agent result) ────────
+function ExitReadinessWidget({ onViewAll }: { onViewAll?: () => void }) {
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+
+  const loadResult = () => {
+    try {
+      const saved = localStorage.getItem('bos_agent_results');
+      if (saved) {
+        const all = JSON.parse(saved) as Record<string, unknown>;
+        if (all['exit-readiness']) setResult(all['exit-readiness'] as Record<string, unknown>);
+      }
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => {
+    loadResult();
+    const onStorage = (e: StorageEvent) => { if (e.key === 'bos_agent_results') loadResult(); };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+
+  if (!result) {
+    return (
+      <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4 flex flex-col gap-2.5">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-lg bg-violet-500/15 border border-violet-500/25 flex items-center justify-center flex-shrink-0 text-violet-400 text-[11px] font-bold">◈</div>
+          <div className="text-[12px] font-semibold text-slate-300">Exit Readiness</div>
+        </div>
+        <div className="text-[11px] text-slate-600 leading-relaxed">Run the Exit Readiness agent to see your score, valuation range, and top risks.</div>
+        {onViewAll && (
+          <button onClick={onViewAll} className="self-start text-[11px] text-violet-400 hover:text-violet-300 font-semibold border border-violet-500/25 hover:border-violet-500/50 px-2.5 py-1 rounded-lg transition-all">
+            Run assessment →
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const score = result.overallScore as number | undefined;
+  const grade = result.grade as string | undefined;
+  const headline = result.headline as string | undefined;
+  const vr = result.valuationRange as { low?: number; mid?: number; high?: number; ebitdaMultiple?: number } | undefined;
+  const topRisks = result.topRisks as Array<{ risk: string; severity: string }> | undefined;
+  const timeline = result.timeline as string | undefined;
+
+  const scoreColor = (score ?? 0) >= 75 ? 'text-emerald-400' : (score ?? 0) >= 55 ? 'text-amber-400' : 'text-red-400';
+  const scoreBg    = (score ?? 0) >= 75 ? 'bg-emerald-500/10 border-emerald-500/25' : (score ?? 0) >= 55 ? 'bg-amber-500/10 border-amber-500/25' : 'bg-red-500/10 border-red-500/25';
+
+  return (
+    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-800/50 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <div className="w-5 h-5 rounded-md bg-violet-500/15 border border-violet-500/25 flex items-center justify-center flex-shrink-0 text-violet-400 text-[10px] font-bold">◈</div>
+          <div className="text-[12px] font-semibold text-slate-100">Exit Readiness</div>
+        </div>
+        {onViewAll && (
+          <button onClick={onViewAll} className="text-[10px] text-violet-400 hover:text-violet-300 font-medium border border-violet-500/20 hover:border-violet-500/40 px-2 py-0.5 rounded-lg transition-all">
+            Details →
+          </button>
+        )}
+      </div>
+      <div className="p-4 space-y-3">
+        {/* Score + grade */}
+        <div className="flex items-center gap-3">
+          <div className={`text-[28px] font-bold tabular-nums leading-none ${scoreColor}`}>{score ?? '—'}</div>
+          <div className="flex flex-col gap-0.5">
+            <div className={`text-[11px] font-bold px-1.5 py-0.5 rounded border ${scoreBg} ${scoreColor}`}>Grade {grade ?? '—'}</div>
+            {timeline && <div className="text-[10px] text-slate-600">{timeline}</div>}
+          </div>
+          {vr?.mid && (
+            <div className="ml-auto text-right">
+              <div className="text-[11px] font-bold text-slate-100">{fmtN(vr.mid)}</div>
+              <div className="text-[10px] text-slate-600">mid valuation</div>
+            </div>
+          )}
+        </div>
+        {/* Valuation range bar */}
+        {vr?.low && vr?.high && (
+          <div>
+            <div className="flex items-center justify-between text-[10px] text-slate-600 mb-1">
+              <span>{fmtN(vr.low)} low</span>
+              <span>{fmtN(vr.high)} high</span>
+            </div>
+            <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden relative">
+              <div className="absolute inset-y-0 bg-violet-500/40 rounded-full" style={{
+                left: '0%', right: '0%',
+              }}/>
+              {vr.mid && vr.low && vr.high && (
+                <div className="absolute top-0 h-full w-0.5 bg-violet-400" style={{
+                  left: `${((vr.mid - vr.low) / (vr.high - vr.low)) * 100}%`,
+                }}/>
+              )}
+            </div>
+            {vr.ebitdaMultiple && (
+              <div className="text-[10px] text-slate-600 mt-1">{vr.ebitdaMultiple}× EBITDA implied</div>
+            )}
+          </div>
+        )}
+        {headline && <div className="text-[11px] text-slate-400 leading-relaxed">{headline}</div>}
+        {/* Top risk */}
+        {topRisks && topRisks.length > 0 && (
+          <div className="flex items-start gap-2 bg-red-500/5 border border-red-500/15 rounded-lg px-3 py-2">
+            <span className="text-red-400 text-[10px] flex-shrink-0 mt-0.5">⚠</span>
+            <div className="text-[11px] text-red-400/80">{topRisks[0].risk}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Growth Playbook Widget (reads persisted growth-playbook agent result) ───────
+function GrowthPlaybookWidget({ onViewAll }: { onViewAll?: () => void }) {
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+
+  const loadResult = () => {
+    try {
+      const saved = localStorage.getItem('bos_agent_results');
+      if (saved) {
+        const all = JSON.parse(saved) as Record<string, unknown>;
+        if (all['growth-playbook']) setResult(all['growth-playbook'] as Record<string, unknown>);
+      }
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => {
+    loadResult();
+    const onStorage = (e: StorageEvent) => { if (e.key === 'bos_agent_results') loadResult(); };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+
+  if (!result) {
+    return (
+      <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4 flex flex-col gap-2.5">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-lg bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center flex-shrink-0 text-emerald-400 text-[11px] font-bold">↑</div>
+          <div className="text-[12px] font-semibold text-slate-300">Growth Playbook</div>
+        </div>
+        <div className="text-[11px] text-slate-600 leading-relaxed">Run the Growth Playbook agent to see your top revenue opportunities and levers.</div>
+        {onViewAll && (
+          <button onClick={onViewAll} className="self-start text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold border border-emerald-500/25 hover:border-emerald-500/50 px-2.5 py-1 rounded-lg transition-all">
+            Run analysis →
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const headline = result.headline as string | undefined;
+  const totalOpp = result.totalOpportunity as number | string | undefined;
+  const levers = result.levers as Array<{ name: string; revenueOpportunity?: number | string; effort?: string; confidence?: string }> | undefined;
+
+  const effortColor = (e?: string) => {
+    const effort = (e ?? '').toUpperCase();
+    return effort === 'LOW' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+      : effort === 'MEDIUM' || effort === 'MED' ? 'text-amber-400 bg-amber-500/10 border-amber-500/20'
+      : 'text-red-400 bg-red-500/10 border-red-500/20';
+  };
+
+  const top3Levers = (levers ?? []).slice(0, 3);
+
+  return (
+    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-800/50 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <div className="w-5 h-5 rounded-md bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center flex-shrink-0 text-emerald-400 text-[11px] font-bold">↑</div>
+          <div className="text-[12px] font-semibold text-slate-100">Growth Playbook</div>
+        </div>
+        {onViewAll && (
+          <button onClick={onViewAll} className="text-[10px] text-emerald-400 hover:text-emerald-300 font-medium border border-emerald-500/20 hover:border-emerald-500/40 px-2 py-0.5 rounded-lg transition-all">
+            Details →
+          </button>
+        )}
+      </div>
+      <div className="p-4 space-y-3">
+        {/* Total opportunity */}
+        {totalOpp != null && (
+          <div className="flex items-center gap-2">
+            <div className="text-[22px] font-bold text-emerald-400 tabular-nums leading-none">
+              {typeof totalOpp === 'number' ? fmtN(totalOpp) : totalOpp}
+            </div>
+            <div className="text-[11px] text-slate-500">total opportunity<br/>identified</div>
+          </div>
+        )}
+        {headline && <div className="text-[11px] text-slate-400 leading-relaxed">{headline}</div>}
+        {/* Top levers */}
+        {top3Levers.length > 0 && (
+          <div className="space-y-2">
+            {top3Levers.map((lever, i) => (
+              <div key={i} className="flex items-center gap-2.5 bg-slate-800/30 border border-slate-700/30 rounded-lg px-3 py-2">
+                <div className="w-4 h-4 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center text-[9px] font-bold text-emerald-400 flex-shrink-0">{i + 1}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[11px] font-semibold text-slate-200 truncate">{lever.name}</div>
+                  {lever.revenueOpportunity != null && (
+                    <div className="text-[10px] text-emerald-400/80 font-medium">
+                      {typeof lever.revenueOpportunity === 'number' ? fmtN(lever.revenueOpportunity) : lever.revenueOpportunity}
+                    </div>
+                  )}
+                </div>
+                {lever.effort && (
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wide flex-shrink-0 ${effortColor(lever.effort)}`}>
+                    {lever.effort}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Top Priority Actions (reads persisted action-plan agent result) ───────────
+function TopActionsWidget({ onRunAgent, onViewAll }: { onRunAgent?: () => void; onViewAll?: () => void }) {
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+
+  const loadResult = () => {
+    try {
+      const saved = localStorage.getItem('bos_agent_results');
+      if (saved) {
+        const all = JSON.parse(saved) as Record<string, unknown>;
+        if (all['action-plan']) setResult(all['action-plan'] as Record<string, unknown>);
+      }
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => {
+    loadResult();
+    const onStorage = (e: StorageEvent) => { if (e.key === 'bos_agent_results') loadResult(); };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!result) {
+    return (
+      <div className="bg-indigo-500/[0.04] border border-indigo-500/15 rounded-xl px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <div className="text-[13px] font-semibold text-slate-200 mb-0.5">90-Day Action Plan</div>
+          <div className="text-[12px] text-slate-500">Run the AI Action Plan agent to see your top prioritized actions here, updated with every new period.</div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {onViewAll && (
+            <button onClick={onViewAll}
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[12px] font-semibold transition-all shadow-sm whitespace-nowrap">
+              Generate plan →
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const theme = result.theme as string | undefined;
+  const northStar = result.northStar as string | undefined;
+  const categories = result.categories as Array<{ name: string; actions: Array<{ action: string; why: string; owner: string; deadline: string; expectedImpact: string; effort: string; priority: number }> }> | undefined;
+
+  // Flatten all actions and sort by priority, take top 3
+  const allActions = (categories ?? []).flatMap(c => (c.actions ?? []).map(a => ({ ...a, category: c.name })));
+  allActions.sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+  const top3 = allActions.slice(0, 3);
+
+  if (top3.length === 0) return null;
+
+  const effortColor = (e: string) => {
+    const effort = (e ?? '').toUpperCase();
+    return effort === 'LOW' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+      : effort === 'MEDIUM' || effort === 'MED' ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+      : 'bg-red-500/10 border-red-500/20 text-red-400';
+  };
+
+  return (
+    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-5 h-5 rounded-md bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center flex-shrink-0">
+            <svg viewBox="0 0 10 10" fill="currentColor" className="w-2.5 h-2.5 text-indigo-400">
+              <path d="M1 5l3 3 5-6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+            </svg>
+          </div>
+          <div className="text-[13px] font-semibold text-slate-100">Top Priority Actions</div>
+          {theme && <div className="hidden sm:block text-[11px] text-slate-500 truncate">— {theme}</div>}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {northStar && (
+            <div className="hidden md:flex items-center gap-1.5 text-[10px] font-semibold text-amber-400/80 bg-amber-500/8 border border-amber-500/15 px-2 py-0.5 rounded-full">
+              ★ {northStar}
+            </div>
+          )}
+          {onViewAll && (
+            <button onClick={onViewAll}
+              className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium border border-indigo-500/25 hover:border-indigo-500/50 px-2.5 py-1 rounded-lg transition-all">
+              Full plan →
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="divide-y divide-slate-800/40">
+        {top3.map((action, i) => (
+          <div key={i} className="px-5 py-3.5 flex items-start gap-4">
+            <div className="w-6 h-6 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-[11px] font-bold text-indigo-400 flex-shrink-0 mt-0.5">
+              {i + 1}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="text-[13px] font-semibold text-slate-100 leading-snug flex-1 min-w-0">{action.action}</div>
+                <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap">
+                  {action.effort && (
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wide ${effortColor(action.effort)}`}>
+                      {action.effort}
+                    </span>
+                  )}
+                  {action.deadline && (
+                    <span className="text-[10px] font-medium text-slate-500 bg-slate-800/60 border border-slate-700/40 px-1.5 py-0.5 rounded">
+                      {action.deadline}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-3 mt-1 flex-wrap">
+                {action.why && <div className="text-[11px] text-slate-500 leading-relaxed flex-1">{action.why}</div>}
+              </div>
+              <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                {action.owner && (
+                  <span className="text-[10px] font-medium text-slate-600">Owner: <span className="text-slate-400">{action.owner}</span></span>
+                )}
+                {action.expectedImpact && (
+                  <span className="text-[10px] font-semibold text-emerald-400/80">{action.expectedImpact}</span>
+                )}
+                {action.category && (
+                  <span className="text-[10px] text-slate-700">{action.category}</span>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Revenue Forecast Strip ────────────────────────────────────────────────────
+function RevenueForecastStrip({ data, onAskAI }: { data: UnifiedBusinessData; onAskAI?: (msg: string) => void }) {
+  const periods = data.revenue.byPeriod;
+  if (periods.length < 3) return null; // need at least 3 data points
+
+  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+
+  // Simple linear regression on revenue
+  const n = periods.length;
+  const xs = periods.map((_, i) => i);
+  const ys = periods.map(p => p.revenue);
+  const meanX = xs.reduce((s, x) => s + x, 0) / n;
+  const meanY = ys.reduce((s, y) => s + y, 0) / n;
+  const ssXX = xs.reduce((s, x) => s + (x - meanX) ** 2, 0);
+  const ssXY = xs.reduce((s, x, i) => s + (x - meanX) * (ys[i] - meanY), 0);
+  const slope = ssXX > 0 ? ssXY / ssXX : 0;
+  const intercept = meanY - slope * meanX;
+
+  // R² for confidence
+  const ssTot = ys.reduce((s, y) => s + (y - meanY) ** 2, 0);
+  const ssRes = ys.reduce((s, y, i) => s + (y - (slope * xs[i] + intercept)) ** 2, 0);
+  const r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+
+  // Project next 3 periods
+  const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const lastPeriod = periods[periods.length - 1].period;
+  // Try to parse last period label to derive next labels
+  function nextPeriodLabel(current: string, offset: number): string {
+    // Match "Mon YYYY" pattern
+    const match = current.match(/^([A-Za-z]+)\s+(\d{4})$/);
+    if (!match) return `Period +${offset}`;
+    const monthIdx = MONTH_NAMES.findIndex(m => m.toLowerCase() === match[1].slice(0, 3).toLowerCase());
+    if (monthIdx === -1) return `Period +${offset}`;
+    const year = parseInt(match[2], 10);
+    const newMonth = (monthIdx + offset) % 12;
+    const yearOffset = Math.floor((monthIdx + offset) / 12);
+    return `${MONTH_NAMES[newMonth]} ${year + yearOffset}`;
+  }
+
+  const forecasts = [1, 2, 3].map(offset => {
+    const x = n - 1 + offset;
+    const projected = slope * x + intercept;
+    const stdErr = Math.sqrt(ssRes / Math.max(n - 2, 1));
+    const uncertainty = stdErr * 1.5; // ~1.5 std devs for rough 85% interval
+    return {
+      label: nextPeriodLabel(lastPeriod, offset),
+      value: Math.max(projected, 0),
+      low: Math.max(projected - uncertainty, 0),
+      high: projected + uncertainty,
+    };
+  });
+
+  const growthPct = periods[0].revenue > 0 ? ((slope / meanY) * 100) : 0;
+  const trendColor = slope > 0 ? 'text-emerald-400' : slope < 0 ? 'text-red-400' : 'text-slate-400';
+  const confidenceLabel = r2 >= 0.85 ? 'High' : r2 >= 0.6 ? 'Moderate' : 'Low';
+  const confidenceColor = r2 >= 0.85 ? 'text-emerald-400/70' : r2 >= 0.6 ? 'text-amber-400/70' : 'text-slate-500';
+
+  return (
+    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <div className="text-[13px] font-semibold text-slate-100">Revenue Forecast</div>
+          <div className="flex items-center gap-2 text-[11px]">
+            <span className={`font-semibold ${trendColor}`}>
+              {slope > 0 ? '↑' : slope < 0 ? '↓' : '→'} {Math.abs(growthPct).toFixed(1)}% avg/period trend
+            </span>
+            <span className="text-slate-700">·</span>
+            <span className={`font-medium ${confidenceColor}`}>{confidenceLabel} confidence (R²={r2.toFixed(2)})</span>
+          </div>
+        </div>
+        {onAskAI && (
+          <button onClick={() => onAskAI(
+            `My revenue trend over ${n} periods shows a ${slope > 0 ? 'positive' : 'negative'} slope of ${fmtN(Math.abs(slope))}/period (${Math.abs(growthPct).toFixed(1)}% avg growth). ` +
+            `Forecasted next 3 periods: ${forecasts.map(f => `${f.label}: ${fmtN(f.value)}`).join(', ')}. ` +
+            `R² = ${r2.toFixed(2)}. Is this trajectory realistic, and what risks could alter it?`
+          )}
+            className="flex items-center gap-1.5 text-[11px] text-indigo-400 hover:text-indigo-300 font-medium border border-indigo-500/25 hover:border-indigo-500/50 px-2.5 py-1 rounded-lg transition-all">
+            <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3"><path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/><rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/></svg>
+            Ask AI
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        {forecasts.map((f, i) => {
+          const vsLast = periods[periods.length - 1].revenue > 0 ? ((f.value - periods[periods.length - 1].revenue) / periods[periods.length - 1].revenue) * 100 : 0;
+          const isUp = f.value >= periods[periods.length - 1].revenue;
+          return (
+            <div key={f.label} className={`rounded-xl border p-4 ${i === 0 ? 'border-indigo-500/25 bg-indigo-500/5' : 'border-slate-700/40 bg-slate-800/20'}`}>
+              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-1">{f.label}</div>
+              <div className={`text-[18px] font-bold tracking-tight ${i === 0 ? 'text-indigo-300' : 'text-slate-300'}`}>{fmtN(f.value)}</div>
+              <div className={`text-[11px] font-medium mt-1 ${isUp ? 'text-emerald-400/80' : 'text-red-400/80'}`}>
+                {isUp ? '↑' : '↓'} {Math.abs(vsLast).toFixed(1)}% vs last
+              </div>
+              <div className="text-[10px] text-slate-700 mt-0.5">{fmtN(f.low)} – {fmtN(f.high)}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 text-[10px] text-slate-700 leading-relaxed">
+        Linear trend projection based on {n} historical periods. Range shows ±1.5 standard errors. Low confidence (R²&lt;0.6) indicates high revenue variability — treat as directional only.
+      </div>
+    </div>
+  );
+}
+
+// ── Latest Period MoM Strip ───────────────────────────────────────────────────
+function MonthlyTrendStrip({ data }: { data: UnifiedBusinessData }) {
+  const periods = data.revenue.byPeriod;
+  if (periods.length < 2) return null;
+  const latest = periods[periods.length - 1];
+  const prev   = periods[periods.length - 2];
+
+  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+
+  const revChange = prev.revenue > 0 ? ((latest.revenue - prev.revenue) / prev.revenue) * 100 : null;
+
+  const latestGP = latest.revenue - (latest.cogs ?? 0);
+  const prevGP   = prev.revenue   - (prev.cogs   ?? 0);
+  const latestGM = latest.revenue > 0 ? (latestGP / latest.revenue) * 100 : null;
+  const prevGM   = prev.revenue   > 0 ? (prevGP   / prev.revenue)   * 100 : null;
+  const gmDelta  = latestGM !== null && prevGM !== null ? latestGM - prevGM : null;
+
+  const latestEM = latest.revenue > 0 && latest.ebitda != null ? (latest.ebitda / latest.revenue) * 100 : null;
+  const prevEM   = prev.revenue   > 0 && prev.ebitda   != null ? (prev.ebitda   / prev.revenue)   * 100 : null;
+  const emDelta  = latestEM !== null && prevEM !== null ? latestEM - prevEM : null;
+
+  const recurringPct = latest.recurring && latest.revenue > 0 ? (latest.recurring / latest.revenue) * 100 : null;
+
+  const stats: { label: string; value: string; sub: string; good: boolean | null }[] = [];
+
+  stats.push({
+    label: 'Revenue',
+    value: fmtN(latest.revenue),
+    sub: revChange !== null ? `${revChange >= 0 ? '+' : ''}${revChange.toFixed(1)}% MoM` : `prev ${fmtN(prev.revenue)}`,
+    good: revChange !== null ? revChange >= 0 : null,
+  });
+
+  if (latestGM !== null) {
+    stats.push({
+      label: 'Gross Margin',
+      value: `${latestGM.toFixed(1)}%`,
+      sub: gmDelta !== null ? `${gmDelta >= 0 ? '+' : ''}${gmDelta.toFixed(1)}pp MoM` : `${latestGM.toFixed(1)}% this period`,
+      good: gmDelta !== null ? gmDelta >= 0 : latestGM >= 40,
+    });
+  }
+
+  if (latestEM !== null) {
+    stats.push({
+      label: 'EBITDA Margin',
+      value: `${latestEM.toFixed(1)}%`,
+      sub: emDelta !== null ? `${emDelta >= 0 ? '+' : ''}${emDelta.toFixed(1)}pp MoM` : `14% LMM median`,
+      good: emDelta !== null ? emDelta >= 0 : latestEM >= 14,
+    });
+  }
+
+  if (recurringPct !== null) {
+    stats.push({
+      label: 'Recurring Mix',
+      value: `${recurringPct.toFixed(0)}%`,
+      sub: 'of period revenue',
+      good: recurringPct >= 50,
+    });
+  }
+
+  return (
+    <div className="bg-slate-900/40 border border-slate-800/40 rounded-xl overflow-hidden">
+      <div className="flex items-center gap-2.5 px-4 py-2 border-b border-slate-800/30">
+        <div className="w-1.5 h-1.5 rounded-full bg-indigo-400/50 flex-shrink-0"/>
+        <span className="text-[10px] font-bold text-slate-600 uppercase tracking-[0.1em]">Latest Period</span>
+        <span className="text-[12px] font-semibold text-slate-200">{latest.period}</span>
+        <span className="text-slate-700 text-[10px]">vs</span>
+        <span className="text-[11px] text-slate-500">{prev.period}</span>
+      </div>
+      <div className={`grid grid-cols-2 ${stats.length >= 4 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+        {stats.map((s, i) => (
+          <div key={s.label} className={`px-4 py-3 ${i > 0 ? 'border-l border-slate-800/30' : ''}`}>
+            <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.07em] mb-1">{s.label}</div>
+            <div className="text-[15px] font-bold text-slate-100 tabular-nums">{s.value}</div>
+            <div className={`text-[11px] font-semibold mt-0.5 tabular-nums ${
+              s.good === true ? 'text-emerald-400' : s.good === false ? 'text-red-400' : 'text-slate-500'
+            }`}>{s.sub}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Period Comparison Strip ────────────────────────────────────────────────────
 function ComparisonStrip({ current, previous, currentLabel, previousLabel }: {
   current: UnifiedBusinessData;
@@ -888,8 +1776,9 @@ function ComparisonStrip({ current, previous, currentLabel, previousLabel }: {
 // ── Keyboard Shortcuts Modal ───────────────────────────────────────────────────
 function ShortcutsModal({ onClose }: { onClose: () => void }) {
   const rows = [
-    { key: '1 – 7',  desc: 'Jump to Overview, Financial, Customers, Operations, Intelligence, Scenarios, or Data Sources' },
+    { key: '⌘K',    desc: 'Open the AI chat assistant (Cmd+K / Ctrl+K)' },
     { key: '/',      desc: 'Open the AI chat assistant' },
+    { key: '1 – 7',  desc: 'Jump to Overview, Financial, Customers, Operations, Intelligence, Scenarios, or Data Sources' },
     { key: '?',      desc: 'Open this shortcuts guide' },
     { key: 'Esc',    desc: 'Close any open overlay or modal' },
   ];
@@ -915,6 +1804,84 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
       </div>
     </div>
   );
+}
+
+// ── CSV Export ────────────────────────────────────────────────────────────────
+function exportKPIsAsCSV(data: UnifiedBusinessData, label: string) {
+  const rev = data.revenue.total;
+  const cogs = data.costs.totalCOGS;
+  const opex = data.costs.totalOpEx;
+  const gp   = rev - cogs;
+  const ebitda = gp - opex;
+  const gm    = rev > 0 ? (gp / rev) * 100 : 0;
+  const em    = rev > 0 ? (ebitda / rev) * 100 : 0;
+
+  const rows: string[][] = [];
+  rows.push(['Business OS Export', label, new Date().toLocaleDateString()]);
+  rows.push([]);
+  rows.push(['== KEY METRICS ==']);
+  rows.push(['Metric', 'Value']);
+  rows.push(['Revenue', `$${rev.toLocaleString()}`]);
+  rows.push(['COGS', `$${cogs.toLocaleString()}`]);
+  rows.push(['Gross Profit', `$${gp.toLocaleString()}`]);
+  rows.push(['Gross Margin', `${gm.toFixed(1)}%`]);
+  rows.push(['OpEx', `$${opex.toLocaleString()}`]);
+  rows.push(['EBITDA', `$${ebitda.toLocaleString()}`]);
+  rows.push(['EBITDA Margin', `${em.toFixed(1)}%`]);
+  rows.push(['Total Customers', String(data.customers.totalCount)]);
+  rows.push(['New This Period', String(data.customers.newThisPeriod)]);
+  rows.push(['Churned', String(data.customers.churned)]);
+  if (data.customers.retentionRate != null) rows.push(['Retention Rate', `${(data.customers.retentionRate * 100).toFixed(1)}%`]);
+  if (data.operations.headcount) rows.push(['Headcount', String(data.operations.headcount)]);
+  rows.push([]);
+
+  if (data.revenue.byPeriod.length > 0) {
+    rows.push(['== PERIOD DATA ==']);
+    rows.push(['Period', 'Revenue', 'COGS', 'Gross Profit', 'GM %', 'EBITDA', 'EBITDA %', 'Recurring', 'One-Time']);
+    for (const p of data.revenue.byPeriod) {
+      const pGP = p.revenue - (p.cogs ?? 0);
+      const pGM = p.revenue > 0 && p.cogs != null ? ((pGP / p.revenue) * 100).toFixed(1) : '';
+      const pEM = p.revenue > 0 && p.ebitda != null ? ((p.ebitda / p.revenue) * 100).toFixed(1) : '';
+      rows.push([
+        p.period,
+        p.revenue.toString(),
+        (p.cogs ?? '').toString(),
+        p.cogs != null ? pGP.toString() : '',
+        pGM ? `${pGM}%` : '',
+        (p.ebitda ?? '').toString(),
+        pEM ? `${pEM}%` : '',
+        (p.recurring ?? '').toString(),
+        (p.oneTime ?? '').toString(),
+      ]);
+    }
+    rows.push([]);
+  }
+
+  if (data.costs.byCategory.length > 0) {
+    rows.push(['== COST BREAKDOWN ==']);
+    rows.push(['Category', 'Amount', '% of Revenue']);
+    for (const c of data.costs.byCategory) {
+      rows.push([c.category, `$${c.amount.toLocaleString()}`, `${c.percentOfRevenue.toFixed(1)}%`]);
+    }
+    rows.push([]);
+  }
+
+  if (data.customers.topCustomers.length > 0) {
+    rows.push(['== TOP CUSTOMERS ==']);
+    rows.push(['Name', 'Revenue', '% of Total', 'Industry', 'Type']);
+    for (const c of data.customers.topCustomers.slice(0, 20)) {
+      rows.push([c.name, `$${c.revenue.toLocaleString()}`, `${c.percentOfTotal.toFixed(1)}%`, c.industry ?? '', c.revenueType ?? '']);
+    }
+  }
+
+  const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = `business-os-${label.replace(/[^a-z0-9]/gi, '-').toLowerCase()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ── Section Note ──────────────────────────────────────────────────────────────
@@ -968,10 +1935,31 @@ function SectionNote({ noteKey, notes, onSave }: {
 }
 
 // ── Period selector ────────────────────────────────────────────────────────────
-function PeriodSelector({ snapshots, activeId, onSelect }: { snapshots: PeriodSnapshot[]; activeId: string; onSelect: (id: string) => void }) {
+function PeriodSelector({ snapshots, activeId, onSelect, onDelete, onRename }: {
+  snapshots: PeriodSnapshot[];
+  activeId: string;
+  onSelect: (id: string) => void;
+  onDelete?: (id: string) => void;
+  onRename?: (id: string, newLabel: string) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
   const active = snapshots.find(s => s.id === activeId);
   if (snapshots.length <= 1) return null;
+  const isDemoId = (id: string) => id === 'demo' || id === 'prev-demo';
+
+  const startEdit = (s: PeriodSnapshot, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingId(s.id);
+    setEditValue(s.label);
+  };
+  const commitEdit = (id: string) => {
+    const trimmed = editValue.trim();
+    if (trimmed && onRename) onRename(id, trimmed);
+    setEditingId(null);
+  };
+
   return (
     <div className="relative">
       <button onClick={() => setOpen(v => !v)}
@@ -980,16 +1968,66 @@ function PeriodSelector({ snapshots, activeId, onSelect }: { snapshots: PeriodSn
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)}/>
-          <div className="absolute right-0 top-full mt-1.5 z-40 bg-slate-900 border border-slate-700/60 rounded-xl shadow-2xl w-60 py-1.5">
-            <div className="px-3 pb-1 text-[10px] font-semibold text-slate-600 uppercase tracking-wider">Period History</div>
+          <div className="fixed inset-0 z-30" onClick={() => { setOpen(false); setEditingId(null); }}/>
+          <div className="absolute right-0 top-full mt-1.5 z-40 bg-slate-900 border border-slate-700/60 rounded-xl shadow-2xl w-64 py-1.5">
+            <div className="px-3 pb-1.5 pt-0.5 text-[10px] font-semibold text-slate-600 uppercase tracking-wider">Period History</div>
             {snapshots.map(s => (
-              <button key={s.id} onClick={() => { onSelect(s.id); setOpen(false); }}
-                className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left text-[12px] transition-colors ${
-                  s.id === activeId ? 'text-indigo-300 bg-indigo-500/10' : 'text-slate-300 hover:bg-slate-800/60'}`}>
-                <span className="truncate">{s.label}</span>
-                {s.id === activeId && <Icons.Check />}
-              </button>
+              <div key={s.id} className="flex items-center group">
+                {editingId === s.id ? (
+                  <div className="flex-1 flex items-center gap-1.5 px-3 py-1.5">
+                    <input autoFocus
+                      value={editValue}
+                      onChange={e => setEditValue(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') commitEdit(s.id); if (e.key === 'Escape') setEditingId(null); }}
+                      onBlur={() => commitEdit(s.id)}
+                      className="flex-1 bg-slate-800 border border-indigo-500/50 rounded-lg px-2 py-1 text-[12px] text-slate-100 focus:outline-none min-w-0"
+                      onClick={e => e.stopPropagation()}
+                    />
+                    <button onClick={e => { e.stopPropagation(); commitEdit(s.id); }}
+                      className="flex-shrink-0 text-indigo-400 hover:text-indigo-300 text-[11px] font-medium px-1.5 py-1 rounded">
+                      Save
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <button onClick={() => { onSelect(s.id); setOpen(false); }}
+                      className={`flex-1 flex items-center justify-between gap-2 px-3 py-2.5 text-left text-[12px] transition-colors ${
+                        s.id === activeId ? 'text-indigo-300 bg-indigo-500/10' : 'text-slate-300 hover:bg-slate-800/60'}`}>
+                      <div className="min-w-0">
+                        <div className="truncate">{s.label}</div>
+                        {!isDemoId(s.id) && (
+                          <div className="text-[10px] text-slate-600 mt-0.5">
+                            {new Date(s.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {isDemoId(s.id) && <span className="text-[9px] text-amber-400/70 font-medium">demo</span>}
+                        {s.id === activeId && <Icons.Check />}
+                      </div>
+                    </button>
+                    {!isDemoId(s.id) && (
+                      <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity pr-1">
+                        {onRename && (
+                          <button onClick={e => startEdit(s, e)} title="Rename"
+                            className="p-1.5 text-slate-600 hover:text-slate-300 rounded">
+                            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" className="w-3 h-3">
+                              <path d="M2 9.5h1.5l4.5-4.5-1.5-1.5L2 8V9.5zM8.5 2.5l1 1"/>
+                              <path d="M7 4l1.5 1.5"/>
+                            </svg>
+                          </button>
+                        )}
+                        {onDelete && (
+                          <button onClick={e => { e.stopPropagation(); onDelete(s.id); setOpen(false); }} title="Delete"
+                            className="p-1.5 text-slate-600 hover:text-red-400 rounded">
+                            <svg viewBox="0 0 12 12" fill="currentColor" className="w-3 h-3"><path d="M2 2l8 8M10 2L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/></svg>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             ))}
           </div>
         </>
@@ -1064,6 +2102,61 @@ const NAV_CARD_COLORS: Record<string, { label: string; text: string; link: strin
   scenarios:    { label: 'Scenarios',             text: 'Model what-if outcomes with lever sliders',       link: 'text-amber-400 group-hover:text-amber-300',     border: 'hover:border-amber-500/30 group-hover:bg-amber-500/5',     titleColor: 'group-hover:text-amber-200'   },
 };
 
+// ── Welcome modal (first visit, no real data) ─────────────────────────────────
+function WelcomeModal({ onDismiss, onGoToData }: { onDismiss: () => void; onGoToData: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={onDismiss}/>
+      <div className="relative bg-[#0a0f1a] border border-slate-700/60 rounded-2xl p-7 w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
+        {/* Logo */}
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-400 to-indigo-700 flex items-center justify-center shadow-lg flex-shrink-0">
+            <svg viewBox="0 0 12 12" fill="white" className="w-5 h-5"><rect x="1" y="1" width="4" height="4" rx="0.5"/><rect x="7" y="1" width="4" height="4" rx="0.5"/><rect x="1" y="7" width="4" height="4" rx="0.5"/><rect x="7" y="7" width="4" height="4" rx="0.5"/></svg>
+          </div>
+          <div>
+            <div className="text-[16px] font-bold text-slate-100">Welcome to Business OS</div>
+            <div className="text-[12px] text-slate-500">AI-powered executive intelligence for your business</div>
+          </div>
+        </div>
+
+        {/* Steps */}
+        <div className="space-y-3 mb-6">
+          {[
+            { n: '1', icon: '📤', title: 'Connect your data', desc: 'Upload a CSV or connect Google Sheets — revenue, costs, customers, cash flow.' },
+            { n: '2', icon: '✦', title: 'Get AI analysis', desc: 'Instant KPIs, trend signals, benchmarks vs your industry, and CEO watchlist.' },
+            { n: '3', icon: '📋', title: 'Generate reports', desc: 'Weekly intelligence brief, board deck, exit readiness score, and 90-day plan.' },
+          ].map(step => (
+            <div key={step.n} className="flex items-start gap-4 bg-slate-900/50 border border-slate-800/60 rounded-xl p-4">
+              <div className="w-7 h-7 rounded-lg bg-indigo-500/15 border border-indigo-500/25 text-indigo-400 text-[13px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{step.n}</div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[14px]">{step.icon}</span>
+                  <span className="text-[13px] font-semibold text-slate-100">{step.title}</span>
+                </div>
+                <div className="text-[12px] text-slate-500 mt-0.5 leading-relaxed">{step.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onGoToData}
+            className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[13px] font-semibold transition-all shadow-sm">
+            Connect my data →
+          </button>
+          <button
+            onClick={onDismiss}
+            className="px-5 py-2.5 text-[13px] font-medium text-slate-400 hover:text-slate-200 border border-slate-700/60 hover:border-slate-600 rounded-xl transition-colors">
+            Explore demo
+          </button>
+        </div>
+        <div className="text-center mt-3 text-[11px] text-slate-700">You're currently viewing demo data · Your real data stays in your browser</div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function BusinessOS() {
   const [activeView, setActiveView]             = useState<ActiveView>('overview');
@@ -1090,11 +2183,18 @@ export default function BusinessOS() {
   const [panelNotes, setPanelNotesState]        = useState<Record<string, string>>({});
   const [shortcutsOpen, setShortcutsOpen]       = useState(false);
   const [dismissedAlerts, setDismissedAlerts]   = useState<number[]>([]);
+  const [showWelcome, setShowWelcome]           = useState(false);
+  const [companyProfile, setCompanyProfileState] = useState<CompanyProfile>({});
+  const [reportTimestamps, setReportTimestamps]   = useState<Record<string, string>>({});
 
   // Hydrate persisted state from localStorage (client-side only)
   useEffect(() => {
     const savedCompany = localStorage.getItem('bos_company');
     if (savedCompany) setCompanyName(savedCompany);
+    try {
+      const savedProfile = localStorage.getItem('bos_company_profile');
+      if (savedProfile) setCompanyProfileState(JSON.parse(savedProfile));
+    } catch { /* ignore */ }
     try {
       const savedGoals = localStorage.getItem('bos_goals');
       if (savedGoals) setGoals(JSON.parse(savedGoals));
@@ -1119,8 +2219,45 @@ export default function BusinessOS() {
       const savedPanelNotes = localStorage.getItem('bos_panel_notes');
       if (savedPanelNotes) setPanelNotesState(JSON.parse(savedPanelNotes));
     } catch { /* ignore */ }
+    try {
+      const savedInsight = localStorage.getItem('bos_weekly_insight');
+      if (savedInsight) setWeeklyInsight(JSON.parse(savedInsight));
+    } catch { /* ignore */ }
+    try {
+      const savedDeck = localStorage.getItem('bos_board_deck');
+      if (savedDeck) setBoardDeck(JSON.parse(savedDeck));
+    } catch { /* ignore */ }
+    try {
+      const savedAlerts = localStorage.getItem('bos_alerts');
+      if (savedAlerts) setAlerts(JSON.parse(savedAlerts));
+    } catch { /* ignore */ }
     const savedCompare = localStorage.getItem('bos_compare_mode');
     if (savedCompare === 'true') setCompareMode(true);
+    try {
+      const savedTs = localStorage.getItem('bos_report_timestamps');
+      if (savedTs) setReportTimestamps(JSON.parse(savedTs));
+    } catch { /* ignore */ }
+    // Restore user-uploaded period snapshots
+    let hasUserData = false;
+    try {
+      const savedSnaps = localStorage.getItem('bos_snapshots');
+      if (savedSnaps) {
+        const parsed = JSON.parse(savedSnaps) as PeriodSnapshot[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setSnapshots([...parsed, PREV_SNAPSHOT, DEMO_SNAPSHOT]);
+          const savedActiveId = localStorage.getItem('bos_active_id');
+          const restoredId = savedActiveId && parsed.find(s => s.id === savedActiveId) ? savedActiveId : parsed[0].id;
+          setActiveSnapshotId(restoredId);
+          hasUserData = true;
+        }
+      }
+    } catch { /* ignore */ }
+    // Show welcome modal for first-time visitors (no saved data of any kind)
+    const hasAnyPriorVisit = localStorage.getItem('bos_visited');
+    if (!hasAnyPriorVisit && !hasUserData) {
+      setShowWelcome(true);
+    }
+    localStorage.setItem('bos_visited', '1');
   }, []);
 
   const saveCompanyName = useCallback((name: string) => {
@@ -1225,7 +2362,7 @@ export default function BusinessOS() {
       const res = await fetch('/api/insights', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, data, previousData: prevSnapshot?.data ?? PREV_DEMO }),
+        body: JSON.stringify({ action, data, previousData: prevSnapshot?.data ?? PREV_DEMO, companyName, companyProfile }),
       });
       const result = await res.json();
 
@@ -1239,16 +2376,25 @@ export default function BusinessOS() {
       }
       if (result.insight) {
         setWeeklyInsight(result.insight);
+        try { localStorage.setItem('bos_weekly_insight', JSON.stringify(result.insight)); } catch { /* ignore */ }
+        const insightTs = new Date().toISOString();
+        setReportTimestamps(prev => { const next = { ...prev, 'weekly-insight': insightTs }; try { localStorage.setItem('bos_report_timestamps', JSON.stringify(next)); } catch { /* ignore */ } return next; });
         setActiveView('intelligence');
         addToast('success', 'Weekly intelligence report generated');
       }
       if (result.deck) {
         setBoardDeck(result.deck);
+        try { localStorage.setItem('bos_board_deck', JSON.stringify(result.deck)); } catch { /* ignore */ }
+        const deckTs = new Date().toISOString();
+        setReportTimestamps(prev => { const next = { ...prev, 'board-deck': deckTs }; try { localStorage.setItem('bos_report_timestamps', JSON.stringify(next)); } catch { /* ignore */ } return next; });
         setActiveView('intelligence');
         addToast('success', 'Board deck generated');
       }
       if (result.alerts) {
         setAlerts(result.alerts);
+        try { localStorage.setItem('bos_alerts', JSON.stringify(result.alerts)); } catch { /* ignore */ }
+        const alertsTs = new Date().toISOString();
+        setReportTimestamps(prev => { const next = { ...prev, 'alerts': alertsTs }; try { localStorage.setItem('bos_report_timestamps', JSON.stringify(next)); } catch { /* ignore */ } return next; });
         setDismissedAlerts([]);
         const high = (result.alerts as {severity: string}[]).filter(a => a.severity === 'HIGH').length;
         addToast(high > 0 ? 'error' : 'success', `${result.alerts.length} risk alert${result.alerts.length !== 1 ? 's' : ''} identified${high > 0 ? ` — ${high} high priority` : ''}`);
@@ -1263,7 +2409,7 @@ export default function BusinessOS() {
     } finally {
       setLoading(null);
     }
-  }, [data, prevSnapshot, addToast]);
+  }, [data, prevSnapshot, addToast, companyName, companyProfile]);
 
   const handleDataUpdate = useCallback((newData: UnifiedBusinessData) => {
     setPendingData(newData);
@@ -1273,7 +2419,17 @@ export default function BusinessOS() {
   const handlePeriodConfirm = useCallback((label: string) => {
     if (!pendingData) return;
     const snap: PeriodSnapshot = { id: `snap-${Date.now()}`, label, data: pendingData, createdAt: new Date().toISOString() };
-    setSnapshots(prev => [snap, ...prev.filter(s => !['demo','prev-demo'].includes(s.id)), PREV_SNAPSHOT, DEMO_SNAPSHOT]);
+    setSnapshots(prev => {
+      const userSnaps = prev.filter(s => !['demo','prev-demo'].includes(s.id));
+      const next = [snap, ...userSnaps, PREV_SNAPSHOT, DEMO_SNAPSHOT];
+      // Persist user snapshots (cap at 8 to avoid localStorage quota)
+      try {
+        const toSave = [snap, ...userSnaps].slice(0, 8);
+        localStorage.setItem('bos_snapshots', JSON.stringify(toSave));
+      } catch { /* storage quota exceeded — silently skip */ }
+      return next;
+    });
+    localStorage.setItem('bos_active_id', snap.id);
     setActiveSnapshotId(snap.id);
     setPendingData(null);
     setShowPeriodModal(false);
@@ -1282,11 +2438,43 @@ export default function BusinessOS() {
     setWeeklyInsight(null);
     setBoardDeck(null);
     setAlerts([]);
-    addToast('success', `Period "${label}" saved — viewing your real data`);
+    try { localStorage.removeItem('bos_weekly_insight'); localStorage.removeItem('bos_board_deck'); localStorage.removeItem('bos_alerts'); localStorage.removeItem('bos_report_timestamps'); } catch { /* ignore */ }
+    setReportTimestamps({});
+    addToast('success', `Period "${label}" saved — your data will persist on refresh`);
   }, [pendingData, addToast]);
 
   const handleDataSuccess = useCallback((msg: string) => {
     addToast('success', msg);
+  }, [addToast]);
+
+  const handleDeleteSnapshot = useCallback((id: string) => {
+    setSnapshots(prev => {
+      const next = prev.filter(s => s.id !== id);
+      const userSnaps = next.filter(s => !['demo','prev-demo'].includes(s.id));
+      try { localStorage.setItem('bos_snapshots', JSON.stringify(userSnaps)); } catch { /* ignore */ }
+      return next;
+    });
+    // If we deleted the active snapshot, fall back to demo
+    if (activeSnapshotId === id) {
+      setActiveSnapshotId(DEMO_SNAPSHOT.id);
+      localStorage.setItem('bos_active_id', DEMO_SNAPSHOT.id);
+    }
+    addToast('info', 'Period deleted');
+  }, [activeSnapshotId, addToast]);
+
+  const saveCompanyProfile = useCallback((profile: CompanyProfile) => {
+    setCompanyProfileState(profile);
+    try { localStorage.setItem('bos_company_profile', JSON.stringify(profile)); } catch { /* ignore */ }
+  }, []);
+
+  const handleRenameSnapshot = useCallback((id: string, newLabel: string) => {
+    setSnapshots(prev => {
+      const next = prev.map(s => s.id === id ? { ...s, label: newLabel } : s);
+      const userSnaps = next.filter(s => !['demo','prev-demo'].includes(s.id));
+      try { localStorage.setItem('bos_snapshots', JSON.stringify(userSnaps)); } catch { /* ignore */ }
+      return next;
+    });
+    addToast('success', `Renamed to "${newLabel}"`);
   }, [addToast]);
 
   const openChat = useCallback((msg?: string) => {
@@ -1294,12 +2482,14 @@ export default function BusinessOS() {
     setChatOpen(true);
   }, []);
 
-  // Keyboard shortcuts: 1–7 switch views, / opens chat
+  // Keyboard shortcuts: 1–7 switch views, / or Cmd+K opens chat
   useEffect(() => {
     const viewOrder: ActiveView[] = ['overview', 'financial', 'customers', 'operations', 'intelligence', 'scenarios', 'data'];
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return;
+      // Cmd+K / Ctrl+K opens chat
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); openChat(); return; }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === '/') { e.preventDefault(); openChat(); return; }
       if (e.key === '?') { e.preventDefault(); setShortcutsOpen(v => !v); return; }
@@ -1312,6 +2502,35 @@ export default function BusinessOS() {
   }, [openChat]);
 
   const isLoading = (action: string) => loading === action;
+
+  // Per-section health dot (green/amber/red) derived from current data
+  const getSectionHealth = (id: ActiveView): 'green' | 'amber' | 'red' | null => {
+    const rev   = data.revenue.total;
+    const cogs  = data.costs.totalCOGS;
+    const opex  = data.costs.totalOpEx;
+    const gp    = rev - cogs;
+    const ebitda = gp - opex;
+    switch (id) {
+      case 'financial': {
+        const em = rev > 0 ? (ebitda / rev) * 100 : 0;
+        const gm = rev > 0 ? (gp / rev) * 100 : 0;
+        return em >= 15 && gm >= 40 ? 'green' : em >= 8 ? 'amber' : 'red';
+      }
+      case 'customers': {
+        const topPct = data.customers.topCustomers[0]?.percentOfTotal ?? 0;
+        const ret    = (data.customers.retentionRate ?? 0.88) * 100;
+        return topPct <= 20 && ret >= 88 ? 'green' : topPct <= 35 && ret >= 75 ? 'amber' : 'red';
+      }
+      case 'operations': {
+        const util = data.operations.utilizationRate;
+        if (util == null) return null;
+        return util >= 0.8 ? 'green' : util >= 0.6 ? 'amber' : 'red';
+      }
+      case 'intelligence':
+        return highAlerts.length > 0 ? 'red' : visibleAlerts.length > 0 ? 'amber' : null;
+      default: return null;
+    }
+  };
 
   const navItems: { id: ActiveView; label: string; Icon: () => JSX.Element; badge?: number; activeClass: string }[] = [
     { id: 'overview',     label: 'Overview',     Icon: Icons.Overview,     activeClass: 'bg-slate-800/80 text-slate-100', badge: triggeredCount || undefined },
@@ -1387,14 +2606,21 @@ export default function BusinessOS() {
 
             {/* Desktop nav */}
             <nav className="hidden md:flex items-center gap-0.5 flex-1 overflow-x-auto">
-              {navItems.map(({ id, label, Icon, badge, activeClass }) => (
-                <button key={id} onClick={() => setActiveView(id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all whitespace-nowrap flex-shrink-0 ${
-                    activeView === id ? activeClass : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/30 border border-transparent'}`}>
-                  <Icon/>{label}
-                  {badge ? <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center ml-0.5">{badge}</span> : null}
-                </button>
-              ))}
+              {navItems.map(({ id, label, Icon, badge, activeClass }) => {
+                const health = getSectionHealth(id);
+                const dotCls = health === 'green' ? 'bg-emerald-400' : health === 'amber' ? 'bg-amber-400' : health === 'red' ? 'bg-red-400' : null;
+                return (
+                  <button key={id} onClick={() => setActiveView(id)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all whitespace-nowrap flex-shrink-0 ${
+                      activeView === id ? activeClass : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/30 border border-transparent'}`}>
+                    <Icon/>{label}
+                    {dotCls && !badge && (
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotCls} opacity-60`}/>
+                    )}
+                    {badge ? <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center ml-0.5">{badge}</span> : null}
+                  </button>
+                );
+              })}
             </nav>
 
             {/* Mobile: current view label */}
@@ -1409,7 +2635,7 @@ export default function BusinessOS() {
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400/80 animate-pulse"/>Demo
                 </span>
               )}
-              <PeriodSelector snapshots={snapshots} activeId={activeSnapshotId} onSelect={id => { setActiveSnapshotId(id); addToast('info', `Viewing: ${snapshots.find(s => s.id === id)?.label}`); }}/>
+              <PeriodSelector snapshots={snapshots} activeId={activeSnapshotId} onSelect={id => { setActiveSnapshotId(id); localStorage.setItem('bos_active_id', id); addToast('info', `Viewing: ${snapshots.find(s => s.id === id)?.label}`); }} onDelete={handleDeleteSnapshot} onRename={handleRenameSnapshot}/>
               <button onClick={() => runAction('full-report')} disabled={!!loading}
                 className="flex items-center gap-1.5 px-2.5 md:px-3.5 py-[7px] bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-[12px] font-semibold transition-all shadow-sm">
                 {isLoading('full-report') ? <><Icons.Spinner/><span className="hidden sm:inline">Running…</span></> : <><span className="hidden sm:inline">✦ Run Report</span><span className="sm:hidden">✦</span></>}
@@ -1456,6 +2682,14 @@ export default function BusinessOS() {
               <span className={`hidden sm:inline text-[11px] font-medium flex-shrink-0 ${data.metadata.completeness >= 0.9 ? 'text-emerald-500/70' : 'text-amber-500/70'}`}>
                 {Math.round(data.metadata.completeness * 100)}% coverage
               </span>
+              {!usingDemo && activeSnapshot.createdAt && (
+                <>
+                  <span className="hidden md:inline text-slate-700 flex-shrink-0">·</span>
+                  <span className="hidden md:inline text-[11px] text-slate-600 flex-shrink-0">
+                    uploaded {new Date(activeSnapshot.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </span>
+                </>
+              )}
             </div>
             <div className="flex items-center gap-2 no-print">
               {activeView === 'overview' && (
@@ -1485,6 +2719,15 @@ export default function BusinessOS() {
                 Shortcuts
               </button>
               <button
+                onClick={() => exportKPIsAsCSV(data, activeSnapshot.label)}
+                className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 border border-slate-800/60 hover:border-slate-700 px-3 py-1 rounded-lg transition-all font-medium"
+                title="Download KPIs, period data, and customers as CSV">
+                <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3 flex-shrink-0">
+                  <path d="M7 1v7M4 5l3 3 3-3M2 10v2a1 1 0 001 1h8a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none"/>
+                </svg>
+                Export CSV
+              </button>
+              <button
                 onClick={() => window.print()}
                 className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 border border-slate-800/60 hover:border-slate-700 px-3 py-1 rounded-lg transition-all font-medium"
                 title="Export to PDF — use browser Print → Save as PDF">
@@ -1496,6 +2739,27 @@ export default function BusinessOS() {
             </div>
           </div>
         </div>
+
+        {/* ── Print-only header ── */}
+        <div className="print-header hidden">
+          {companyName} · Business OS Report · {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+        </div>
+
+        {/* ── Demo data banner (non-overview tabs) ── */}
+        {usingDemo && activeView !== 'overview' && activeView !== 'data' && (
+          <div className="no-print border-b border-amber-500/10 bg-amber-500/[0.03]">
+            <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-2 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400/70 animate-pulse flex-shrink-0"/>
+                <span className="text-[11px] text-amber-400/70">You're viewing demo data — analysis below reflects simulated numbers</span>
+              </div>
+              <button onClick={() => setActiveView('data')}
+                className="text-[11px] font-semibold text-amber-400/80 hover:text-amber-300 border border-amber-500/20 hover:border-amber-500/40 px-2.5 py-1 rounded-lg transition-all flex-shrink-0 whitespace-nowrap">
+                Use my data →
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── Content ── */}
         <main className="max-w-[1440px] mx-auto px-4 sm:px-6 py-5 sm:py-6 flex-1 w-full">
@@ -1550,10 +2814,18 @@ export default function BusinessOS() {
                 </div>
               )}
 
+              <MonthlyTrendStrip data={data}/>
               <CEOWatchlist data={data} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
+              <TopActionsWidget onRunAgent={() => setActiveView('intelligence')} onViewAll={() => setActiveView('intelligence')}/>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <ExitReadinessWidget onViewAll={() => setActiveView('intelligence')}/>
+                <GrowthPlaybookWidget onViewAll={() => setActiveView('intelligence')}/>
+              </div>
               <ExecutiveSummary data={data} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
               {prevSnapshot && <BiggestMovers data={data} previous={prevSnapshot.data}/>}
+              <RevenueQuality data={data} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
               <NarrativeBar data={data} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
+              <HealthScoreHistory snapshots={snapshots} activeId={activeSnapshotId}/>
               <BusinessHealthScore data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
 
               {/* Data quality warnings */}
@@ -1573,6 +2845,10 @@ export default function BusinessOS() {
               <GoalsPanel data={data} goals={goals} onSetGoal={setGoal}/>
               <KPIGrid dashboard={dashboard} data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} goals={goals}/>
               <RevenueChart data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} revenueGoal={goals.revenue} annotations={annotations} onAnnotate={setAnnotation} onAskAI={openChat}/>
+
+              <RevenueForecastStrip data={data} onAskAI={openChat}/>
+
+              <PipelineSnapshot data={data} onAskAI={openChat}/>
 
               <TrendSignalsPanel data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
 
@@ -1616,6 +2892,9 @@ export default function BusinessOS() {
                 <div className="h-px flex-1 bg-indigo-500/10"/>
               </div>
               <FinancialDashboard data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} dashboard={dashboard} budget={budget} onSetBudget={setBudgetLine} annotations={annotations} onAnnotate={setAnnotation} onAskAI={openChat}/>
+              <PLStatement data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} showChange showPct/>
+              <BudgetPanel data={data} budget={budget} onSetBudget={setBudgetLine} onAskAI={openChat}/>
+              <IndustryBenchmarksPanel data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
               {data.transactions && data.transactions.length > 0 && (
                 <div>
                   <div className="flex items-center gap-3 mb-3">
@@ -1663,7 +2942,17 @@ export default function BusinessOS() {
               <OperationsDashboard data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
             </div>
           )}
-          {activeView === 'intelligence' && <IntelligenceDashboard weeklyInsight={weeklyInsight} boardDeck={boardDeck} alerts={alerts} loading={loading} onGenerate={runAction}/>}
+          {activeView === 'intelligence' && (
+            <div className="space-y-6">
+              <IntelligenceDashboard weeklyInsight={weeklyInsight} boardDeck={boardDeck} alerts={alerts} loading={loading} onGenerate={runAction} reportTimestamps={reportTimestamps}/>
+              <div className="flex items-center gap-3">
+                <div className="h-px flex-1 bg-slate-800/60"/>
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em]">AI Advisory Agents</div>
+                <div className="h-px flex-1 bg-slate-800/60"/>
+              </div>
+              <AgentPanel data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} companyName={companyName} companyProfile={companyProfile}/>
+            </div>
+          )}
           {activeView === 'scenarios'   && (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
@@ -1679,7 +2968,7 @@ export default function BusinessOS() {
               <ScenarioModeler data={data} onAskAI={openChat}/>
             </div>
           )}
-          {activeView === 'data'         && <DataSourcePanel data={data} onDataUpdate={handleDataUpdate} onSuccess={handleDataSuccess}/>}
+          {activeView === 'data'         && <DataSourcePanel data={data} onDataUpdate={handleDataUpdate} onSuccess={handleDataSuccess} companyProfile={companyProfile} onProfileChange={saveCompanyProfile}/>}
         </main>
 
         {/* ── Period name modal ── */}
@@ -1701,6 +2990,7 @@ export default function BusinessOS() {
               <rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/>
             </svg>
             Ask AI
+            <span className="hidden sm:inline text-[10px] opacity-60 font-normal">⌘K</span>
           </button>
         )}
 
@@ -1711,10 +3001,21 @@ export default function BusinessOS() {
           onClose={() => { setChatOpen(false); setChatInitialMsg(undefined); }}
           initialMessage={chatInitialMsg}
           onInitialMessageSent={() => setChatInitialMsg(undefined)}
+          companyName={companyName}
+          activeView={activeView}
+          companyProfile={companyProfile}
         />
 
         {/* ── Keyboard shortcuts modal ── */}
         {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)}/>}
+
+        {/* ── Welcome modal (first visit) ── */}
+        {showWelcome && (
+          <WelcomeModal
+            onDismiss={() => setShowWelcome(false)}
+            onGoToData={() => { setShowWelcome(false); setActiveView('data'); }}
+          />
+        )}
 
         {/* ── Toasts ── */}
         <ToastContainer toasts={toasts} dismiss={dismissToast}/>

@@ -28,11 +28,14 @@ RULES:
 export async function generateWeeklyInsight(
   data: UnifiedBusinessData,
   dashboard: KPIDashboard,
-  previousData?: UnifiedBusinessData
+  previousData?: UnifiedBusinessData,
+  companyName?: string,
+  additionalContext?: string
 ): Promise<WeeklyInsight> {
+  const contextLine = [companyName ? `Company: ${companyName}` : '', additionalContext].filter(Boolean).join(' | ');
   const prompt = `${OPERATOR_TONE}
 
-Generate a Weekly Executive Intelligence Report.
+Generate a Weekly Executive Intelligence Report.${contextLine ? `\n${contextLine}` : ''}
 
 CURRENT PERIOD DATA:
 Revenue: $${(data.revenue.total / 1_000_000).toFixed(2)}M
@@ -115,14 +118,17 @@ Return JSON array with same structure as input, but with enriched hypothesis and
 export async function generateBoardDeck(
   data: UnifiedBusinessData,
   dashboard: KPIDashboard,
-  historicalData?: UnifiedBusinessData[]
+  historicalData?: UnifiedBusinessData[],
+  companyName?: string,
+  additionalContext?: string
 ): Promise<BoardDeck> {
   const month = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const contextLine = [companyName ? `Company: ${companyName}` : '', additionalContext].filter(Boolean).join(' | ');
 
   const prompt = `${OPERATOR_TONE}
 
 Generate a Monthly Board Commentary for executive reporting.
-Month: ${month}
+Month: ${month}${contextLine ? `\n${contextLine}` : ''}
 
 PERFORMANCE DATA:
 Revenue: $${(data.revenue.total/1_000_000).toFixed(2)}M

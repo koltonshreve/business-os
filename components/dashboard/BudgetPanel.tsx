@@ -413,6 +413,82 @@ export default function BudgetPanel({ data, budget, onSetBudget, onAskAI }: Prop
         <BudgetVarianceWaterfall data={data} budget={budget} />
       )}
 
+      {/* Run-rate projection — when at least 2 periods of data */}
+      {data.revenue.byPeriod.length >= 2 && (() => {
+        const periods = data.revenue.byPeriod;
+        const n = periods.length;
+        // Last 3 periods average for stability
+        const recentRevs = periods.slice(-Math.min(3, n)).map(p => p.revenue);
+        const avgRev = recentRevs.reduce((s, v) => s + v, 0) / recentRevs.length;
+        const yearEndRev = avgRev * 12;
+        const lastCogs = periods.slice(-Math.min(3, n)).reduce((s, p) => s + (p.cogs ?? 0), 0);
+        const lastRevs  = periods.slice(-Math.min(3, n)).reduce((s, p) => s + p.revenue, 0);
+        const cogsRate  = lastRevs > 0 ? lastCogs / lastRevs : rev > 0 ? cogs / rev : 0;
+        const yearEndCogs = yearEndRev * cogsRate;
+        const opexRate = rev > 0 ? opex / rev : 0;
+        const yearEndOpex = yearEndRev * opexRate;
+        const yearEndGP = yearEndRev - yearEndCogs;
+        const yearEndEBITDA = yearEndGP - yearEndOpex;
+
+        const revVariance = budget.revenue ? ((yearEndRev - budget.revenue) / budget.revenue) * 100 : null;
+        const ebitdaVariance = budgetEBITDA != null ? ((yearEndEBITDA - budgetEBITDA) / Math.abs(budgetEBITDA)) * 100 : null;
+
+        return (
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <div className="text-[12px] font-semibold text-slate-200">Full-Year Run Rate</div>
+                <div className="text-[11px] text-slate-600 mt-0.5">
+                  Annualized at avg of last {Math.min(3, n)} period{Math.min(3, n) !== 1 ? 's' : ''}
+                </div>
+              </div>
+              {revVariance !== null && (
+                <div className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border ${
+                  revVariance >= 0
+                    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                    : 'bg-red-500/10 border-red-500/20 text-red-400'
+                }`}>
+                  Rev {revVariance >= 0 ? '+' : ''}{revVariance.toFixed(0)}% vs budget
+                </div>
+              )}
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                { label: 'Revenue Run Rate',     value: yearEndRev,    color: 'text-slate-100',   bud: budget.revenue },
+                { label: 'Gross Profit',          value: yearEndGP,     color: 'text-sky-400',     bud: budgetGP },
+                { label: 'EBITDA',                value: yearEndEBITDA, color: yearEndEBITDA > 0 ? 'text-emerald-400' : 'text-red-400', bud: budgetEBITDA },
+                { label: 'EBITDA Margin',         value: null,          color: 'text-slate-300',   bud: null },
+              ].map(({ label, value, color, bud }) => {
+                const displayVal = label === 'EBITDA Margin'
+                  ? (yearEndRev > 0 ? `${((yearEndEBITDA / yearEndRev) * 100).toFixed(1)}%` : '—')
+                  : (value !== null ? fmtAmt(value) : '—');
+                const delta = value !== null && bud && bud !== 0
+                  ? ((value - bud) / Math.abs(bud)) * 100 : null;
+                return (
+                  <div key={label} className="bg-slate-800/30 rounded-xl px-3.5 py-3">
+                    <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-1.5">{label}</div>
+                    <div className={`text-[16px] font-bold ${color} tabular-nums`}>{displayVal}</div>
+                    {delta !== null && (
+                      <div className={`text-[10px] font-semibold mt-0.5 ${delta >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
+                        {delta >= 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(0)}% vs budget
+                      </div>
+                    )}
+                    {bud == null && value == null && (
+                      <div className="text-[10px] text-slate-600 mt-0.5">
+                        {yearEndRev > 0 ? `${((yearEndEBITDA / yearEndRev) * 100).toFixed(1)}%` : '—'}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-2 text-[10px] text-slate-700 leading-relaxed">
+              Run rate is not a guarantee — it assumes recent trends continue for 12 months. Use this as a directional planning tool, not a forecast.
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Tip when no budget set */}
       {!hasBudget && (
         <div className="text-center py-4 text-[12px] text-slate-600">

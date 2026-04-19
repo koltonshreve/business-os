@@ -34,6 +34,17 @@ const BENCHMARKS: Record<string, { label: string; value: string; good: string }>
   'gp-per-employee':       { label: 'Prof. services', value: '$60k', good: '>$100k is strong for professional services' },
 };
 
+// Numeric benchmark values for inline bar comparison
+const BENCHMARK_VALS: Partial<Record<string, { val: number; label: string; inverse?: boolean }>> = {
+  'gross-margin':           { val: 42,    label: 'LMM 42%' },
+  'ebitda-margin':          { val: 14,    label: 'LMM 14%' },
+  'revenue-growth':         { val: 12,    label: 'LMM 12%' },
+  'customer-concentration': { val: 20,    label: 'max 20%', inverse: true },
+  'retention-rate':         { val: 88,    label: 'LMM 88%' },
+  'rev-per-employee':       { val: 85000, label: 'LMM $85k' },
+  'gp-per-employee':        { val: 60000, label: 'LMM $60k' },
+};
+
 // Maps KPI IDs to Goals keys
 const KPI_GOAL_MAP: Partial<Record<string, keyof Goals>> = {
   'total-revenue':    'revenue',
@@ -381,7 +392,37 @@ function KPICard({ kpi, goal }: { kpi: KPIResult; goal?: number }) {
           </div>
         )}
 
-        <div className="text-[10px] text-slate-600 mt-1.5 leading-snug group-hover:text-slate-500 transition-colors truncate">{kpi.description}</div>
+        {/* Inline benchmark comparison */}
+        {(() => {
+          const bv = BENCHMARK_VALS[kpi.id];
+          if (!bv) return null;
+          const isInverse = bv.inverse ?? false;
+          const diff = kpi.value - bv.val;
+          const isAhead = isInverse ? diff < 0 : diff > 0;
+          const absDiff = Math.abs(diff);
+          const isMonetary = kpi.unit === '$';
+          const fmtDiff = isMonetary
+            ? (absDiff >= 1_000_000 ? `$${(absDiff/1_000_000).toFixed(1)}M` : absDiff >= 1000 ? `$${(absDiff/1000).toFixed(0)}k` : `$${absDiff.toFixed(0)}`)
+            : `${absDiff.toFixed(1)}pp`;
+          const maxVal = Math.max(kpi.value, bv.val) * 1.05;
+          const curPct  = Math.min(100, (kpi.value / maxVal) * 100);
+          const benchPct= Math.min(100, (bv.val   / maxVal) * 100);
+          return (
+            <div className="mt-1.5 pt-1.5 border-t border-slate-800/30 space-y-1">
+              {/* Bar with benchmark tick */}
+              <div className="relative h-1 bg-slate-800/80 rounded-full overflow-visible">
+                <div className={`absolute inset-y-0 left-0 rounded-full ${isAhead ? 'bg-emerald-500/35' : 'bg-amber-500/35'}`}
+                  style={{ width: `${curPct}%` }}/>
+                <div className="absolute top-1/2 -translate-y-1/2 w-px h-2.5 bg-slate-500/70 rounded-full"
+                  style={{ left: `${benchPct}%` }}/>
+              </div>
+              <div className={`text-[9px] font-medium tabular-nums ${isAhead ? 'text-emerald-400/65' : 'text-amber-400/65'}`}>
+                {isAhead ? `+${fmtDiff} ahead of` : `${fmtDiff} behind`} {bv.label}
+              </div>
+            </div>
+          );
+        })()}
+        <div className="text-[10px] text-slate-600 mt-1 leading-snug group-hover:text-slate-500 transition-colors truncate">{kpi.description}</div>
       </button>
       {showDetail && <KPIDetailModal kpi={kpi} goal={goal} onClose={() => setShowDetail(false)}/>}
     </>

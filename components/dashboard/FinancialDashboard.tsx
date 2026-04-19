@@ -4,7 +4,6 @@ import PLWaterfall from '../charts/PLWaterfall';
 import MarginTrendChart from '../charts/MarginTrendChart';
 import RevenueChart from '../charts/RevenueChart';
 import PLStatement from '../PLStatement';
-import ValuationEstimator from './ValuationEstimator';
 import BudgetPanel from './BudgetPanel';
 import IndustryBenchmarksPanel from './IndustryBenchmarksPanel';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -763,31 +762,307 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
         ))}
       </div>
 
+      {/* Rule-based financial insights */}
+      {(() => {
+        const insights: { icon: string; text: string; color: string }[] = [];
+
+        // 1. EBITDA margin vs benchmark
+        const ebitdaGap = ebitdaMargin - 14;
+        insights.push(ebitdaGap >= 4
+          ? { icon: '◆', text: `EBITDA margin ${ebitdaMargin.toFixed(1)}% — ${ebitdaGap.toFixed(1)}pp above LMM 14% median`, color: 'text-emerald-400' }
+          : ebitdaGap >= 0
+          ? { icon: '◆', text: `EBITDA margin ${ebitdaMargin.toFixed(1)}% — at LMM median, ${(18 - ebitdaMargin).toFixed(1)}pp from "strong" threshold of 18%`, color: 'text-sky-400' }
+          : { icon: '◆', text: `EBITDA margin ${ebitdaMargin.toFixed(1)}% — ${Math.abs(ebitdaGap).toFixed(1)}pp below LMM 14% median; ${fmt(Math.abs(ebitdaGap / 100 * rev))} EBITDA gap`, color: 'text-amber-400' }
+        );
+
+        // 2. Biggest cost driver
+        if (data.costs.byCategory.length > 0) {
+          const biggest = [...data.costs.byCategory].sort((a, b) => b.amount - a.amount)[0];
+          insights.push({
+            icon: '▲',
+            text: `Largest cost driver: ${biggest.category} at ${fmt(biggest.amount)} (${biggest.percentOfRevenue.toFixed(1)}% of revenue)`,
+            color: biggest.percentOfRevenue > 25 ? 'text-amber-400' : 'text-slate-400',
+          });
+        }
+
+        // 3. Gross margin trend over periods
+        const periodsWithCOGS = data.revenue.byPeriod.filter(p => p.cogs != null && p.cogs > 0);
+        if (periodsWithCOGS.length >= 2) {
+          const firstGM = ((periodsWithCOGS[0].revenue - periodsWithCOGS[0].cogs!) / periodsWithCOGS[0].revenue) * 100;
+          const lastGM  = ((periodsWithCOGS[periodsWithCOGS.length - 1].revenue - periodsWithCOGS[periodsWithCOGS.length - 1].cogs!) / periodsWithCOGS[periodsWithCOGS.length - 1].revenue) * 100;
+          const gmDelta = lastGM - firstGM;
+          if (Math.abs(gmDelta) >= 0.5) {
+            insights.push({
+              icon: gmDelta > 0 ? '↑' : '↓',
+              text: `Gross margin ${gmDelta > 0 ? 'expanded' : 'compressed'} ${Math.abs(gmDelta).toFixed(1)}pp over the period (${firstGM.toFixed(1)}% → ${lastGM.toFixed(1)}%)`,
+              color: gmDelta > 0 ? 'text-emerald-400' : 'text-red-400',
+            });
+          }
+        } else if (gpMargin > 0) {
+          const gpGap = gpMargin - 42;
+          insights.push({
+            icon: '◈',
+            text: `Gross margin ${gpMargin.toFixed(1)}% — ${gpGap >= 0 ? `${gpGap.toFixed(1)}pp above` : `${Math.abs(gpGap).toFixed(1)}pp below`} LMM 42% median`,
+            color: gpGap >= 0 ? 'text-emerald-400' : 'text-amber-400',
+          });
+        }
+
+        if (insights.length === 0) return null;
+        return (
+          <div className="flex flex-col sm:flex-row gap-2 flex-wrap">
+            {insights.map((ins, i) => (
+              <div key={i} className="flex items-start gap-2 bg-slate-900/40 border border-slate-800/40 rounded-xl px-3.5 py-2.5 flex-1 min-w-0">
+                <span className={`text-sm flex-shrink-0 mt-0.5 ${ins.color}`}>{ins.icon}</span>
+                <span className={`text-[12px] font-medium leading-snug ${ins.color}`}>{ins.text}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* LTM / Annualized strip */}
-      <div className="bg-slate-900/30 border border-slate-800/40 rounded-xl px-5 py-3.5">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em]">
-            {ltmLabel} Metrics
-          </div>
-          <div className="flex-1 h-px bg-slate-800/60"/>
-          <div className="text-[10px] text-slate-600">
-            {isLTM ? 'Trailing twelve months' : `Annualized from ${ltmCount} period${ltmCount !== 1 ? 's' : ''}`}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[
-            { label: `${ltmLabel} Revenue`,    value: fmt(ltmRev),    color: 'text-slate-100' },
-            { label: `${ltmLabel} Gross Profit`, value: fmt(ltmGP),   color: ltmGP > 0 ? 'text-emerald-400' : 'text-red-400' },
-            { label: `${ltmLabel} GM %`,        value: pctFmt(ltmGPM), color: ltmGPM >= 40 ? 'text-emerald-400' : ltmGPM >= 25 ? 'text-amber-400' : 'text-red-400' },
-            { label: `${ltmLabel} EBITDA`,      value: fmt(ltmEBITDA), color: ltmEBITDA > 0 ? 'text-emerald-400' : 'text-red-400' },
-          ].map(m => (
-            <div key={m.label}>
-              <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-1">{m.label}</div>
-              <div className={`text-[18px] font-bold ${m.color}`}>{m.value}</div>
+      {(() => {
+        // Build GM% sparkline from periods that have COGS data
+        const periodsWithCOGS = data.revenue.byPeriod.filter(p => p.cogs != null && p.cogs > 0 && p.revenue > 0);
+        const gmSparkline = periodsWithCOGS.slice(-12).map(p => ((p.revenue - p.cogs!) / p.revenue) * 100);
+        const hasSparkline = gmSparkline.length >= 3;
+        const gmFirst = hasSparkline ? gmSparkline[0] : null;
+        const gmLast  = hasSparkline ? gmSparkline[gmSparkline.length - 1] : null;
+        const gmDelta = gmFirst != null && gmLast != null ? gmLast - gmFirst : null;
+
+        // SVG sparkline
+        const sparkW = 80; const sparkH = 28;
+        const minGM = hasSparkline ? Math.min(...gmSparkline) - 1 : 0;
+        const maxGM = hasSparkline ? Math.max(...gmSparkline) + 1 : 100;
+        const gmRange = Math.max(maxGM - minGM, 0.1);
+        const sparkPts = hasSparkline
+          ? gmSparkline.map((v, i) => {
+              const x = (i / (gmSparkline.length - 1)) * sparkW;
+              const y = sparkH - ((v - minGM) / gmRange) * sparkH;
+              return `${x},${y}`;
+            }).join(' ')
+          : '';
+
+        return (
+          <div className="bg-slate-900/30 border border-slate-800/40 rounded-xl px-5 py-3.5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em]">
+                {ltmLabel} Metrics
+              </div>
+              <div className="flex-1 h-px bg-slate-800/60"/>
+              <div className="text-[10px] text-slate-600">
+                {isLTM ? 'Trailing twelve months' : `Annualized from ${ltmCount} period${ltmCount !== 1 ? 's' : ''}`}
+              </div>
             </div>
-          ))}
-        </div>
-      </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[
+                { label: `${ltmLabel} Revenue`,      value: fmt(ltmRev),     color: 'text-slate-100' },
+                { label: `${ltmLabel} Gross Profit`, value: fmt(ltmGP),      color: ltmGP > 0 ? 'text-emerald-400' : 'text-red-400' },
+                { label: `${ltmLabel} GM %`,         value: pctFmt(ltmGPM),  color: ltmGPM >= 40 ? 'text-emerald-400' : ltmGPM >= 25 ? 'text-amber-400' : 'text-red-400' },
+                { label: `${ltmLabel} EBITDA`,       value: fmt(ltmEBITDA),  color: ltmEBITDA > 0 ? 'text-emerald-400' : 'text-red-400' },
+              ].map(m => (
+                <div key={m.label}>
+                  <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-1">{m.label}</div>
+                  <div className={`text-[18px] font-bold ${m.color}`}>{m.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* GM% sparkline — only when per-period COGS available */}
+            {hasSparkline && (
+              <div className="mt-3.5 pt-3 border-t border-slate-800/60 flex items-center gap-4">
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] flex-shrink-0">GM% Trend</div>
+                <svg viewBox={`0 0 ${sparkW} ${sparkH}`} className="w-20 h-7 flex-shrink-0 overflow-visible">
+                  <polyline points={sparkPts} fill="none"
+                    stroke={gmDelta != null && gmDelta >= 0 ? 'rgba(52,211,153,0.7)' : 'rgba(248,113,113,0.7)'}
+                    strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  {gmLast != null && (() => {
+                    const lastX = sparkW;
+                    const lastY = sparkH - ((gmLast - minGM) / gmRange) * sparkH;
+                    return <circle cx={lastX} cy={lastY} r="2" fill={gmDelta != null && gmDelta >= 0 ? '#34d399' : '#f87171'}/>;
+                  })()}
+                </svg>
+                <div className="flex items-center gap-3 flex-wrap text-[11px]">
+                  {periodsWithCOGS.slice(-3).map((p, i) => {
+                    const gm = ((p.revenue - p.cogs!) / p.revenue) * 100;
+                    const isLast = i === periodsWithCOGS.slice(-3).length - 1;
+                    return (
+                      <span key={p.period} className={isLast ? 'font-semibold text-slate-200' : 'text-slate-600'}>
+                        {p.period.replace(/\d{4}-/, '').replace(/^0/, '')}: {gm.toFixed(1)}%
+                      </span>
+                    );
+                  })}
+                  {gmDelta != null && (
+                    <span className={`font-semibold ml-1 ${gmDelta >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {gmDelta >= 0 ? '↑' : '↓'}{Math.abs(gmDelta).toFixed(1)}pp
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Revenue Growth Momentum */}
+      {data.revenue.byPeriod.length >= 3 && (() => {
+        const periods = [...data.revenue.byPeriod].sort((a, b) => a.period.localeCompare(b.period));
+        const firstRev = periods[0].revenue;
+        const lastRev  = periods[periods.length - 1].revenue;
+        const n        = periods.length - 1;
+
+        // Determine period type for annualization
+        const pType = periods[0].periodType ?? 'monthly';
+        const periodsPerYear = pType === 'annual' ? 1 : pType === 'quarterly' ? 4 : 12;
+        const years = n / periodsPerYear;
+
+        // CAGR
+        const cagr = years > 0 && firstRev > 0 && lastRev > 0
+          ? (Math.pow(lastRev / firstRev, 1 / years) - 1) * 100
+          : null;
+
+        // Period-over-period growth rates
+        const growthRates: number[] = [];
+        for (let i = 1; i < periods.length; i++) {
+          const prev = periods[i - 1].revenue;
+          if (prev > 0) growthRates.push(((periods[i].revenue - prev) / prev) * 100);
+        }
+
+        // Acceleration: avg growth first half vs second half
+        const midGR = Math.floor(growthRates.length / 2);
+        const firstHalfAvg = midGR > 0 ? growthRates.slice(0, midGR).reduce((a, b) => a + b, 0) / midGR : null;
+        const secondHalfAvg = midGR > 0 ? growthRates.slice(midGR).reduce((a, b) => a + b, 0) / (growthRates.length - midGR) : null;
+        const accel = firstHalfAvg != null && secondHalfAvg != null ? secondHalfAvg - firstHalfAvg : null;
+
+        // Most recent 3 growth rates for display
+        const recentGR = growthRates.slice(-3);
+        const latestGR = growthRates.length > 0 ? growthRates[growthRates.length - 1] : null;
+
+        // Sparkline of growth rates
+        const sparkW = 80; const sparkH = 28;
+        const grMin = Math.min(...growthRates) - 1;
+        const grMax = Math.max(...growthRates) + 1;
+        const grRange = Math.max(grMax - grMin, 0.1);
+        const grPts = growthRates.map((v, i) => {
+          const x = (i / Math.max(growthRates.length - 1, 1)) * sparkW;
+          const y = sparkH - ((v - grMin) / grRange) * sparkH;
+          return `${x},${y}`;
+        }).join(' ');
+
+        const cagrColor = cagr == null ? 'text-slate-400' : cagr >= 20 ? 'text-emerald-400' : cagr >= 10 ? 'text-sky-400' : cagr >= 0 ? 'text-amber-400' : 'text-red-400';
+        const latestColor = latestGR == null ? 'text-slate-400' : latestGR >= 15 ? 'text-emerald-400' : latestGR >= 5 ? 'text-sky-400' : latestGR >= 0 ? 'text-amber-400' : 'text-red-400';
+
+        return (
+          <div className="bg-slate-900/30 border border-slate-800/40 rounded-xl px-5 py-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em]">Revenue Growth Momentum</div>
+              <div className="flex-1 h-px bg-slate-800/60"/>
+              <div className="text-[10px] text-slate-600">{periods.length} periods · {years.toFixed(1)}yr span</div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {/* CAGR */}
+              <div>
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-1">CAGR</div>
+                <div className={`text-[20px] font-bold ${cagrColor}`}>{cagr != null ? `${cagr >= 0 ? '+' : ''}${cagr.toFixed(1)}%` : '—'}</div>
+                <div className="text-[10px] text-slate-600 mt-0.5">Compounded annual</div>
+              </div>
+
+              {/* Latest Period Growth */}
+              <div>
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-1">Latest Period</div>
+                <div className={`text-[20px] font-bold ${latestColor}`}>{latestGR != null ? `${latestGR >= 0 ? '+' : ''}${latestGR.toFixed(1)}%` : '—'}</div>
+                <div className="text-[10px] text-slate-600 mt-0.5">MoM / QoQ / YoY</div>
+              </div>
+
+              {/* Acceleration */}
+              <div>
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-1">Acceleration</div>
+                {accel != null ? (
+                  <>
+                    <div className={`text-[20px] font-bold ${accel > 2 ? 'text-emerald-400' : accel > -2 ? 'text-amber-400' : 'text-red-400'}`}>
+                      {accel >= 0 ? '+' : ''}{accel.toFixed(1)}pp
+                    </div>
+                    <div className="text-[10px] text-slate-600 mt-0.5">{accel > 0 ? 'Accelerating' : accel < -2 ? 'Decelerating' : 'Stable'}</div>
+                  </>
+                ) : (
+                  <div className="text-[20px] font-bold text-slate-500">—</div>
+                )}
+              </div>
+
+              {/* Sparkline + recent growth labels */}
+              <div>
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-1">Growth Trend</div>
+                {growthRates.length >= 3 ? (
+                  <div className="flex items-center gap-2">
+                    <svg viewBox={`0 0 ${sparkW} ${sparkH}`} className="w-16 h-6 flex-shrink-0 overflow-visible">
+                      {/* Zero line */}
+                      {grMin < 0 && grMax > 0 && (
+                        <line x1="0" y1={sparkH - ((0 - grMin) / grRange) * sparkH}
+                              x2={sparkW} y2={sparkH - ((0 - grMin) / grRange) * sparkH}
+                              stroke="rgba(100,116,139,0.2)" strokeWidth="1" strokeDasharray="2,2"/>
+                      )}
+                      <polyline points={grPts} fill="none"
+                        stroke={accel != null && accel >= 0 ? 'rgba(52,211,153,0.7)' : 'rgba(248,113,113,0.7)'}
+                        strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      {latestGR != null && (() => {
+                        const lx = sparkW;
+                        const ly = sparkH - ((latestGR - grMin) / grRange) * sparkH;
+                        return <circle cx={lx} cy={ly} r="2" fill={accel != null && accel >= 0 ? '#34d399' : '#f87171'}/>;
+                      })()}
+                    </svg>
+                    <div className="flex flex-col gap-0.5">
+                      {recentGR.map((gr, i) => {
+                        const periodIdx = periods.length - recentGR.length + i;
+                        const label = periods[periodIdx]?.period.replace(/\d{4}-/, '').replace(/^0/, '') ?? '';
+                        const isLast = i === recentGR.length - 1;
+                        return (
+                          <span key={i} className={`text-[10px] font-${isLast ? 'semibold' : 'normal'} ${isLast ? (gr >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-slate-600'}`}>
+                            {label}: {gr >= 0 ? '+' : ''}{gr.toFixed(1)}%
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[20px] font-bold text-slate-500">—</div>
+                )}
+              </div>
+            </div>
+
+            {/* Contextual insight row */}
+            {cagr != null && (
+              <div className="mt-3.5 pt-3 border-t border-slate-800/60 flex items-center gap-2">
+                <span className={`text-[11px] font-semibold ${cagrColor}`}>
+                  {cagr >= 25 ? '◆ Hypergrowth' : cagr >= 15 ? '◆ Strong Growth' : cagr >= 5 ? '◈ Moderate Growth' : cagr >= 0 ? '▽ Slow Growth' : '▼ Declining'}
+                </span>
+                <span className="text-[11px] text-slate-500">·</span>
+                <span className="text-[11px] text-slate-500">
+                  {cagr >= 20
+                    ? `${fmt(lastRev)} revenue growing ${cagr.toFixed(1)}% CAGR — strong momentum for a quality valuation process`
+                    : cagr >= 10
+                    ? `${cagr.toFixed(1)}% CAGR is LMM-median range; focus on sustaining ${(cagr + 5).toFixed(0)}%+ to expand multiple`
+                    : cagr >= 0
+                    ? `Sub-10% CAGR; identify whether structural ceiling or execution gap before growth investments`
+                    : `Negative CAGR — address root causes before focusing on multiple expansion`}
+                </span>
+                {accel != null && accel > 3 && (
+                  <>
+                    <span className="text-[11px] text-slate-500">·</span>
+                    <span className="text-[11px] text-emerald-400 font-medium">Accelerating +{accel.toFixed(1)}pp — favorable trend</span>
+                  </>
+                )}
+                {accel != null && accel < -3 && (
+                  <>
+                    <span className="text-[11px] text-slate-500">·</span>
+                    <span className="text-[11px] text-amber-400 font-medium">Decelerating {accel.toFixed(1)}pp — monitor closely</span>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Operating Leverage Insight */}
       {rev > 0 && (
@@ -816,6 +1091,102 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
           </div>
         </div>
       )}
+
+      {/* Break-Even Analysis */}
+      {rev > 0 && (() => {
+        const contribMarginPct = rev > 0 ? ((rev - cogs) / rev) * 100 : 0;
+        // Break-even revenue = Fixed Costs (OpEx) / Contribution Margin %
+        const breakEvenRev = contribMarginPct > 0 ? (opex / (contribMarginPct / 100)) : null;
+        const buffer = breakEvenRev != null ? rev - breakEvenRev : null;
+        const bufferPct = breakEvenRev != null && breakEvenRev > 0 ? (buffer! / breakEvenRev) * 100 : null;
+        const isAbove = buffer != null && buffer > 0;
+        // Revenue targets for margin milestones
+        const target10 = contribMarginPct > 0 ? (opex + cogs + rev * 0.10) / (contribMarginPct / 100 + 0) : null;
+        const target15 = contribMarginPct > 0 ? (opex + cogs + rev * 0.15) / (contribMarginPct / 100 + 0) : null;
+        // Revenue needed to hit 10% and 15% EBITDA margin
+        // EBITDA = Rev - COGS - OpEx = Rev × (1 - COGS%) - OpEx = target_margin × Rev
+        // Rev × (1 - cogsMargin/100) - OpEx = target × Rev
+        // Rev × (1 - cogsMargin/100 - target) = OpEx
+        const cogsMarginFrac = rev > 0 ? cogs / rev : 0;
+        const revFor10 = (1 - cogsMarginFrac - 0.10) > 0 ? opex / (1 - cogsMarginFrac - 0.10) : null;
+        const revFor15 = (1 - cogsMarginFrac - 0.15) > 0 ? opex / (1 - cogsMarginFrac - 0.15) : null;
+        const revFor20 = (1 - cogsMarginFrac - 0.20) > 0 ? opex / (1 - cogsMarginFrac - 0.20) : null;
+
+        return (
+          <div className="bg-slate-900/30 border border-slate-800/40 rounded-xl px-5 py-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em]">Break-Even Analysis</div>
+              <div className="flex-1 h-px bg-slate-800/60"/>
+              <div className="text-[10px] text-slate-600">Fixed costs vs contribution margin</div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <div>
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-1">Break-Even Revenue</div>
+                <div className="text-[18px] font-bold text-slate-300">{breakEvenRev != null ? fmt(breakEvenRev) : '—'}</div>
+                <div className="text-[10px] text-slate-600 mt-0.5">to cover all fixed costs</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-1">
+                  {isAbove ? 'Revenue Buffer' : 'Revenue Gap'}
+                </div>
+                <div className={`text-[18px] font-bold ${isAbove ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {buffer != null ? (isAbove ? '+' : '') + fmt(buffer) : '—'}
+                </div>
+                <div className="text-[10px] text-slate-600 mt-0.5">
+                  {bufferPct != null ? `${Math.abs(bufferPct).toFixed(0)}% ${isAbove ? 'above' : 'below'} break-even` : ''}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-1">Contribution Margin</div>
+                <div className={`text-[18px] font-bold ${contribMarginPct >= 50 ? 'text-emerald-400' : contribMarginPct >= 30 ? 'text-amber-400' : 'text-red-400'}`}>
+                  {pctFmt(contribMarginPct)}
+                </div>
+                <div className="text-[10px] text-slate-600 mt-0.5">(Rev − COGS) / Rev</div>
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-1">Fixed Cost Base</div>
+                <div className="text-[18px] font-bold text-slate-300">{fmt(opex)}</div>
+                <div className="text-[10px] text-slate-600 mt-0.5">total OpEx (proxy)</div>
+              </div>
+            </div>
+
+            {/* EBITDA Margin Targets */}
+            {(revFor10 != null || revFor15 != null) && (
+              <div className="pt-3 border-t border-slate-800/60">
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-2.5">Revenue Needed to Hit EBITDA Margin Targets</div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {[
+                    { target: '10%', rev: revFor10, current: ebitdaMargin >= 10 },
+                    { target: '15%', rev: revFor15, current: ebitdaMargin >= 15 },
+                    { target: '20%', rev: revFor20, current: ebitdaMargin >= 20 },
+                  ].map(t => {
+                    if (!t.rev) return null;
+                    const gap = t.rev - rev;
+                    const achieved = t.current || gap <= 0;
+                    return (
+                      <div key={t.target} className={`rounded-xl border px-3.5 py-2.5 ${achieved ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-slate-800/20 border-slate-700/40'}`}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">{t.target} EBITDA</span>
+                          {achieved && <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/25 px-1.5 py-0.5 rounded">✓ Achieved</span>}
+                        </div>
+                        {achieved ? (
+                          <div className="text-[13px] font-bold text-emerald-400">Already above target</div>
+                        ) : (
+                          <>
+                            <div className="text-[14px] font-bold text-slate-200">{fmt(t.rev)}</div>
+                            <div className="text-[10px] text-amber-400/80 mt-0.5">+{fmt(gap)} needed ({((gap/rev)*100).toFixed(0)}% growth)</div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* P&L Waterfall + Collapsible Income Statement */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-5">
@@ -870,56 +1241,236 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
         <MarginTrendChart data={data} />
       </div>
 
-      {/* Recurring Revenue — only if data present */}
-      {hasRecurring && (
-        <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="text-[13px] font-semibold text-slate-100">Recurring Revenue</div>
-            {onAskAI && (
-              <button
-                onClick={() => onAskAI(
-                  `My recurring revenue is ${fmt(recurringRev)} (${recurringPct.toFixed(1)}% of total revenue). ` +
-                  `MRR is ${fmt(mrr)}. What's the best way to grow recurring revenue?`
-                )}
-                className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 border border-indigo-500/20 px-2.5 py-1 rounded-lg transition-colors">
-                <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3">
-                  <path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/>
-                  <rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/>
-                </svg>
-                Ask AI
-              </button>
-            )}
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-            {[
-              { label: 'ARR',              value: fmt(recurringRev),    color: 'text-indigo-400', sub: 'Annual recurring rev' },
-              { label: 'MRR',              value: fmt(mrr),             color: 'text-indigo-300', sub: 'Monthly recurring rev' },
-              { label: 'Recurring Mix',    value: `${recurringPct.toFixed(1)}%`, color: recurringPct >= 60 ? 'text-emerald-400' : recurringPct >= 30 ? 'text-amber-400' : 'text-red-400', sub: 'of total revenue' },
-              { label: 'One-Time Rev',     value: oneTimeRev > 0 ? fmt(oneTimeRev) : fmt(rev - recurringRev), color: 'text-slate-400', sub: 'Non-recurring' },
-            ].map(m => (
-              <div key={m.label} className="bg-slate-900/40 border border-slate-800/40 rounded-xl p-4">
-                <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-2">{m.label}</div>
-                <div className={`text-[20px] font-bold ${m.color}`}>{m.value}</div>
-                <div className="text-[11px] text-slate-600 mt-0.5">{m.sub}</div>
+      {/* Revenue Quality Panel */}
+      {hasRecurring && (() => {
+        // Per-period trend if available
+        const periods = data.revenue.byPeriod;
+        const hasPeriodBreakdown = periods.some(p => p.recurring != null);
+        const trendData = hasPeriodBreakdown
+          ? periods.map(p => ({
+              period: p.period.replace(' 20', ' \'').replace('20', '\''),
+              recurring: p.recurring ?? 0,
+              oneTime: p.oneTime ?? (p.revenue - (p.recurring ?? 0)),
+              total: p.revenue,
+              recPct: p.revenue > 0 ? ((p.recurring ?? 0) / p.revenue) * 100 : 0,
+            }))
+          : null;
+
+        // Revenue quality score (0–100)
+        const qScore = Math.min(100, Math.round(
+          (recurringPct >= 80 ? 100 : recurringPct >= 60 ? 80 : recurringPct >= 40 ? 60 : recurringPct >= 20 ? 40 : 20) * 0.6 +
+          (trendData && trendData.length >= 2 ? (trendData[trendData.length-1].recPct > trendData[0].recPct ? 100 : 60) : 70) * 0.25 +
+          (mrr > 0 ? 100 : 50) * 0.15
+        ));
+        const qColor = qScore >= 80 ? 'text-emerald-400' : qScore >= 60 ? 'text-sky-400' : qScore >= 40 ? 'text-amber-400' : 'text-red-400';
+        const qBorder = qScore >= 80 ? 'border-emerald-500/20' : qScore >= 60 ? 'border-sky-500/20' : qScore >= 40 ? 'border-amber-500/20' : 'border-red-500/20';
+        const qBg = qScore >= 80 ? 'bg-emerald-500/4' : qScore >= 60 ? 'bg-sky-500/4' : qScore >= 40 ? 'bg-amber-500/4' : 'bg-red-500/4';
+
+        return (
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="text-[13px] font-semibold text-slate-100">Revenue Quality</div>
+                <div className="text-[11px] text-slate-600 mt-0.5">Recurring mix, predictability, and trend</div>
               </div>
-            ))}
+              <div className="flex items-center gap-3">
+                <div className={`rounded-xl border px-3.5 py-2 text-center ${qBg} ${qBorder}`}>
+                  <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider mb-0.5">Quality Score</div>
+                  <div className={`text-[22px] font-black ${qColor}`}>{qScore}</div>
+                </div>
+                {onAskAI && (
+                  <button
+                    onClick={() => onAskAI(
+                      `Revenue quality score ${qScore}/100. Recurring mix: ${recurringPct.toFixed(1)}%, MRR: ${fmt(mrr)}. ` +
+                      `${trendData ? `Recurring % trend: ${trendData.map(d => d.recPct.toFixed(0)+'%').join(' → ')}.` : ''} ` +
+                      `How do I improve revenue quality and grow recurring revenue?`
+                    )}
+                    className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 border border-indigo-500/20 px-2.5 py-1 rounded-lg transition-colors">
+                    <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3">
+                      <path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/>
+                      <rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/>
+                    </svg>
+                    Ask AI
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* KPI cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              {[
+                { label: 'ARR',           value: fmt(recurringRev),    color: 'text-indigo-400', sub: 'Annualised recurring rev' },
+                { label: 'MRR',           value: fmt(mrr),             color: 'text-indigo-300', sub: 'Monthly recurring rev' },
+                { label: 'Recurring Mix', value: `${recurringPct.toFixed(1)}%`, color: recurringPct >= 60 ? 'text-emerald-400' : recurringPct >= 30 ? 'text-amber-400' : 'text-red-400', sub: 'of total revenue' },
+                { label: 'One-Time Rev',  value: fmt(oneTimeRev > 0 ? oneTimeRev : rev - recurringRev), color: 'text-slate-400', sub: 'Non-recurring / project' },
+              ].map(m => (
+                <div key={m.label} className="bg-slate-900/40 border border-slate-800/40 rounded-xl p-3.5">
+                  <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-1.5">{m.label}</div>
+                  <div className={`text-[18px] font-bold ${m.color}`}>{m.value}</div>
+                  <div className="text-[10px] text-slate-600 mt-0.5">{m.sub}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Per-period stacked bar trend */}
+            {trendData && trendData.length >= 2 && (
+              <div className="mb-4">
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-2.5">Recurring vs One-Time by Period</div>
+                <ResponsiveContainer width="100%" height={100}>
+                  <BarChart data={trendData} barSize={26} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                    <XAxis dataKey="period" tick={{ fontSize: 9, fill: '#64748b' }} axisLine={false} tickLine={false}/>
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        const rec = (payload.find(p => p.dataKey === 'recurring')?.value as number) ?? 0;
+                        const ot  = (payload.find(p => p.dataKey === 'oneTime')?.value as number) ?? 0;
+                        const tot = rec + ot;
+                        return (
+                          <div className="bg-slate-900 border border-slate-700/60 rounded-lg px-3 py-2 text-xs shadow-xl">
+                            <div className="font-semibold text-slate-200 mb-1">{label}</div>
+                            <div className="text-indigo-300">Recurring: {fmt(rec)} ({tot > 0 ? ((rec/tot)*100).toFixed(0) : 0}%)</div>
+                            <div className="text-slate-400">One-time: {fmt(ot)}</div>
+                          </div>
+                        );
+                      }}
+                      cursor={{ fill: 'rgba(148,163,184,0.04)' }}
+                    />
+                    <Bar dataKey="recurring" stackId="a" fill="#6366f1" fillOpacity={0.7} radius={[0,0,0,0]}/>
+                    <Bar dataKey="oneTime"   stackId="a" fill="#334155" fillOpacity={0.8} radius={[3,3,0,0]}/>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="flex items-center gap-4 mt-1.5 text-[10px] text-slate-600">
+                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-indigo-500/70"/><span>Recurring</span></span>
+                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-slate-600/80"/><span>One-time / project</span></span>
+                  {trendData.length >= 2 && (
+                    <span className={`ml-auto font-medium ${trendData[trendData.length-1].recPct > trendData[0].recPct ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {trendData[trendData.length-1].recPct > trendData[0].recPct
+                        ? `↑ Recurring mix improving (+${(trendData[trendData.length-1].recPct - trendData[0].recPct).toFixed(1)}pp)`
+                        : `↓ Mix shifting toward one-time (${(trendData[0].recPct - trendData[trendData.length-1].recPct).toFixed(1)}pp)`}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Summary bar */}
+            <div>
+              <div className="flex items-center justify-between text-[10px] text-slate-600 mb-1">
+                <span className="text-indigo-400/70">Recurring {recurringPct.toFixed(1)}%</span>
+                <span>One-time {(100 - recurringPct).toFixed(1)}%</span>
+              </div>
+              <div className="flex h-2 rounded-full overflow-hidden bg-slate-800">
+                <div className="bg-indigo-500/60 transition-all" style={{ width: `${recurringPct}%` }}/>
+                <div className="bg-slate-600/30 flex-1"/>
+              </div>
+              <div className={`text-[11px] mt-2 ${qColor}`}>
+                {qScore >= 80 ? 'Strong revenue quality — predominantly recurring with growing mix'
+                : qScore >= 60 ? 'Good quality — majority recurring, consider converting more project clients to retainers'
+                : qScore >= 40 ? 'Moderate quality — significant project dependence creates revenue variability'
+                : 'Revenue quality risk — high one-time exposure, focus on retainer conversion'}
+              </div>
+            </div>
           </div>
-          {/* Recurring vs one-time bar */}
-          <div>
-            <div className="flex items-center justify-between text-[10px] text-slate-600 mb-1.5">
-              <span>Recurring</span><span>{recurringPct.toFixed(1)}%</span>
+        );
+      })()}
+
+      {/* Revenue by Product/Line */}
+      {data.revenue.byProduct && data.revenue.byProduct.length > 0 && (() => {
+        const products = [...data.revenue.byProduct].sort((a, b) => b.amount - a.amount);
+        const maxAmt = Math.max(...products.map(p => p.amount), 1);
+        const totalProdRev = products.reduce((s, p) => s + p.amount, 0);
+        const avgMargin = products.filter(p => p.margin != null).length > 0
+          ? products.filter(p => p.margin != null).reduce((s, p) => s + p.margin!, 0) / products.filter(p => p.margin != null).length
+          : null;
+        const COLORS = ['bg-indigo-500/60', 'bg-violet-500/60', 'bg-sky-500/60', 'bg-emerald-500/60', 'bg-amber-500/60', 'bg-rose-500/60', 'bg-teal-500/60', 'bg-pink-500/60'];
+        const TEXT_COLORS = ['text-indigo-400', 'text-violet-400', 'text-sky-400', 'text-emerald-400', 'text-amber-400', 'text-rose-400', 'text-teal-400', 'text-pink-400'];
+        return (
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="text-[13px] font-semibold text-slate-100">Revenue by Product / Service Line</div>
+                <div className="text-[11px] text-slate-600 mt-0.5">{products.length} lines · {fmt(totalProdRev)} total</div>
+              </div>
+              {avgMargin != null && (
+                <div className="text-right">
+                  <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-0.5">Portfolio Avg Margin</div>
+                  <div className={`text-[18px] font-bold ${avgMargin >= 50 ? 'text-emerald-400' : avgMargin >= 30 ? 'text-amber-400' : 'text-red-400'}`}>
+                    {avgMargin.toFixed(1)}%
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="flex h-2.5 rounded-full overflow-hidden bg-slate-800">
-              <div className="bg-indigo-500/60 transition-all" style={{ width: `${recurringPct}%` }}/>
-              <div className="bg-slate-600/30 flex-1"/>
+
+            {/* Stacked proportion bar */}
+            <div className="flex h-2.5 rounded-full overflow-hidden gap-px mb-4">
+              {products.map((p, i) => (
+                <div key={p.name} className={COLORS[i % COLORS.length]}
+                  style={{ width: `${totalProdRev > 0 ? (p.amount / totalProdRev) * 100 : 0}%` }}
+                  title={`${p.name}: ${fmt(p.amount)}`}/>
+              ))}
             </div>
-            <div className="flex items-center justify-between text-[10px] text-slate-600 mt-1">
-              <span className="text-indigo-400/60">Recurring: {fmt(recurringRev)}</span>
-              <span>One-time: {fmt(rev - recurringRev)}</span>
+
+            <div className="space-y-2.5">
+              {products.map((p, i) => {
+                const pct = totalProdRev > 0 ? (p.amount / totalProdRev) * 100 : 0;
+                const barW = (p.amount / maxAmt) * 100;
+                return (
+                  <div key={p.name} className="group">
+                    <div className="flex items-center gap-3 mb-1">
+                      <div className={`w-2 h-2 rounded-full flex-shrink-0 ${COLORS[i % COLORS.length].replace('/60', '')}`}/>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[12px] font-medium text-slate-200 truncate">{p.name}</span>
+                          <div className="flex items-center gap-3 flex-shrink-0">
+                            {p.margin != null && (
+                              <span className={`text-[11px] font-semibold ${p.margin >= 50 ? 'text-emerald-400' : p.margin >= 30 ? 'text-amber-400' : 'text-red-400'}`}>
+                                {p.margin.toFixed(1)}% margin
+                              </span>
+                            )}
+                            <span className="text-[11px] text-slate-500">{pct.toFixed(1)}%</span>
+                            <span className={`text-[13px] font-bold ${TEXT_COLORS[i % TEXT_COLORS.length]}`}>{fmt(p.amount)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="h-1 bg-slate-800 rounded-full overflow-hidden ml-5">
+                      <div className={`h-full rounded-full transition-all ${COLORS[i % COLORS.length]}`} style={{ width: `${barW}%` }}/>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
+
+            {/* Insights row */}
+            {products.length >= 2 && (() => {
+              const top = products[0];
+              const topPct = totalProdRev > 0 ? (top.amount / totalProdRev) * 100 : 0;
+              const highMarginProduct = avgMargin != null
+                ? products.filter(p => p.margin != null).sort((a, b) => b.margin! - a.margin!)[0]
+                : null;
+              const lowMarginProduct = avgMargin != null
+                ? products.filter(p => p.margin != null).sort((a, b) => a.margin! - b.margin!)[0]
+                : null;
+              return (
+                <div className="mt-4 pt-3 border-t border-slate-800/60 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="text-[11px] text-slate-500">
+                    <span className="font-semibold text-slate-300">{top.name}</span> drives {topPct.toFixed(0)}% of revenue
+                    {topPct > 60 && <span className="text-amber-400"> — high product concentration risk</span>}
+                  </div>
+                  {highMarginProduct && highMarginProduct !== lowMarginProduct && (
+                    <div className="text-[11px] text-slate-500">
+                      Highest margin: <span className="font-semibold text-emerald-400">{highMarginProduct.name} ({highMarginProduct.margin?.toFixed(1)}%)</span>
+                      {lowMarginProduct && lowMarginProduct.margin != null && lowMarginProduct.margin < 20 && (
+                        <> · Lowest: <span className="text-red-400">{lowMarginProduct.name} ({lowMarginProduct.margin.toFixed(1)}%)</span></>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Cash Flow */}
       {hasCashFlow ? (
@@ -1051,14 +1602,6 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
         <IndustryBenchmarksPanel data={data} previousData={previousData} onAskAI={onAskAI} />
       </div>
 
-      {/* Valuation Estimator */}
-      <div>
-        <div className="flex items-center gap-3 mb-3">
-          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em]">Business Valuation</div>
-          <div className="flex-1 h-px bg-indigo-500/10"/>
-        </div>
-        <ValuationEstimator data={data} previousData={previousData} onAskAI={onAskAI} />
-      </div>
     </div>
   );
 }

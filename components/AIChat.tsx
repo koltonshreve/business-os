@@ -12,6 +12,9 @@ interface Props {
   onClose: () => void;
   initialMessage?: string;
   onInitialMessageSent?: () => void;
+  companyName?: string;
+  activeView?: string;
+  companyProfile?: { industry?: string; revenueModel?: string };
 }
 
 function SpinnerIcon() {
@@ -57,8 +60,18 @@ function buildQuickPrompts(data: UnifiedBusinessData): string[] {
   return prompts.slice(0, 4);
 }
 
-export default function AIChat({ data, open, onClose, initialMessage, onInitialMessageSent }: Props) {
-  const [messages, setMessages] = useState<Message[]>([]);
+const CHAT_HISTORY_KEY = 'bos_chat_history';
+const MAX_SAVED_MESSAGES = 20;
+
+export default function AIChat({ data, open, onClose, initialMessage, onInitialMessageSent, companyName, activeView, companyProfile }: Props) {
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const saved = localStorage.getItem(CHAT_HISTORY_KEY);
+      if (saved) return JSON.parse(saved) as Message[];
+    } catch { /* ignore */ }
+    return [];
+  });
   const [input, setInput]       = useState('');
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState<string | null>(null);
@@ -67,6 +80,15 @@ export default function AIChat({ data, open, onClose, initialMessage, onInitialM
   const sentInitial             = useRef(false);
 
   const quickPrompts = buildQuickPrompts(data);
+
+  // Persist chat history to localStorage
+  useEffect(() => {
+    if (messages.length === 0) return;
+    try {
+      const toSave = messages.slice(-MAX_SAVED_MESSAGES);
+      localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(toSave));
+    } catch { /* ignore */ }
+  }, [messages]);
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -110,6 +132,9 @@ export default function AIChat({ data, open, onClose, initialMessage, onInitialM
           message: trimmed,
           data,
           history: messages.slice(-6),
+          companyName,
+          activeView,
+          companyProfile,
         }),
       });
 
@@ -136,6 +161,7 @@ export default function AIChat({ data, open, onClose, initialMessage, onInitialM
   const clearChat = () => {
     setMessages([]);
     setError(null);
+    try { localStorage.removeItem(CHAT_HISTORY_KEY); } catch { /* ignore */ }
   };
 
   if (!open) return null;
@@ -160,7 +186,9 @@ export default function AIChat({ data, open, onClose, initialMessage, onInitialM
             </div>
             <div>
               <div className="text-[13px] font-semibold text-slate-100 leading-none">AI CFO</div>
-              <div className="text-[10px] text-indigo-400/70 mt-0.5">Ask anything about your business</div>
+              <div className="text-[10px] text-indigo-400/70 mt-0.5">
+                {companyName && companyName !== 'My Company' ? companyName : 'Ask anything about your business'}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-1">
