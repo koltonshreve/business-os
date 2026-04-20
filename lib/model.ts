@@ -227,12 +227,14 @@ export interface MetricLineage {
 
 export function buildLineageMap(
   data: UnifiedBusinessData,
-  chain: ModelChain
+  chain: ModelChain,
+  effectiveData?: UnifiedBusinessData
 ): Record<string, MetricLineage> {
-  const rev    = chain.ttmRevenue;
-  const cogs   = data.costs.totalCOGS;
-  const opex   = data.costs.totalOpEx;
-  const gp     = rev - cogs;
+  const src  = effectiveData ?? data;
+  const rev  = chain.ttmRevenue;
+  const cogs = src.costs.totalCOGS;
+  const opex = src.costs.totalOpEx;
+  const gp   = rev - cogs;
   const ebitda = chain.ebitda;
   const fmtM   = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(2)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(1)}k` : `$${n.toFixed(0)}`;
   const now    = data.metadata.asOf;
