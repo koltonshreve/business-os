@@ -43,7 +43,8 @@ function computeSignals(data: UnifiedBusinessData, previousData?: UnifiedBusines
     else break;
   }
   if (streak >= 2) {
-    const pct = ((revs[n - 1] - revs[n - streak]) / revs[n - streak]) * 100;
+    const base = revs[n - streak];
+    const pct = base > 0 ? ((revs[n - 1] - base) / base) * 100 : 0;
     signals.push({
       icon: streakDir === 'up' ? '↑' : '↓',
       title: `${streak}-period ${streakDir === 'up' ? 'growth streak' : 'decline streak'}`,
@@ -80,7 +81,7 @@ function computeSignals(data: UnifiedBusinessData, previousData?: UnifiedBusines
     signals.push({
       icon: '◎',
       title: `Peak: ${periods[maxIdx].period} · Low: ${periods[minIdx].period}`,
-      body: `Highest period was ${fmt(maxRev)} (+${(((maxRev - minRev) / minRev) * 100).toFixed(1)}% above trough of ${fmt(minRev)}).`,
+      body: `Highest period was ${fmt(maxRev)} (${minRev > 0 ? `+${(((maxRev - minRev) / minRev) * 100).toFixed(1)}% above trough of ${fmt(minRev)}` : `vs. trough of ${fmt(minRev)}`}).`,
       severity: 'neutral',
     });
   }

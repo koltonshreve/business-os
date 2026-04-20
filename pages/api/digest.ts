@@ -116,10 +116,19 @@ Requirements:
       messages: [{ role: 'user', content: prompt }],
     });
 
-    const raw = (message.content[0] as { text: string }).text.trim();
+    const raw = message.content
+      .filter(b => b.type === 'text')
+      .map(b => (b as { type: 'text'; text: string }).text)
+      .join('')
+      .trim();
     // Strip markdown code fences if present
     const jsonStr = raw.replace(/^```json?\n?/, '').replace(/\n?```$/, '');
-    const parsed = JSON.parse(jsonStr) as Omit<DigestPayload, 'date'>;
+    let parsed: Omit<DigestPayload, 'date'>;
+    try {
+      parsed = JSON.parse(jsonStr) as Omit<DigestPayload, 'date'>;
+    } catch {
+      throw new Error(`Claude returned non-JSON response: ${jsonStr.slice(0, 200)}`);
+    }
 
     const payload: DigestPayload = {
       date: new Date().toISOString().split('T')[0],

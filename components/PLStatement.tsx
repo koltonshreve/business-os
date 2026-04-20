@@ -26,7 +26,6 @@ const fmt = (n: number) =>
   Math.abs(n) >= 1_000     ? `$${(Math.abs(n)/1_000).toFixed(1)}k` :
   `$${Math.abs(n).toFixed(0)}`;
 
-const fmtSigned = (n: number) => (n >= 0 ? '' : '(') + fmt(n) + (n >= 0 ? '' : ')');
 
 const COGS_KEYWORDS = ['cogs','cost of goods','cost of sales','materials','direct labor',
   'labor','direct cost','overhead','cost of revenue'];
