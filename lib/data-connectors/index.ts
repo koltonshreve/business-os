@@ -108,6 +108,19 @@ export function mergeDataSources(
   merged.metadata.completeness = calculateCompleteness(merged);
   merged.metadata.warnings = detectWarnings(merged);
 
+  // Backfill percentOfRevenue for cost categories now that revenue is known
+  const rev = merged.revenue.total;
+  if (rev > 0 && merged.costs.byCategory.length > 0) {
+    merged.costs = {
+      ...merged.costs,
+      byCategory: merged.costs.byCategory.map(c =>
+        c.percentOfRevenue === 0
+          ? { ...c, percentOfRevenue: (c.amount / rev) * 100 }
+          : c
+      ),
+    };
+  }
+
   return merged;
 }
 
@@ -296,17 +309,10 @@ function parsePipelineSummary(rows: string[][]): UnifiedBusinessData['operations
   const valueIdx = headers.findIndex(h => h.includes('value') || h.includes('amount'));
   const probIdx  = headers.findIndex(h => h.includes('prob') || h.includes('likelihood'));
 
-  const totalPipeline = data.reduce((s, r) => {
-    const val  = valueIdx >= 0 ? parseNum(r[valueIdx]) : 0;
-    const prob = probIdx  >= 0 ? parseNum(r[probIdx]) / 100 : 0.5;
-    return s + val * prob;
-  }, 0);
-
   return {
     projectCount:    data.length,
     avgProjectValue: data.length > 0 && valueIdx >= 0
       ? data.reduce((s, r) => s + parseNum(r[valueIdx]), 0) / data.length : 0,
-    revenuePerEmployee: totalPipeline, // weighted pipeline total
   };
 }
 
@@ -404,17 +410,76 @@ function parseARAgingData(rows: string[][]): ARAgingBucket[] {
 
 // ─── Utility Functions ────────────────────────────────────────────────────────
 
+/** RFC 4180-compliant CSV parser — handles quoted fields containing commas and newlines. */
 function parseCSV(content: string): string[][] {
-  return content.trim().split('\n').map(line =>
-    line.split(',').map(cell => cell.replace(/^"(.*)"$/, '$1').trim())
-  );
+  const rows: string[][] = [];
+  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  let row: string[] = [];
+  let cell = '';
+  let inQuotes = false;
+  let i = 0;
+
+  while (i < normalized.length) {
+    const ch = normalized[i];
+
+    if (inQuotes) {
+      if (ch === '"') {
+        // Peek ahead for escaped quote ("")
+        if (normalized[i + 1] === '"') {
+          cell += '"';
+          i += 2;
+        } else {
+          inQuotes = false;
+          i++;
+        }
+      } else {
+        cell += ch;
+        i++;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+        i++;
+      } else if (ch === ',') {
+        row.push(cell.trim());
+        cell = '';
+        i++;
+      } else if (ch === '\n') {
+        row.push(cell.trim());
+        if (row.some(c => c !== '')) rows.push(row);
+        row = [];
+        cell = '';
+        i++;
+      } else {
+        cell += ch;
+        i++;
+      }
+    }
+  }
+
+  // Flush last cell/row
+  row.push(cell.trim());
+  if (row.some(c => c !== '')) rows.push(row);
+
+  return rows;
 }
 
 function parseNum(val: string | undefined): number {
   if (!val) return 0;
-  const cleaned = val.replace(/[$,%\s]/g, '');
+  const trimmed = val.trim();
+  // Handle parenthetical negatives: (1,234) → -1234
+  const isNegParen = /^\([\d,.$\s]+\)$/.test(trimmed);
+  const cleaned = trimmed.replace(/[$,%\s()]/g, '').replace(/,/g, '');
+  // Handle shorthand suffixes: 1.5M, 2.3k
+  const suffixMatch = cleaned.match(/^(-?[\d.]+)([kmb])$/i);
+  if (suffixMatch) {
+    const n = parseFloat(suffixMatch[1]);
+    const s = suffixMatch[2].toLowerCase();
+    const mult = s === 'k' ? 1_000 : s === 'm' ? 1_000_000 : 1_000_000_000;
+    return isNaN(n) ? 0 : (isNegParen ? -1 : 1) * n * mult;
+  }
   const num = parseFloat(cleaned);
-  return isNaN(num) ? 0 : num;
+  return isNaN(num) ? 0 : isNegParen ? -num : num;
 }
 
 function isCOGS(category: string): boolean {

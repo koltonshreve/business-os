@@ -513,10 +513,15 @@ export default function DealValueTracker({ deal, onUpdate, onToast }: Props) {
   const totalEstimatedImpact = initiatives
     .filter(i => i.estimatedImpact)
     .map(i => {
-      const m = i.estimatedImpact!.match(/[+-]?\$?([\d,]+)k?/i);
+      const raw = i.estimatedImpact!;
+      // Match numbers like $1.2M, $50k, $1,234,567, +$500
+      const m = raw.match(/[+-]?\$?([\d,]+(?:\.\d+)?)([kmb])?/i);
       if (!m) return 0;
       const n = parseFloat(m[1].replace(/,/g, ''));
-      return i.estimatedImpact!.includes('k') ? n * 1000 : n;
+      const suffix = (m[2] ?? '').toLowerCase();
+      const mult = suffix === 'k' ? 1_000 : suffix === 'm' ? 1_000_000 : suffix === 'b' ? 1_000_000_000 : 1;
+      const sign = raw.trimStart().startsWith('-') ? -1 : 1;
+      return isNaN(n) ? 0 : sign * n * mult;
     })
     .reduce((s, n) => s + n, 0);
 

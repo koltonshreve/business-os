@@ -2905,6 +2905,7 @@ export default function BusinessOS() {
       }
       if (result.alerts) {
         setAlerts(result.alerts);
+        setDismissedAlerts([]);
         try { localStorage.setItem('bos_alerts', JSON.stringify(result.alerts)); } catch { /* ignore */ }
         const alertsTs = new Date().toISOString();
         setReportTimestamps(prev => { const next = { ...prev, 'alerts': alertsTs }; try { localStorage.setItem('bos_report_timestamps', JSON.stringify(next)); } catch { /* ignore */ } return next; });

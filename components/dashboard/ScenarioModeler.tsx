@@ -112,20 +112,26 @@ function Lever({
       <div className="relative h-5 flex items-center">
         {/* Track background */}
         <div className="absolute w-full h-1.5 bg-slate-800 rounded-full"/>
-        {/* Filled portion */}
-        <div className="absolute h-1.5 rounded-full transition-all" style={{
-          left: value < 0 ? `${50 * ((value - min) / (0 - min))}%` : '50%',
-          width: value < 0
-            ? `${50 * ((-value) / (max - min / 2))}%`
-            : `${(pct01 - 0.5) * 100}%`,
-          background: isNonZero ? accentColor.replace('text-', '').replace('-400', '') : '#334155',
-          display: min < 0 ? undefined : 'block',
-        }}/>
-        {min < 0 && value >= 0 && (
-          <div className="absolute h-1.5 rounded-r-full" style={{
-            left: '50%',
-            width: `${pct01 * 50}%`,
-            backgroundColor: isNonZero ? 'currentColor' : '#334155',
+        {/* Filled portion — for bipolar sliders (min < 0), fill from value to center */}
+        {min < 0 ? (
+          value < 0 ? (
+            <div className="absolute h-1.5 rounded-l-full transition-all" style={{
+              left: `${((value - min) / (max - min)) * 100}%`,
+              width: `${((-value) / (max - min)) * 100}%`,
+              background: isNonZero ? accentColor.replace('text-', '').replace('-400', '') : '#334155',
+            }}/>
+          ) : (
+            <div className="absolute h-1.5 rounded-r-full transition-all" style={{
+              left: '50%',
+              width: `${(value / (max - min)) * 100}%`,
+              background: isNonZero ? accentColor.replace('text-', '').replace('-400', '') : '#334155',
+            }}/>
+          )
+        ) : (
+          <div className="absolute h-1.5 rounded-full transition-all" style={{
+            left: 0,
+            width: `${pct01 * 100}%`,
+            background: isNonZero ? accentColor.replace('text-', '').replace('-400', '') : '#334155',
           }}/>
         )}
         <input
