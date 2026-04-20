@@ -117,9 +117,9 @@ function seedGoals(): AcqGoal[] {
 
 function fmtValue(val: number, unit: string): string {
   if (unit === '$') {
-    return val >= 1_000_000 ? `$${(val / 1_000_000).toFixed(2)}M`
-         : val >= 1_000 ? `$${(val / 1_000).toFixed(0)}k`
-         : `$${val.toFixed(0)}`;
+    const abs = Math.abs(val);
+    const s = abs >= 1_000_000 ? `$${(abs / 1_000_000).toFixed(2)}M` : `$${Math.round(abs).toLocaleString('en-US')}`;
+    return val < 0 ? `(${s})` : s;
   }
   if (unit === '%') return `${val.toFixed(1)}%`;
   if (unit === 'x') return `${val.toFixed(1)}×`;

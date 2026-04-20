@@ -21,10 +21,11 @@ interface Props {
   className?: string;
 }
 
-const fmt = (n: number) =>
-  Math.abs(n) >= 1_000_000 ? `$${(n/1_000_000).toFixed(2)}M` :
-  Math.abs(n) >= 1_000     ? `$${(Math.abs(n)/1_000).toFixed(1)}k` :
-  `$${Math.abs(n).toFixed(0)}`;
+const fmt = (n: number) => {
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return `$${(abs / 1_000_000).toFixed(2)}M`;
+  return `$${Math.round(abs).toLocaleString('en-US')}`;
+};
 
 
 const COGS_KEYWORDS = ['cogs','cost of goods','cost of sales','materials','direct labor',

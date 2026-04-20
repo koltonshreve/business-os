@@ -67,10 +67,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const runway = cash != null && avgBurn != null && avgBurn < 0
     ? Math.abs(cash / avgBurn).toFixed(1) : null;
 
-  const fmtN = (n: number) =>
-    n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M`
-    : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k`
-    : `$${n.toFixed(0)}`;
+  const fmtN = (n: number) => { const abs = Math.abs(n); return abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; };
 
   const dataLines = [
     `Revenue: ${fmtN(rev)}`,

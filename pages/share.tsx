@@ -19,10 +19,11 @@ interface SharePayload {
   sharedAt: string;
 }
 
-const fmt = (n: number) =>
-  n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)}M`
-  : n >= 1_000   ? `$${(n / 1_000).toFixed(0)}k`
-  : `$${n}`;
+const fmt = (n: number) => {
+  const abs = Math.abs(n);
+  const s = abs >= 1_000_000 ? `$${(abs / 1_000_000).toFixed(2)}M` : `$${Math.round(abs).toLocaleString('en-US')}`;
+  return n < 0 ? `(${s})` : s;
+};
 
 const pct = (n: number, d: number) =>
   d > 0 ? `${((n / d) * 100).toFixed(1)}%` : '—';

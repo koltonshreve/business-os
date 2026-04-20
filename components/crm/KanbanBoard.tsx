@@ -35,7 +35,9 @@ const SEED_DEALS: Deal[] = [
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmt(n: number) {
-  return n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n / 1_000).toFixed(0)}k` : `$${n}`;
+  const abs = Math.abs(n);
+  const s = abs >= 1_000_000 ? `$${(abs / 1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`;
+  return n < 0 ? `(${s})` : s;
 }
 
 function daysUntil(date: string): number {

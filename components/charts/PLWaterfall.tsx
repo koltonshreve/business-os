@@ -2,10 +2,11 @@ import type { UnifiedBusinessData } from '../../types';
 
 interface Props { data: UnifiedBusinessData; }
 
-const fmt = (n: number) =>
-  n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` :
-  n >= 1_000     ? `$${(n/1_000).toFixed(0)}k` :
-  `$${n.toFixed(0)}`;
+const fmt = (n: number) => {
+  const abs = Math.abs(n);
+  const s = abs >= 1_000_000 ? `$${(abs / 1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`;
+  return n < 0 ? `(${s})` : s;
+};
 
 const pct = (n: number, total: number) =>
   total > 0 ? `${((n / total) * 100).toFixed(1)}%` : '—';

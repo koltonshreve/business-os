@@ -550,7 +550,7 @@ function StripeConnector({ data, onDataUpdate, onSuccess }: Props) {
   const [summary, setSummary] = useState<StripeSummary | null>(null);
   const hasEnvKey = false; // server-side check — always show input client-side
 
-  const fmt = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmt = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
 
   async function connect() {
     if (!key.trim() && !hasEnvKey) { setError('Enter your Stripe secret key'); return; }

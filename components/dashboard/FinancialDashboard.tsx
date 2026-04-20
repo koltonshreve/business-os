@@ -19,10 +19,11 @@ interface Props {
   onAskAI?: (msg: string) => void;
 }
 
-const fmt = (n: number) =>
-  n >= 1_000_000 ? `$${(n/1_000_000).toFixed(2)}M` :
-  n >= 1_000     ? `$${(n/1_000).toFixed(0)}k` :
-  `$${n.toFixed(0)}`;
+const fmt = (n: number) => {
+  const abs = Math.abs(n);
+  const s = abs >= 1_000_000 ? `$${(abs / 1_000_000).toFixed(2)}M` : `$${Math.round(abs).toLocaleString('en-US')}`;
+  return n < 0 ? `(${s})` : s;
+};
 
 const pctFmt = (n: number) => `${n.toFixed(1)}%`;
 
@@ -141,10 +142,7 @@ function PLBridge({ data, previousData }: { data: UnifiedBusinessData; previousD
   const cogsVar = prevCOGS - curCOGS;             // positive = good (COGS reduced)
   const opexVar = prevOpEx - curOpEx;             // positive = good (OpEx reduced)
 
-  const fmt2 = (n: number) =>
-    Math.abs(n) >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` :
-    Math.abs(n) >= 1_000     ? `$${(n/1_000).toFixed(0)}k` :
-    `$${Math.abs(n).toFixed(0)}`;
+  const fmt2 = (n: number) => { const abs = Math.abs(n); return abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; };
   const fmtSgn = (n: number) => `${n >= 0 ? '+' : '−'}${fmt2(n)}`;
 
   // SVG waterfall
@@ -413,10 +411,7 @@ function StatRow({ label, value, pct, indent = false, bold = false, border = fal
 
 // ── P&L comparison table ───────────────────────────────────────────────────────
 function PLComparison({ data, previousData }: { data: UnifiedBusinessData; previousData: UnifiedBusinessData }) {
-  const fmtAmt = (n: number) =>
-    Math.abs(n) >= 1_000_000 ? `$${(n/1_000_000).toFixed(2)}M` :
-    Math.abs(n) >= 1_000     ? `$${(n/1_000).toFixed(0)}k` :
-    `$${n.toFixed(0)}`;
+  const fmtAmt = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(2)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
   const fmtDelta = (n: number) => (n >= 0 ? '+' : '') + fmtAmt(n);
   const fmtPct   = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`;
 

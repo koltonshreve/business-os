@@ -34,10 +34,11 @@ const DEFAULT_SCENARIO: Omit<Scenario, 'id' | 'name' | 'color'> = {
   newCustomers: 0,
 };
 
-const fmt = (n: number, compact = false) =>
-  compact
-    ? n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`
-    : n >= 1_000_000 ? `$${(n/1_000_000).toFixed(2)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(1)}k` : `$${n.toFixed(0)}`;
+const fmt = (n: number, _compact = false) => {
+  const abs = Math.abs(n);
+  const s = abs >= 1_000_000 ? `$${(abs / 1_000_000).toFixed(2)}M` : `$${Math.round(abs).toLocaleString('en-US')}`;
+  return n < 0 ? `(${s})` : s;
+};
 
 const pct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`;
 const delta = (n: number) => `${n >= 0 ? '+' : ''}${fmt(n, true)}`;

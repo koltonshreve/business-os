@@ -122,7 +122,7 @@ function NarrativeBar({ data, previousData }: { data: UnifiedBusinessData; previ
   const gp       = rev - cogs;
   const ebitda   = gp - opex;
   const prevRev  = previousData?.revenue.total;
-  const fmtN     = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtN     = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
   const gpMargin = rev > 0 ? (gp / rev) * 100 : 0;
   const ebitdaM  = rev > 0 ? (ebitda / rev) * 100 : 0;
   const revGrowth = prevRev && prevRev > 0 ? ((rev - prevRev) / prevRev) * 100 : null;
@@ -188,7 +188,7 @@ function NarrativeBar({ data, previousData }: { data: UnifiedBusinessData; previ
 
 // ── CEO Watchlist ─────────────────────────────────────────────────────────────
 function CEOWatchlist({ data, previousData }: { data: UnifiedBusinessData; previousData?: UnifiedBusinessData }) {
-  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtN = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
 
   const rev      = data.revenue.total;
   const cogs     = data.costs.totalCOGS;
@@ -750,8 +750,7 @@ function GoalsPanel({ data, goals, onSetGoal }: {
   const ebitda   = gp - opex;
   const retention = (data.customers.retentionRate ?? 0.88) * 100;
 
-  const fmtCur = (n: number) =>
-    n >= 1_000_000 ? `$${(n/1_000_000).toFixed(2)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtCur = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(2)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
 
   const rows: GoalRowDef[] = [
     { key: 'revenue',       label: 'Revenue',       actual: rev,                                         format: fmtCur, placeholder: 'e.g. 1200000', step: 50000 },
@@ -909,7 +908,7 @@ function RevenueQuality({ data, previousData }: { data: UnifiedBusinessData; pre
   const prevRecurringPct = prevRev > 0 && prevRecurring ? (prevRecurring / prevRev) * 100 : null;
   const recDelta         = prevRecurringPct !== null ? recurringPct - prevRecurringPct : null;
 
-  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtN = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
 
   // Revenue quality score (0–100)
   const recScore    = Math.min(100, recurringPct * 1.2);  // 83% recurring → 100
@@ -1008,7 +1007,7 @@ function ExecutiveSummary({ data, previousData }: { data: UnifiedBusinessData; p
   const gp    = rev - cogs;
   const ebitda = gp - opex;
   const prevRev = previousData?.revenue.total;
-  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtN = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
   const gpM   = rev > 0 ? (gp / rev) * 100 : 0;
   const ebitdaM = rev > 0 ? (ebitda / rev) * 100 : 0;
   const growth  = prevRev && prevRev > 0 ? ((rev - prevRev) / prevRev) * 100 : null;
@@ -1150,7 +1149,7 @@ function PipelineSnapshot({ data, onAskAI }: { data: UnifiedBusinessData; onAskA
   const pipeline = data.pipeline;
   if (!pipeline || pipeline.length === 0) return null;
 
-  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtN = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
 
   const totalValue    = pipeline.reduce((s, d) => s + d.value, 0);
   const weightedValue = pipeline.reduce((s, d) => s + d.value * (d.probability / 100), 0);
@@ -1253,7 +1252,7 @@ function ExitReadinessWidget({ onViewAll }: { onViewAll?: () => void }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtN = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
 
   if (!result) {
     return (
@@ -1367,7 +1366,7 @@ function GrowthPlaybookWidget({ onViewAll }: { onViewAll?: () => void }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtN = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
 
   if (!result) {
     return (
@@ -1591,7 +1590,7 @@ function SimpleModePanel({
   onNavigate: (view: string) => void;
   onExitSimple: () => void;
 }) {
-  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtN = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
   const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
   const rev = data.revenue.total;
@@ -1718,7 +1717,7 @@ function RevenueForecastStrip({ data, onAskAI }: { data: UnifiedBusinessData; on
   const periods = data.revenue.byPeriod;
   if (periods.length < 3) return null; // need at least 3 data points
 
-  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtN = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
 
   // Simple linear regression on revenue
   const n = periods.length;
@@ -1829,7 +1828,7 @@ function PipelineRevenueForecast() {
   );
   if (active.length === 0) return null;
 
-  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtN = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
 
   const buckets = [
     { label: 'Next 30 days', days: 30 },
@@ -1881,7 +1880,7 @@ function MonthlyTrendStrip({ data }: { data: UnifiedBusinessData }) {
   const latest = periods[periods.length - 1];
   const prev   = periods[periods.length - 2];
 
-  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtN = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
 
   const revChange = prev.revenue > 0 ? ((latest.revenue - prev.revenue) / prev.revenue) * 100 : null;
 
@@ -1964,7 +1963,7 @@ function ComparisonStrip({ current, previous, currentLabel, previousLabel }: {
   currentLabel: string;
   previousLabel: string;
 }) {
-  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtN = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
   const calc = (d: UnifiedBusinessData) => {
     const rev = d.revenue.total, cogs = d.costs.totalCOGS, opex = d.costs.totalOpEx;
     const gp = rev - cogs, ebitda = gp - opex;
@@ -3862,7 +3861,7 @@ export default function BusinessOS() {
             <div className="space-y-4">
               {/* Today — business health snapshot */}
               {(() => {
-                const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+                const fmtN = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
                 const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`;
                 const rev    = data.revenue.total;
                 const cogs   = data.costs.totalCOGS;

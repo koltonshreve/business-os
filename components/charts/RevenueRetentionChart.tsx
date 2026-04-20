@@ -3,10 +3,11 @@ import type { UnifiedBusinessData } from '../../types';
 
 interface Props { data: UnifiedBusinessData; }
 
-const fmt = (n: number) =>
-  Math.abs(n) >= 1_000_000 ? `$${(Math.abs(n) / 1_000_000).toFixed(1)}M` :
-  Math.abs(n) >= 1_000     ? `$${(Math.abs(n) / 1_000).toFixed(0)}k` :
-  `$${Math.abs(n).toFixed(0)}`;
+const fmt = (n: number) => {
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return `$${(abs / 1_000_000).toFixed(1)}M`;
+  return `$${Math.round(abs).toLocaleString('en-US')}`;
+};
 
 export default function RevenueRetentionChart({ data }: Props) {
   const periods = data.revenue.byPeriod;

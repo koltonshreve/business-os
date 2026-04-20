@@ -102,9 +102,9 @@ const INDUSTRY_OPTIONS: { value: Industry; label: string }[] = [
 
 function fmtBenchmark(v: number, unit: BenchmarkRange['unit']): string {
   if (unit === '$') {
-    return v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M`
-      : v >= 1_000 ? `$${(v / 1_000).toFixed(0)}k`
-      : `$${v.toFixed(0)}`;
+    const abs = Math.abs(v);
+    const s = abs >= 1_000_000 ? `$${(abs / 1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`;
+    return v < 0 ? `(${s})` : s;
   }
   if (unit === '%') return `${v >= 0 ? '' : ''}${v.toFixed(0)}%`;
   if (unit === 'days') return `${v.toFixed(0)}d`;

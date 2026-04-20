@@ -6,10 +6,11 @@ interface Props {
   onAskAI?: (msg: string) => void;
 }
 
-const fmt = (n: number) =>
-  Math.abs(n) >= 1_000_000 ? `$${(Math.abs(n) / 1_000_000).toFixed(2)}M` :
-  Math.abs(n) >= 1_000     ? `$${(Math.abs(n) / 1_000).toFixed(1)}k` :
-  `$${Math.abs(n).toFixed(2)}`;
+const fmt = (n: number) => {
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return `$${(abs / 1_000_000).toFixed(2)}M`;
+  return `$${abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
 
 type SortKey = 'date' | 'amount' | 'category' | 'description';
 type SortDir = 'asc' | 'desc';

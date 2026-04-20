@@ -331,9 +331,9 @@ function computeKPIs(data: UnifiedBusinessData, prev?: UnifiedBusinessData): KPI
   const pct = (cur: number, p?: number) => p && p !== 0 ? ((cur - p) / Math.abs(p)) * 100 : undefined;
   const fmtV = (val: number, unit: string) => {
     if (unit === '$') {
-      if (Math.abs(val) >= 1_000_000) return `$${(val/1_000_000).toFixed(1)}M`;
-      if (Math.abs(val) >= 1_000)     return `$${(val/1_000).toFixed(0)}k`;
-      return `$${val.toFixed(0)}`;
+      const abs = Math.abs(val);
+      const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`;
+      return val < 0 ? `(${s})` : s;
     }
     return `${val.toFixed(1)}%`;
   };

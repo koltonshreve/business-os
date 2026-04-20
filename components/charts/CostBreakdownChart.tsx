@@ -26,7 +26,7 @@ export default function CostBreakdownChart({ data }: Props) {
       percent: totalRevenue > 0 ? ((c.amount / totalRevenue) * 100).toFixed(1) : '0',
     }));
 
-  const fmt = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : `$${(n/1_000).toFixed(0)}k`;
+  const fmt = (n: number) => { const abs = Math.abs(n); return abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; };
 
   const CustomTooltip = ({ active, payload }: Record<string, unknown>) => {
     if (!active || !(payload as unknown[])?.length) return null;

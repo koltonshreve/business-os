@@ -54,7 +54,7 @@ function IndustryRevenueMix({ customers, totalRevenue }: {
     color: INDUSTRY_COLORS[d.industry] ?? '#64748b',
   }));
 
-  const fmtMon = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtMon = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
 
   return (
     <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
@@ -535,7 +535,7 @@ function IndustryStatsPanel({ industry, customers, totalRevenue }: {
   const projectRev   = project.reduce((s, c) => s + c.revenue, 0);
   const topCust  = [...industryCustomers].sort((a, b) => b.revenue - a.revenue)[0];
 
-  const fmtMon = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtMon = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
 
   const industryKPIs: { label: string; value: string; sub?: string }[] = [
     { label: 'Accounts', value: String(industryCustomers.length), sub: `${indPct.toFixed(1)}% of total rev` },
@@ -932,7 +932,7 @@ export default function CustomerDashboard({ data, previousData, onAskAI }: Props
         const severityText = severity === 'red' ? 'text-red-400' : severity === 'amber' ? 'text-amber-400' : 'text-slate-400';
         const severityBg = severity === 'red' ? 'bg-red-500/5 border-red-500/15' : severity === 'amber' ? 'bg-amber-500/5 border-amber-500/15' : 'bg-slate-900/50 border-slate-800/50';
 
-        const fmtMon = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+        const fmtMon = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
 
         return (
           <div className={`rounded-xl border p-5 ${severityBg}`}>

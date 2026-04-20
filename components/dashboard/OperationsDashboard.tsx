@@ -46,8 +46,7 @@ function CostGroup({
 }) {
   const [open, setOpen] = useState(defaultExpanded);
   const pct = totalRev > 0 ? (total / totalRev) * 100 : 0;
-  const fmtAmt = (n: number) =>
-    n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtAmt = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
 
   return (
     <div>
@@ -96,10 +95,7 @@ interface Props {
   onAskAI?: (msg: string) => void;
 }
 
-const fmt = (n: number) =>
-  n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` :
-  n >= 1_000     ? `$${(n/1_000).toFixed(0)}k` :
-  `$${n.toFixed(0)}`;
+const fmt = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
 
 // ── Pipeline Stage config ─────────────────────────────────────────────────────
 const STAGE_ORDER = ['discovery', 'qualified', 'proposal', 'negotiation', 'closed won', 'closed lost'];

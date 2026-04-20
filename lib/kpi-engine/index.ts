@@ -307,9 +307,9 @@ export class KPIEngine {
 
   private fmt(value: number, unit: string): string {
     if (unit === '$') {
-      if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-      if (Math.abs(value) >= 1_000) return `$${(value / 1_000).toFixed(0)}k`;
-      return `$${value.toFixed(0)}`;
+      const abs = Math.abs(value);
+      const s = abs >= 1_000_000 ? `$${(abs / 1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`;
+      return value < 0 ? `(${s})` : s;
     }
     if (unit === '%') return `${value.toFixed(1)}%`;
     return value.toFixed(0);

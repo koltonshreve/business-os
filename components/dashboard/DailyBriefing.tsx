@@ -39,7 +39,7 @@ function generateBriefing(data: UnifiedBusinessData, prev?: UnifiedBusinessData)
   const cash = cf.length ? cf[cf.length - 1].closingBalance : null;
   const avgBurn = cf.length > 1 ? cf.reduce((s, p) => s + (p.netCashFlow ?? 0), 0) / cf.length : null;
   const runway = cash !== null && avgBurn !== null && avgBurn < 0 ? Math.abs(cash / avgBurn) : null;
-  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtN = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
 
   // ─── Urgent items ───────────────────────────────────────────────────────────
 

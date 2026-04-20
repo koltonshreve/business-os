@@ -3,17 +3,23 @@
  * Import from here instead of defining local `fmt` / `pct` in each component.
  */
 
-/** Format a dollar amount compactly: $1.2M, $340k, $850 */
-export const fmtMoney = (n: number): string =>
-  n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` :
-  n >= 1_000     ? `$${(n / 1_000).toFixed(0)}k` :
-  `$${n.toFixed(0)}`;
+/** Format a dollar amount: $1.2M, $12,345, $850. Negatives use accounting parens: ($12,345) */
+export const fmtMoney = (n: number): string => {
+  const abs = Math.abs(n);
+  const s = abs >= 1_000_000
+    ? `$${(abs / 1_000_000).toFixed(1)}M`
+    : `$${Math.round(abs).toLocaleString('en-US')}`;
+  return n < 0 ? `(${s})` : s;
+};
 
-/** Format a dollar amount with 2 decimal places for millions: $1.23M, $340k, $850 */
-export const fmtMoneyPrecise = (n: number): string =>
-  n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)}M` :
-  n >= 1_000     ? `$${(n / 1_000).toFixed(0)}k` :
-  `$${n.toFixed(0)}`;
+/** Format a dollar amount with 2 decimal places for millions: $1.23M, $12,345, $850. Negatives use accounting parens. */
+export const fmtMoneyPrecise = (n: number): string => {
+  const abs = Math.abs(n);
+  const s = abs >= 1_000_000
+    ? `$${(abs / 1_000_000).toFixed(2)}M`
+    : `$${Math.round(abs).toLocaleString('en-US')}`;
+  return n < 0 ? `(${s})` : s;
+};
 
 /** Format a percentage with one decimal place */
 export const fmtPct = (n: number): string => `${n.toFixed(1)}%`;

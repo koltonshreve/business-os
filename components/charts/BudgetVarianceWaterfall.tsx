@@ -5,10 +5,11 @@ interface Props {
   budget: Budget;
 }
 
-const fmt = (n: number) =>
-  Math.abs(n) >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` :
-  Math.abs(n) >= 1_000     ? `$${(n / 1_000).toFixed(0)}k` :
-  `$${Math.abs(n).toFixed(0)}`;
+const fmt = (n: number) => {
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return `$${(abs / 1_000_000).toFixed(1)}M`;
+  return `$${Math.round(abs).toLocaleString('en-US')}`;
+};
 
 const fmtSigned = (n: number) => `${n >= 0 ? '+' : '−'}${fmt(n)}`;
 

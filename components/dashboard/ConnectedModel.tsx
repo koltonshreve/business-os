@@ -9,11 +9,10 @@ interface Props {
   onNavigate: (view: string) => void;
 }
 
-function fmt(n: number, compact = true): string {
-  if (!compact) return n >= 1_000_000 ? `$${(n/1_000_000).toFixed(2)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(1)}k` : `$${n.toFixed(0)}`;
-  if (n >= 1_000_000) return `$${(n/1_000_000).toFixed(1)}M`;
-  if (n >= 1_000)     return `$${(n/1_000).toFixed(0)}k`;
-  return `$${n.toFixed(0)}`;
+function fmt(n: number, _compact = true): string {
+  const abs = Math.abs(n);
+  const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`;
+  return n < 0 ? `(${s})` : s;
 }
 
 function fmtPct(n: number): string { return `${n.toFixed(1)}%`; }

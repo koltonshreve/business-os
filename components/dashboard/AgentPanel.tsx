@@ -22,10 +22,7 @@ function Spinner() {
   );
 }
 
-const fmt = (n: number) =>
-  n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` :
-  n >= 1_000     ? `$${(n/1_000).toFixed(0)}k` :
-  `$${n.toFixed(0)}`;
+const fmt = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
 
 // ── Score Gauge ──────────────────────────────────────────────────────────────
 function ScoreGauge({ score, grade }: { score: number; grade: string }) {
@@ -537,7 +534,7 @@ function buildPlainText(agentId: string, result: Record<string, unknown>): strin
     const vr = result.valuationRange as {low:number;mid:number;high:number;ebitdaMultiple:string;methodology:string} | undefined;
     const risks = (result.topRisks as {risk:string;detail:string;severity:string}[]) ?? [];
     const actions = (result.readinessActions as {action:string;timeframe:string;impact:string}[]) ?? [];
-    const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : `$${(n/1_000).toFixed(0)}k`;
+    const fmtN = (n: number) => { const abs = Math.abs(n); return abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; };
     lines.push(`EXIT READINESS REPORT — ${date}`);
     lines.push(`Score: ${result.overallScore}/100 (${result.grade})`);
     lines.push('');
@@ -595,7 +592,7 @@ function exportExitReadiness(result: Record<string, unknown>) {
   const vr   = result.valuationRange as {low:number;mid:number;high:number;ebitdaMultiple:string;methodology:string;keyDrivers:string[];keyDetractors:string[]} | undefined;
   const risks = (result.topRisks as {risk:string;detail:string;severity:string}[]) ?? [];
   const actions = (result.readinessActions as {action:string;timeframe:string;impact:string;category:string}[]) ?? [];
-  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : `$${(n/1_000).toFixed(0)}k`;
+  const fmtN = (n: number) => { const abs = Math.abs(n); return abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; };
   const body = `
     <h1>Exit Readiness Score: ${result.overallScore} / 100 (${result.grade})</h1>
     <div class="meta">Generated ${new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>

@@ -30,17 +30,12 @@ interface WeekMeta {
 
 // ── Formatting ────────────────────────────────────────────────────────────────
 
-function fmt(n: number, compact = false): string {
+function fmt(n: number, _compact = false): string {
   const abs = Math.abs(n);
-  const sign = n < 0 ? '-' : '';
-  if (compact) {
-    if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
-    if (abs >= 1_000)     return `${sign}$${(abs / 1_000).toFixed(0)}k`;
-    return `${sign}$${abs.toFixed(0)}`;
-  }
-  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
-  if (abs >= 1_000)     return `${sign}$${(abs / 1_000).toFixed(1)}k`;
-  return `${sign}$${abs.toFixed(0)}`;
+  const s = abs >= 1_000_000
+    ? `$${(abs / 1_000_000).toFixed(2)}M`
+    : `$${Math.round(abs).toLocaleString('en-US')}`;
+  return n < 0 ? `(${s})` : s;
 }
 
 function fmtDisb(n: number): string {

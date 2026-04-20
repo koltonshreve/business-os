@@ -33,9 +33,9 @@ function fmtPp(n: number, decimals = 1) {
   return `${n >= 0 ? '+' : ''}${n.toFixed(decimals)}pp`;
 }
 function fmtN(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000)     return `$${(n / 1_000).toFixed(0)}k`;
-  return `$${n.toFixed(0)}`;
+  const abs = Math.abs(n);
+  const s = abs >= 1_000_000 ? `$${(abs / 1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`;
+  return n < 0 ? `(${s})` : s;
 }
 
 function computeAlerts(cur: UnifiedBusinessData, prev: UnifiedBusinessData): MetricAlert[] {

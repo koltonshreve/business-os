@@ -236,7 +236,7 @@ export function buildLineageMap(
   const opex = src.costs.totalOpEx;
   const gp   = rev - cogs;
   const ebitda = chain.ebitda;
-  const fmtM   = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(2)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(1)}k` : `$${n.toFixed(0)}`;
+  const fmtM   = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(2)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
   const now    = data.metadata.asOf;
 
   return {

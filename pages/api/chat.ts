@@ -58,7 +58,7 @@ function buildSystemContext(data: UnifiedBusinessData, companyName?: string, act
   const opex   = data.costs.totalOpEx;
   const ebitda = rev - cogs - opex;
   const gp     = rev - cogs;
-  const fmt    = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(2)}M` : `$${(n/1_000).toFixed(0)}k`;
+  const fmt    = (n: number) => { const abs = Math.abs(n); return abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(2)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; };
   const pct    = (n: number, d: number) => d > 0 ? `${((n/d)*100).toFixed(1)}%` : 'N/A';
 
   const companyLine  = companyName ? `Company: ${companyName}\n` : '';

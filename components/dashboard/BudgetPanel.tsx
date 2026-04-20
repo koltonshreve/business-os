@@ -9,10 +9,11 @@ interface Props {
   onAskAI?: (msg: string) => void;
 }
 
-const fmtAmt = (n: number) =>
-  Math.abs(n) >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)}M` :
-  Math.abs(n) >= 1_000     ? `$${(n / 1_000).toFixed(0)}k` :
-  `$${n.toFixed(0)}`;
+const fmtAmt = (n: number) => {
+  const abs = Math.abs(n);
+  const s = abs >= 1_000_000 ? `$${(abs / 1_000_000).toFixed(2)}M` : `$${Math.round(abs).toLocaleString('en-US')}`;
+  return n < 0 ? `(${s})` : s;
+};
 
 const fmtDelta = (n: number) => (n >= 0 ? '+' : '') + fmtAmt(n);
 const fmtPct   = (n: number, places = 1) => `${n >= 0 ? '+' : ''}${n.toFixed(places)}%`;
