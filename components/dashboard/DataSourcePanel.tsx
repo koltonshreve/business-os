@@ -161,15 +161,16 @@ function CategorySection({
 
 // ── CSV templates ────────────────────────────────────────────────────────────
 const CSV_TEMPLATES: Record<string, { label: string; content: string }> = {
-  revenue:    { label: 'Revenue',      content: 'Period,Revenue,COGS\nJan 2025,250000,150000\nFeb 2025,275000,160000\nMar 2025,290000,168000\nApr 2025,310000,175000\n' },
+  revenue:    { label: 'Revenue',      content: 'Period,Revenue,COGS\nApr 2026,250000,150000\nMay 2026,275000,160000\nJun 2026,290000,168000\nJul 2026,310000,175000\n' },
   costs:      { label: 'Costs',        content: 'Category,Amount\nLabor,95000\nMaterials,40000\nOverhead,18000\nSales & Marketing,28000\nG&A,22000\nTech & Systems,8000\n' },
   customers:  { label: 'Customers',    content: 'Name,Revenue,Status\nAcme Corp,75000,active\nBeta Industries,55000,active\nGamma LLC,42000,active\nDelta Partners,28000,active\nNew Customer,0,new\nOld Client,0,churned\n' },
-  operations: { label: 'Operations',   content: 'Headcount,Utilization,OpenPositions\n18,0.87,2\n' },
+  operations: { label: 'Operations',   content: 'Headcount,OpenPositions,BillableHours,TotalHours,CapacityUtilization,AssetUtilization\n18,2,1200,1440,0.84,0.72\n' },
   pipeline:   { label: 'Pipeline',     content: 'DealName,Stage,Value,Probability,CloseDate,Owner\nAcme Expansion,Proposal,85000,60,2025-06-30,Jane Smith\nNew Corp Deal,Negotiation,140000,80,2025-05-15,John Doe\nSmall Account,Qualified,22000,40,2025-07-01,Jane Smith\nEnterprise RFP,Discovery,300000,25,2025-09-30,John Doe\n' },
   payroll:    { label: 'Payroll/HR',   content: 'Department,Headcount,TotalSalary,AvgSalary\nEngineering,5,650000,130000\nSales,3,360000,120000\nOperations,4,340000,85000\nG&A,2,220000,110000\nMarketing,2,200000,100000\n' },
-  cashflow:   { label: 'Cash Flow',    content: 'Period,OpeningBalance,Receipts,Payments,ClosingBalance\nJan 2025,180000,245000,210000,215000\nFeb 2025,215000,268000,225000,258000\nMar 2025,258000,290000,240000,308000\n' },
+  cashflow:   { label: 'Cash Flow',    content: 'Period,OpeningBalance,Receipts,Payments,ClosingBalance\nApr 2026,180000,245000,210000,215000\nMay 2026,215000,268000,225000,258000\nJun 2026,258000,290000,240000,308000\n' },
   ar_aging:     { label: 'AR Aging',      content: 'Customer,Current,Days30,Days60,Days90,Over90\nAcme Corp,45000,12000,0,0,0\nBeta Industries,30000,8000,5000,0,0\nGamma LLC,22000,0,0,3000,2000\nDelta Partners,18000,6000,0,0,0\n' },
-  transactions: { label: 'Transactions',  content: 'Date,Description,Amount,Type,Category,Customer,InvoiceId\n2025-01-05,Invoice #1001 - Acme Corp,45000,revenue,Services,Acme Corp,INV-1001\n2025-01-10,AWS Hosting,−3200,expense,Technology,,\n2025-01-15,Office Rent,−8500,expense,Facilities,,\n2025-01-20,Invoice #1002 - Beta Inc,32000,revenue,Services,Beta Inc,INV-1002\n2025-01-25,Payroll - Engineering,−28000,expense,Payroll,,\n' },
+  transactions: { label: 'Transactions',  content: 'Date,Description,Amount,Type,Category,Customer,InvoiceId\n2026-04-05,Invoice #1001 - Acme Corp,45000,revenue,Services,Acme Corp,INV-1001\n2026-04-10,AWS Hosting,-3200,expense,Technology,,\n2026-04-15,Office Rent,-8500,expense,Facilities,,\n2026-04-20,Invoice #1002 - Beta Inc,32000,revenue,Services,Beta Inc,INV-1002\n2026-04-25,Payroll - Engineering,-28000,expense,Payroll,,\n' },
+  suppliers:    { label: 'Suppliers',     content: 'Supplier,Category,Spend,InvoiceCount,LastInvoiceDate,ContractValue,PaymentTerms,Contact\nAcme Staffing Co,Labor,125000,12,2026-06-30,150000,NET30,billing@acme.com\nAWS,Technology,48000,12,2026-06-30,,NET30,\nMicrosoft 365,Technology,24000,12,2026-05-31,,NET30,\nQuickBooks Online,Software,3600,12,2026-06-30,,NET30,\nFidelity Benefits,HR & Benefits,32000,12,2026-06-15,,,\nOffice Lease - Main St,Facilities,96000,12,2026-06-30,120000,NET15,\nParking & Utilities,Facilities,18000,12,2026-06-30,,,\nAdobe Creative Cloud,Software,2400,12,2026-05-31,,NET30,\nSlack,Software,4800,12,2026-06-30,,NET30,\nGoogle Workspace,Technology,8400,12,2026-06-30,,NET30,\nFreelance Dev - J.Smith,Labor,22000,4,2026-05-31,,,\nInsurance - Hiscox,Insurance,14400,12,2026-06-30,,NET30,\n' },
 };
 
 function downloadTemplate(type: string) {
@@ -259,8 +260,8 @@ const UPLOAD_CATEGORIES: {
     type:       'operations',
     label:      'Operations / Utilization',
     emoji:      '⚙️',
-    desc:       'Headcount, project count, utilization rate, open positions',
-    hint:       'Headcount, Utilization, OpenPositions',
+    desc:       'Headcount, billable hours, capacity & asset utilization rates',
+    hint:       'Headcount, BillableHours, TotalHours, CapacityUtilization, AssetUtilization',
     accent:     'text-cyan-400',
     accentText: 'bg-cyan-500/8 border-cyan-500/20',
   },
@@ -272,6 +273,15 @@ const UPLOAD_CATEGORIES: {
     hint:       'Date, Description, Amount, Type, Category, Customer',
     accent:     'text-slate-400',
     accentText: 'bg-slate-800/40 border-slate-700/40',
+  },
+  {
+    type:       'suppliers',
+    label:      'Supplier / Vendor Spend',
+    emoji:      '🏭',
+    desc:       'Supplier names, categories, spend amounts — auto-calculates concentration & redundancy',
+    hint:       'Supplier, Category, Spend, InvoiceCount, ContractValue',
+    accent:     'text-lime-400',
+    accentText: 'bg-lime-500/8 border-lime-500/20',
   },
 ];
 
@@ -298,6 +308,12 @@ function CSVUploadSection({ data, onDataUpdate, onSuccess }: Props) {
             existingData: data,
           }),
         });
+        if (!res.ok) {
+          let errMsg = `Upload failed (${res.status})`;
+          try { const e = await res.json(); errMsg = e.error ?? errMsg; } catch { /* ignore */ }
+          setStatuses(prev => ({ ...prev, [type]: `Error: ${errMsg}` }));
+          return;
+        }
         const result = await res.json();
         if (result.data) {
           onDataUpdate(result.data);
@@ -391,54 +407,68 @@ function GoogleSheetsConnector({ data, onDataUpdate, onSuccess }: Props) {
 
   async function start() {
     setLoading(true);
-    const res = await fetch('/api/data/google-sheets?action=auth-url');
-    const d = await res.json();
-    setConfigured(d.configured !== false);
-    if (!d.configured) { setLoading(false); return; }
-    const popup = window.open(d.url, 'google-oauth', 'width=500,height=600');
-    const listener = async (e: MessageEvent) => {
-      if (e.data?.type === 'google-oauth-callback' && e.data.code) {
-        window.removeEventListener('message', listener);
-        popup?.close();
-        const tokenRes = await fetch('/api/data/google-sheets?action=callback', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code: e.data.code }),
-        });
-        const { tokens } = await tokenRes.json();
-        setGsToken(tokens.access_token);
-        const sheetsRes = await fetch('/api/data/google-sheets?action=list-sheets', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ accessToken: tokens.access_token }),
-        });
-        const { sheets } = await sheetsRes.json();
-        setSpreadsheets(sheets ?? []);
-        setStep('select-sheet');
-        setLoading(false);
-      }
-    };
-    window.addEventListener('message', listener);
+    try {
+      const res = await fetch('/api/data/google-sheets?action=auth-url');
+      if (!res.ok) { setLoading(false); return; }
+      const d = await res.json();
+      setConfigured(d.configured !== false);
+      if (!d.configured) { setLoading(false); return; }
+      const popup = window.open(d.url, 'google-oauth', 'width=500,height=600');
+      const listener = async (e: MessageEvent) => {
+        if (e.data?.type === 'google-oauth-callback' && e.data.code) {
+          window.removeEventListener('message', listener);
+          popup?.close();
+          try {
+            const tokenRes = await fetch('/api/data/google-sheets?action=callback', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ code: e.data.code }),
+            });
+            if (!tokenRes.ok) { setLoading(false); return; }
+            const { tokens } = await tokenRes.json();
+            setGsToken(tokens.access_token);
+            const sheetsRes = await fetch('/api/data/google-sheets?action=list-sheets', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ accessToken: tokens.access_token }),
+            });
+            if (!sheetsRes.ok) { setLoading(false); return; }
+            const { sheets } = await sheetsRes.json();
+            setSpreadsheets(sheets ?? []);
+            setStep('select-sheet');
+          } catch { /* OAuth flow failed */ }
+          setLoading(false);
+        }
+      };
+      window.addEventListener('message', listener);
+    } catch { /* ignore */ }
     setLoading(false);
   }
 
   async function selectSpreadsheet(id: string) {
     setSelectedSheet(id);
-    const res = await fetch('/api/data/google-sheets?action=sheet-names', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accessToken: gsToken, spreadsheetId: id }),
-    });
-    const { names } = await res.json();
-    setSheetNames(names ?? []);
+    try {
+      const res = await fetch('/api/data/google-sheets?action=sheet-names', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken: gsToken, spreadsheetId: id }),
+      });
+      if (!res.ok) return;
+      const { names } = await res.json();
+      setSheetNames(names ?? []);
+    } catch { /* ignore */ }
     setStep('map-columns');
   }
 
   async function importData() {
     setLoading(true);
-    const res = await fetch('/api/data/google-sheets?action=fetch-data', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accessToken: gsToken, spreadsheetId: selectedSheet, sheets: columnMap }),
-    });
-    const { data: gsData } = await res.json();
-    if (gsData) { onDataUpdate(gsData); setStep('connected'); onSuccess?.('Google Sheets data imported successfully'); }
+    try {
+      const res = await fetch('/api/data/google-sheets?action=fetch-data', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken: gsToken, spreadsheetId: selectedSheet, sheets: columnMap }),
+      });
+      if (res.ok) {
+        const { data: gsData } = await res.json();
+        if (gsData) { onDataUpdate(gsData); setStep('connected'); onSuccess?.('Google Sheets data imported successfully'); }
+      }
+    } catch { /* ignore */ }
     setLoading(false);
   }
 
@@ -502,6 +532,123 @@ function GoogleSheetsConnector({ data, onDataUpdate, onSuccess }: Props) {
   );
 }
 
+// ── Stripe Connector ─────────────────────────────────────────────────────────
+interface StripeSummary {
+  ttmRevenue: number;
+  mrr: number;
+  arr: number;
+  activeSubscriptions: number;
+  customerCount: number;
+  recentlyChurned: number;
+  periodsImported: number;
+}
+
+function StripeConnector({ data, onDataUpdate, onSuccess }: Props) {
+  const [step, setStep] = useState<'idle' | 'loading' | 'connected' | 'error'>('idle');
+  const [key, setKey] = useState('');
+  const [error, setError] = useState('');
+  const [summary, setSummary] = useState<StripeSummary | null>(null);
+  const hasEnvKey = false; // server-side check — always show input client-side
+
+  const fmt = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+
+  async function connect() {
+    if (!key.trim() && !hasEnvKey) { setError('Enter your Stripe secret key'); return; }
+    setStep('loading'); setError('');
+    try {
+      const res = await fetch('/api/data/stripe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ secretKey: key.trim(), existingData: data }),
+      });
+      if (!res.ok) {
+        let msg = `Request failed (${res.status})`;
+        try { const e = await res.json(); msg = e.error ?? msg; } catch { /* ignore */ }
+        setError(msg); setStep('error'); return;
+      }
+      const result = await res.json();
+      if (result.data) {
+        onDataUpdate(result.data);
+        setSummary(result.summary);
+        setStep('connected');
+        onSuccess?.(`Stripe connected — ${result.summary.periodsImported} months of revenue imported`);
+      } else {
+        setError(result.error ?? 'Connection failed');
+        setStep('error');
+      }
+    } catch {
+      setError('Network error — check your connection');
+      setStep('error');
+    }
+  }
+
+  if (step === 'connected' && summary) return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-2">
+        {[
+          { label: 'TTM Revenue', value: fmt(summary.ttmRevenue) },
+          { label: 'MRR',        value: fmt(summary.mrr) },
+          { label: 'Customers',  value: `${summary.customerCount}` },
+        ].map(m => (
+          <div key={m.label} className="bg-slate-800/50 border border-slate-700/40 rounded-lg px-3 py-2 text-center">
+            <div className="text-[15px] font-bold text-slate-100 tabular-nums">{m.value}</div>
+            <div className="text-[10px] text-slate-500 mt-0.5 font-medium">{m.label}</div>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] text-emerald-400 font-medium">
+          {summary.periodsImported} months · {summary.activeSubscriptions} active subscriptions
+          {summary.recentlyChurned > 0 && ` · ${summary.recentlyChurned} churned (90d)`}
+        </div>
+        <button onClick={() => { setStep('idle'); setKey(''); setSummary(null); }}
+          className="text-[11px] text-slate-500 hover:text-slate-300 font-medium transition-colors">
+          Reconnect
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="text-[11px] text-slate-500 leading-relaxed">
+        Pulls 12 months of charges, active subscriptions, and customer data directly from your Stripe account.
+        Use a <span className="text-slate-400 font-medium">Restricted Key</span> with read-only access to Charges, Customers, and Subscriptions.
+      </div>
+      <div className="bg-slate-800/30 border border-slate-700/30 rounded-lg px-3 py-2.5">
+        <div className="text-[10px] font-semibold text-slate-500 mb-1">How to get a restricted key</div>
+        <div className="text-[11px] text-slate-500 leading-relaxed">
+          Stripe Dashboard → Developers → API Keys → Create restricted key → enable read-only on Charges, Customers, Subscriptions.
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <input
+          type="password"
+          value={key}
+          onChange={e => setKey(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && connect()}
+          placeholder="sk_live_… or sk_test_…"
+          className="flex-1 bg-slate-800/60 border border-slate-700/60 rounded-lg px-3 py-2 text-[12px] text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500/60 font-mono"
+        />
+        <button
+          onClick={connect}
+          disabled={step === 'loading' || (!key.trim())}
+          className="flex items-center gap-1.5 px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded-lg text-[12px] font-semibold transition-all whitespace-nowrap">
+          {step === 'loading' ? <><Spinner/>Connecting…</> : 'Connect Stripe'}
+        </button>
+      </div>
+      {(error || step === 'error') && (
+        <div className="text-[11px] text-red-400 bg-red-500/5 border border-red-500/20 rounded-lg px-3 py-2">
+          {error || 'Connection failed'}
+        </div>
+      )}
+      <div className="text-[10px] text-slate-700">
+        Key is sent directly to your Vercel function and never stored. Use a restricted read-only key for safety.
+      </div>
+    </div>
+  );
+}
+
 // ── Excel Connector ──────────────────────────────────────────────────────────
 function ExcelConnector({ data, onDataUpdate, onSuccess }: Props) {
   const [step, setStep] = useState<ExcelStep>('idle');
@@ -517,55 +664,69 @@ function ExcelConnector({ data, onDataUpdate, onSuccess }: Props) {
 
   async function startOneDrive() {
     setLoading(true);
-    const res = await fetch('/api/data/excel?action=auth-url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-    const d = await res.json();
-    setConfigured(d.configured !== false);
-    if (!d.configured) { setLoading(false); return; }
-    const popup = window.open(d.url, 'ms-oauth', 'width=500,height=600');
-    const listener = async (e: MessageEvent) => {
-      if (e.data?.type === 'ms-oauth-callback' && e.data.code) {
-        window.removeEventListener('message', listener);
-        popup?.close();
-        const r = await fetch('/api/data/excel', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'callback', code: e.data.code }),
-        });
-        const { tokens } = await r.json();
-        setToken(tokens.access_token);
-        const filesRes = await fetch('/api/data/excel', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'list-files', accessToken: tokens.access_token }),
-        });
-        const { files: f } = await filesRes.json();
-        setFiles(f ?? []);
-        setStep('select-file');
-        setLoading(false);
-      }
-    };
-    window.addEventListener('message', listener);
+    try {
+      const res = await fetch('/api/data/excel?action=auth-url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      if (!res.ok) { setLoading(false); return; }
+      const d = await res.json();
+      setConfigured(d.configured !== false);
+      if (!d.configured) { setLoading(false); return; }
+      const popup = window.open(d.url, 'ms-oauth', 'width=500,height=600');
+      const listener = async (e: MessageEvent) => {
+        if (e.data?.type === 'ms-oauth-callback' && e.data.code) {
+          window.removeEventListener('message', listener);
+          popup?.close();
+          try {
+            const r = await fetch('/api/data/excel', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'callback', code: e.data.code }),
+            });
+            if (!r.ok) { setLoading(false); return; }
+            const { tokens } = await r.json();
+            setToken(tokens.access_token);
+            const filesRes = await fetch('/api/data/excel', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'list-files', accessToken: tokens.access_token }),
+            });
+            if (!filesRes.ok) { setLoading(false); return; }
+            const { files: f } = await filesRes.json();
+            setFiles(f ?? []);
+            setStep('select-file');
+          } catch { /* OAuth flow failed */ }
+          setLoading(false);
+        }
+      };
+      window.addEventListener('message', listener);
+    } catch { /* ignore */ }
     setLoading(false);
   }
 
   async function selectFile(id: string) {
     setSelectedFile(id);
-    const r = await fetch('/api/data/excel', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'list-sheets', accessToken: token, fileId: id }),
-    });
-    const { sheets: s } = await r.json();
-    setSheets(s ?? []);
+    try {
+      const r = await fetch('/api/data/excel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list-sheets', accessToken: token, fileId: id }),
+      });
+      if (!r.ok) return;
+      const { sheets: s } = await r.json();
+      setSheets(s ?? []);
+    } catch { /* ignore */ }
     setStep('select-sheet');
   }
 
   async function importSheet() {
     if (!selectedSheet) return;
     setLoading(true);
-    const r = await fetch('/api/data/excel', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'fetch-sheet', accessToken: token, fileId: selectedFile, sheetName: selectedSheet, dataType, existingData: data }),
-    });
-    const result = await r.json();
-    if (result.data) { onDataUpdate(result.data); setStep('connected'); onSuccess?.(`Excel data imported — ${result.rowCount ?? 0} rows`); }
+    try {
+      const r = await fetch('/api/data/excel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'fetch-sheet', accessToken: token, fileId: selectedFile, sheetName: selectedSheet, dataType, existingData: data }),
+      });
+      if (r.ok) {
+        const result = await r.json();
+        if (result.data) { onDataUpdate(result.data); setStep('connected'); onSuccess?.(`Excel data imported — ${result.rowCount ?? 0} rows`); }
+      }
+    } catch { /* ignore */ }
     setLoading(false);
   }
 
@@ -1011,6 +1172,7 @@ export default function DataSourcePanel({ data, onDataUpdate, onSuccess, company
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ uploads: [{ type: item.type, filename: file.name, content }], existingData: data }),
                       });
+                      if (!res.ok) { e.target.value = ''; return; }
                       const result = await res.json();
                       if (result.data) { onDataUpdate(result.data); onSuccess?.(`${item.label} imported — ${result.results?.[0]?.rowCount ?? '?'} rows`); }
                       e.target.value = '';
@@ -1089,6 +1251,19 @@ export default function DataSourcePanel({ data, onDataUpdate, onSuccess, company
             badge="OAuth"
             statusBadge={data.metadata.sources.some(s => s.startsWith('Excel')) ? <ConnectedBadge/> : <NativeBadge/>}>
             <ExcelConnector data={data} onDataUpdate={onDataUpdate} onSuccess={onSuccess}/>
+          </ConnectorCard>
+
+          <ConnectorCard
+            icon={
+              <svg viewBox="0 0 20 20" fill="none" className="w-4 h-4" xmlns="http://www.w3.org/2000/svg">
+                <path d="M10 2C5.58 2 2 5.58 2 10s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8zm.92 11.42c-.24.08-.44.14-.62.18-.18.04-.38.06-.6.06-.56 0-.98-.13-1.26-.39-.28-.26-.42-.65-.42-1.17 0-.19.02-.39.06-.6.04-.21.1-.44.17-.7l.59-2.07c.07-.26.13-.5.17-.72.04-.22.06-.42.06-.6 0-.32-.07-.55-.2-.67-.13-.12-.38-.18-.74-.18-.18 0-.37.03-.56.08-.19.05-.36.1-.5.15l.19-.77c.2-.07.39-.14.56-.19.18-.05.34-.08.5-.08.55 0 .97.13 1.24.4.27.27.41.65.41 1.16 0 .1-.01.29-.04.56-.03.27-.09.52-.18.77l-.59 2.06c-.06.22-.12.46-.16.71-.04.25-.06.44-.06.56 0 .34.08.57.23.69.15.12.4.18.76.18.17 0 .36-.03.57-.08.21-.05.37-.1.47-.14l-.19.77zm-.13-8.17c-.27.25-.6.37-.97.37-.37 0-.7-.12-.97-.37-.27-.25-.41-.55-.41-.9s.14-.65.41-.9c.27-.25.6-.37.97-.37.37 0 .7.12.97.37.27.25.41.55.41.9s-.14.65-.41.9z" fill="#6366f1"/>
+              </svg>
+            }
+            accentColor="bg-violet-500/10 border-violet-500/25"
+            name="Stripe" desc="Live revenue from charges, subscriptions, MRR/ARR, and customer data — 12-month history"
+            badge="API Key"
+            statusBadge={data.metadata.sources.includes('Stripe') ? <ConnectedBadge/> : <NativeBadge/>}>
+            <StripeConnector data={data} onDataUpdate={onDataUpdate} onSuccess={onSuccess}/>
           </ConnectorCard>
         </div>
       </div>

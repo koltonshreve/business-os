@@ -6,6 +6,41 @@ export const config = { api: { bodyParser: { sizeLimit: '1mb' } } };
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// ── Server-side rate limiter ───────────────────────────────────────────────────
+// Keyed by IP. Resets each hour. Caps at HOURLY_HARD_LIMIT per IP regardless
+// of client-side session plan — prevents runaway costs during demos.
+
+const HOURLY_HARD_LIMIT = Number(process.env.AI_HOURLY_LIMIT ?? 30); // per IP per hour
+const DEMO_BYPASS_KEY   = process.env.DEMO_BYPASS_KEY ?? '';          // set in Vercel to skip limits
+
+const ipBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function checkRateLimit(ip: string): { allowed: boolean; remaining: number; resetIn: number } {
+  const now     = Date.now();
+  const hourMs  = 60 * 60 * 1000;
+  const bucket  = ipBuckets.get(ip);
+
+  if (!bucket || now > bucket.resetAt) {
+    ipBuckets.set(ip, { count: 1, resetAt: now + hourMs });
+    return { allowed: true, remaining: HOURLY_HARD_LIMIT - 1, resetIn: 60 };
+  }
+
+  if (bucket.count >= HOURLY_HARD_LIMIT) {
+    const resetIn = Math.ceil((bucket.resetAt - now) / 60_000);
+    return { allowed: false, remaining: 0, resetIn };
+  }
+
+  bucket.count++;
+  return { allowed: true, remaining: HOURLY_HARD_LIMIT - bucket.count, resetIn: 60 };
+}
+
+// Per-plan monthly limits (mirrors lib/plan.ts — kept in sync manually)
+const PLAN_MONTHLY_LIMITS: Record<string, number> = {
+  starter: 5,
+  growth:  50,
+  pro:     999,
+};
+
 interface Message { role: 'user' | 'assistant'; content: string; }
 
 const VIEW_LABELS: Record<string, string> = {
@@ -26,10 +61,8 @@ function buildSystemContext(data: UnifiedBusinessData, companyName?: string, act
   const fmt    = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(2)}M` : `$${(n/1_000).toFixed(0)}k`;
   const pct    = (n: number, d: number) => d > 0 ? `${((n/d)*100).toFixed(1)}%` : 'N/A';
 
-  const companyLine = companyName ? `Company: ${companyName}\n` : '';
-  const viewLine = activeView && VIEW_LABELS[activeView]
-    ? `The user is currently viewing the ${VIEW_LABELS[activeView]}.\n`
-    : '';
+  const companyLine  = companyName ? `Company: ${companyName}\n` : '';
+  const viewLine     = activeView && VIEW_LABELS[activeView] ? `The user is currently viewing the ${VIEW_LABELS[activeView]}.\n` : '';
   const industryLine = profileLine ? `${profileLine}\n` : '';
 
   return `You are an expert CFO and business analyst embedded inside a live business intelligence dashboard. You have complete access to this company's financial data and respond like a trusted advisor who knows the numbers cold.
@@ -69,9 +102,51 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured — add it to Vercel environment variables.' });
   }
 
-  const { message, data, history = [], companyName, activeView, companyProfile }: { message: string; data: UnifiedBusinessData; history: Message[]; companyName?: string; activeView?: string; companyProfile?: { industry?: string; revenueModel?: string } } = req.body;
+  const {
+    message, data, history = [], companyName, activeView, companyProfile,
+    planId = 'starter', queriesUsed = 0, bypassKey = '',
+  }: {
+    message: string; data: UnifiedBusinessData; history: Message[];
+    companyName?: string; activeView?: string;
+    companyProfile?: { industry?: string; revenueModel?: string };
+    planId?: string; queriesUsed?: number; bypassKey?: string;
+  } = req.body;
 
   if (!message?.trim()) return res.status(400).json({ error: 'Message required' });
+
+  // ── Demo bypass: operator key skips all limits ────────────────────────────
+  const isDemoBypass = DEMO_BYPASS_KEY && bypassKey === DEMO_BYPASS_KEY;
+
+  if (!isDemoBypass) {
+    // Plan-level monthly limit (client-reported, soft guard)
+    const monthlyLimit = PLAN_MONTHLY_LIMITS[planId] ?? PLAN_MONTHLY_LIMITS.starter;
+    if (monthlyLimit < 999 && queriesUsed >= monthlyLimit) {
+      return res.status(402).json({
+        error: 'monthly_limit_reached',
+        message: `You've used all ${monthlyLimit} AI queries on the ${planId} plan this month.`,
+        upgradeRequired: true,
+      });
+    }
+
+    // IP-based hourly hard cap (prevents runaway demo/abuse costs)
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+      ?? req.socket?.remoteAddress
+      ?? 'unknown';
+    const { allowed, remaining, resetIn } = checkRateLimit(ip);
+
+    if (!allowed) {
+      return res.status(429).json({
+        error: 'rate_limit_exceeded',
+        message: `Hourly AI limit reached. Resets in ${resetIn} minute${resetIn !== 1 ? 's' : ''}.`,
+        resetIn,
+      });
+    }
+
+    // Warn in header when getting close (last 5 remaining)
+    if (remaining <= 5) {
+      res.setHeader('X-RateLimit-Remaining', remaining);
+    }
+  }
 
   try {
     const profileLine = companyProfile?.industry || companyProfile?.revenueModel

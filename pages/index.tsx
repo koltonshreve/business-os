@@ -1,37 +1,93 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import Head from 'next/head';
 import type { UnifiedBusinessData, KPIDashboard, WeeklyInsight, BoardDeck, Goals, Budget, CustomKPI, OnboardingData } from '../types';
 import { DEMO_CUSTOMERS } from '../lib/demo-customers';
 import { loadSession, saveSession, defaultSession } from '../lib/plan';
 import KPIGrid from '../components/dashboard/KPIGrid';
 import AlertFeed from '../components/dashboard/AlertFeed';
-import RevenueChart from '../components/charts/RevenueChart';
-import CostBreakdownChart from '../components/charts/CostBreakdownChart';
-import CustomerMetricsChart from '../components/charts/CustomerMetricsChart';
-import FinancialDashboard from '../components/dashboard/FinancialDashboard';
-import CustomerDashboard from '../components/dashboard/CustomerDashboard';
-import OperationsDashboard from '../components/dashboard/OperationsDashboard';
-import IntelligenceDashboard from '../components/dashboard/IntelligenceDashboard';
-import DataSourcePanel, { type CompanyProfile } from '../components/dashboard/DataSourcePanel';
-import ScenarioModeler from '../components/dashboard/ScenarioModeler';
-import CustomKPIPanel from '../components/dashboard/CustomKPIPanel';
-import TrendSignalsPanel from '../components/dashboard/TrendSignalsPanel';
 import AIChat from '../components/AIChat';
-import TransactionLedger from '../components/dashboard/TransactionLedger';
-import MetricThresholdsPanel, { type Threshold } from '../components/dashboard/MetricThresholdsPanel';
-import AgentPanel from '../components/dashboard/AgentPanel';
-import IndustryBenchmarksPanel from '../components/dashboard/IndustryBenchmarksPanel';
-import PLStatement from '../components/PLStatement';
-import BudgetPanel from '../components/dashboard/BudgetPanel';
-import KanbanBoard from '../components/crm/KanbanBoard';
-import AutomationBuilder from '../components/automation/AutomationBuilder';
 import OnboardingFlow from '../components/onboarding/OnboardingFlow';
 import CommandPalette from '../components/CommandPalette';
 import PricingModal from '../components/pricing/PricingModal';
 import DailyBriefing from '../components/dashboard/DailyBriefing';
+import DailyPriorities from '../components/deals/DailyPriorities';
+import ConnectedModel from '../components/dashboard/ConnectedModel';
+import type { CompanyProfile } from '../components/dashboard/DataSourcePanel';
+import type { Threshold } from '../components/dashboard/MetricThresholdsPanel';
+import { loadDeals } from '../lib/deals';
+import type { Deal } from '../lib/deals';
+import { computeModelChain, applyScenario, ZERO_SCENARIO } from '../lib/model';
+import type { ScenarioAdjustment } from '../lib/model';
+
+// ── Shared loading skeleton for dynamic imports ───────────────────────────────
+function TabSkeleton() {
+  return (
+    <div className="space-y-4 animate-pulse">
+      {/* Section label */}
+      <div className="flex items-center gap-3">
+        <div className="h-2 w-16 bg-slate-800/60 rounded"/>
+        <div className="flex-1 h-px bg-slate-800/40"/>
+      </div>
+      {/* Metric row */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {[...Array(5)].map((_, i) => (
+          <div key={i} className="bg-slate-900/50 border border-slate-800/40 rounded-xl h-[80px]"/>
+        ))}
+      </div>
+      {/* Chart */}
+      <div className="bg-slate-900/50 border border-slate-800/40 rounded-xl h-[220px]"/>
+      {/* Section label */}
+      <div className="flex items-center gap-3 pt-1">
+        <div className="h-2 w-20 bg-slate-800/60 rounded"/>
+        <div className="flex-1 h-px bg-slate-800/40"/>
+      </div>
+      {/* Cards row */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {[...Array(3)].map((_, i) => (
+          <div key={i} className="bg-slate-900/50 border border-slate-800/40 rounded-xl h-[140px]"/>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const SKELETON = { loading: TabSkeleton };
+
+// ── Dynamic imports (code-split heavy/tab-specific components) ────────────────
+const RevenueChart        = dynamic(() => import('../components/charts/RevenueChart'),                     { ssr: false });
+const CostBreakdownChart  = dynamic(() => import('../components/charts/CostBreakdownChart'),               { ssr: false });
+const CustomerMetricsChart= dynamic(() => import('../components/charts/CustomerMetricsChart'),             { ssr: false });
+const FinancialDashboard  = dynamic(() => import('../components/dashboard/FinancialDashboard'),            { ...SKELETON, ssr: false });
+const CustomerDashboard   = dynamic(() => import('../components/dashboard/CustomerDashboard'),             { ...SKELETON, ssr: false });
+const OperationsDashboard = dynamic(() => import('../components/dashboard/OperationsDashboard'),           { ...SKELETON, ssr: false });
+const IntelligenceDashboard=dynamic(() => import('../components/dashboard/IntelligenceDashboard'),        { ...SKELETON, ssr: false });
+const DataSourcePanel     = dynamic(() => import('../components/dashboard/DataSourcePanel'),               { ...SKELETON, ssr: false });
+const ScenarioModeler     = dynamic(() => import('../components/dashboard/ScenarioModeler'),               { ...SKELETON, ssr: false });
+const CustomKPIPanel      = dynamic(() => import('../components/dashboard/CustomKPIPanel'),                { ssr: false });
+const TrendSignalsPanel   = dynamic(() => import('../components/dashboard/TrendSignalsPanel'),             { ssr: false });
+const TransactionLedger   = dynamic(() => import('../components/dashboard/TransactionLedger'),             { ssr: false });
+const MetricThresholdsPanel=dynamic(() => import('../components/dashboard/MetricThresholdsPanel'),        { ssr: false });
+const AgentPanel          = dynamic(() => import('../components/dashboard/AgentPanel'),                    { ssr: false });
+const IndustryBenchmarksPanel=dynamic(() => import('../components/dashboard/IndustryBenchmarksPanel'),    { ssr: false });
+const PLStatement         = dynamic(() => import('../components/PLStatement'),                             { ssr: false });
+const BudgetPanel         = dynamic(() => import('../components/dashboard/BudgetPanel'),                   { ssr: false });
+const KanbanBoard         = dynamic(() => import('../components/crm/KanbanBoard'),                         { ...SKELETON, ssr: false });
+const AutomationBuilder   = dynamic(() => import('../components/automation/AutomationBuilder'),             { ...SKELETON, ssr: false });
+const AcquisitionPipeline = dynamic(() => import('../components/acquisition/AcquisitionPipeline'),         { ...SKELETON, ssr: false });
+const GoalEngine          = dynamic(() => import('../components/goals/GoalEngine'),                        { ...SKELETON, ssr: false });
+const DecisionEngine      = dynamic(() => import('../components/intelligence/DecisionEngine'),             { ssr: false });
+const TeamFeed            = dynamic(() => import('../components/team/TeamFeed'),                           { ...SKELETON, ssr: false });
+const CashRunway          = dynamic(() => import('../components/dashboard/CashRunway'),                    { ...SKELETON, ssr: false });
+const TaskBoard           = dynamic(() => import('../components/tasks/TaskBoard'),                         { ...SKELETON, ssr: false });
+const DealList            = dynamic(() => import('../components/deals/DealList'),                          { ...SKELETON, ssr: false });
+const SupplierDashboard   = dynamic(() => import('../components/dashboard/SupplierDashboard'),              { ...SKELETON, ssr: false });
+const SKUAnalyzer         = dynamic(() => import('../components/dashboard/SKUAnalyzer'),                    { ...SKELETON, ssr: false });
+const CapacityAnalyzer    = dynamic(() => import('../components/dashboard/CapacityAnalyzer'),                { ...SKELETON, ssr: false });
+const BenchmarkFeed       = dynamic(() => import('../components/dashboard/BenchmarkFeed'),                    { ssr: false });
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-type ActiveView = 'overview' | 'financial' | 'customers' | 'operations' | 'intelligence' | 'scenarios' | 'data' | 'pipeline' | 'automations';
+type ActiveView = 'deals' | 'today' | 'overview' | 'financial' | 'customers' | 'operations' | 'intelligence' | 'scenarios' | 'data' | 'pipeline' | 'automations' | 'acquisitions' | 'goals' | 'team' | 'cash' | 'execute' | 'suppliers' | 'skus' | 'capacity';
 type ToastType  = 'success' | 'error' | 'info';
 interface ToastItem { id: string; type: ToastType; message: string; }
 interface PeriodSnapshot { id: string; label: string; data: UnifiedBusinessData; createdAt: string; }
@@ -536,12 +592,12 @@ const DEMO_DATA: UnifiedBusinessData = {
     recurring: 737000,   // ~60% recurring (retainer / managed services)
     oneTime:   491000,   // ~40% project / one-time
     byPeriod: [
-      { period: 'Oct 2024', periodType: 'monthly', revenue: 178000, cogs: 107000, ebitda: 26700,  recurring: 104000, oneTime: 74000 },
-      { period: 'Nov 2024', periodType: 'monthly', revenue: 192000, cogs: 115000, ebitda: 28800,  recurring: 113000, oneTime: 79000 },
-      { period: 'Dec 2024', periodType: 'monthly', revenue: 205000, cogs: 123000, ebitda: 30750,  recurring: 122000, oneTime: 83000 },
-      { period: 'Jan 2025', periodType: 'monthly', revenue: 188000, cogs: 113000, ebitda: 28200,  recurring: 112000, oneTime: 76000 },
-      { period: 'Feb 2025', periodType: 'monthly', revenue: 220000, cogs: 132000, ebitda: 33000,  recurring: 132000, oneTime: 88000 },
-      { period: 'Mar 2025', periodType: 'monthly', revenue: 245000, cogs: 147000, ebitda: 36750,  recurring: 154000, oneTime: 91000 },
+      { period: 'Jan 2026', periodType: 'monthly', revenue: 178000, cogs: 107000, ebitda: 26700,  recurring: 104000, oneTime: 74000 },
+      { period: 'Feb 2026', periodType: 'monthly', revenue: 192000, cogs: 115000, ebitda: 28800,  recurring: 113000, oneTime: 79000 },
+      { period: 'Mar 2026', periodType: 'monthly', revenue: 205000, cogs: 123000, ebitda: 30750,  recurring: 122000, oneTime: 83000 },
+      { period: 'Apr 2026', periodType: 'monthly', revenue: 188000, cogs: 113000, ebitda: 28200,  recurring: 112000, oneTime: 76000 },
+      { period: 'May 2026', periodType: 'monthly', revenue: 220000, cogs: 132000, ebitda: 33000,  recurring: 132000, oneTime: 88000 },
+      { period: 'Jun 2026', periodType: 'monthly', revenue: 245000, cogs: 147000, ebitda: 36750,  recurring: 154000, oneTime: 91000 },
     ],
     byProduct: [
       { name: 'Managed Services',     amount: 614000, margin: 0.44 },
@@ -582,14 +638,14 @@ const DEMO_DATA: UnifiedBusinessData = {
     utilizationRate: 0.82,
   },
   pipeline: [
-    { name: 'TechStart Inc — Enterprise Plan',    stage: 'Negotiation', value: 125000, probability: 75, closeDate: '2025-04-30', owner: 'Sarah K.' },
-    { name: 'Global Logistics LLC',               stage: 'Proposal',    value: 220000, probability: 40, closeDate: '2025-05-20', owner: 'Mark D.' },
-    { name: 'Metro Health Partners',              stage: 'Discovery',   value: 180000, probability: 20, closeDate: '2025-06-30', owner: 'Sarah K.' },
-    { name: 'Pinnacle Mfg — Renewal',             stage: 'Negotiation', value: 95000,  probability: 80, closeDate: '2025-04-15', owner: 'Mark D.' },
-    { name: 'Westfield Retail Group',             stage: 'Proposal',    value: 145000, probability: 35, closeDate: '2025-05-15', owner: 'Alex R.' },
-    { name: 'Summit Capital Partners',            stage: 'Closed Won',  value: 88000,  probability: 100,closeDate: '2025-03-31', owner: 'Alex R.' },
-    { name: 'Horizon Biotech',                    stage: 'Discovery',   value: 310000, probability: 15, closeDate: '2025-07-31', owner: 'Sarah K.' },
-    { name: 'Pacific Coast Distribution',        stage: 'Negotiation', value: 72000,  probability: 65, closeDate: '2025-04-20', owner: 'Mark D.' },
+    { name: 'TechStart Inc — Enterprise Plan',    stage: 'Negotiation', value: 125000, probability: 75, closeDate: '2026-07-31', owner: 'Sarah K.' },
+    { name: 'Global Logistics LLC',               stage: 'Proposal',    value: 220000, probability: 40, closeDate: '2026-08-20', owner: 'Mark D.' },
+    { name: 'Metro Health Partners',              stage: 'Discovery',   value: 180000, probability: 20, closeDate: '2026-09-30', owner: 'Sarah K.' },
+    { name: 'Pinnacle Mfg — Renewal',             stage: 'Negotiation', value: 95000,  probability: 80, closeDate: '2026-07-15', owner: 'Mark D.' },
+    { name: 'Westfield Retail Group',             stage: 'Proposal',    value: 145000, probability: 35, closeDate: '2026-08-15', owner: 'Alex R.' },
+    { name: 'Summit Capital Partners',            stage: 'Closed Won',  value: 88000,  probability: 100,closeDate: '2026-06-30', owner: 'Alex R.' },
+    { name: 'Horizon Biotech',                    stage: 'Discovery',   value: 310000, probability: 15, closeDate: '2026-10-31', owner: 'Sarah K.' },
+    { name: 'Pacific Coast Distribution',        stage: 'Negotiation', value: 72000,  probability: 65, closeDate: '2026-07-20', owner: 'Mark D.' },
   ],
   payrollByDept: [
     { department: 'Delivery / Operations', headcount: 5,  totalCompensation: 195000, avgSalary: 39000 },
@@ -599,12 +655,12 @@ const DEMO_DATA: UnifiedBusinessData = {
     { department: 'Leadership',            headcount: 1,  totalCompensation: 84000,  avgSalary: 84000 },
   ],
   cashFlow: [
-    { period: 'Oct 2024', openingBalance: 420000, receipts: 165000, payments: 138000, closingBalance: 447000, netCashFlow: 27000 },
-    { period: 'Nov 2024', openingBalance: 447000, receipts: 178000, payments: 152000, closingBalance: 473000, netCashFlow: 26000 },
-    { period: 'Dec 2024', openingBalance: 473000, receipts: 195000, payments: 164000, closingBalance: 504000, netCashFlow: 31000 },
-    { period: 'Jan 2025', openingBalance: 504000, receipts: 172000, payments: 147000, closingBalance: 529000, netCashFlow: 25000 },
-    { period: 'Feb 2025', openingBalance: 529000, receipts: 208000, payments: 170000, closingBalance: 567000, netCashFlow: 38000 },
-    { period: 'Mar 2025', openingBalance: 567000, receipts: 235000, payments: 185000, closingBalance: 617000, netCashFlow: 50000 },
+    { period: 'Jan 2026', openingBalance: 420000, receipts: 165000, payments: 138000, closingBalance: 447000, netCashFlow: 27000 },
+    { period: 'Feb 2026', openingBalance: 447000, receipts: 178000, payments: 152000, closingBalance: 473000, netCashFlow: 26000 },
+    { period: 'Mar 2026', openingBalance: 473000, receipts: 195000, payments: 164000, closingBalance: 504000, netCashFlow: 31000 },
+    { period: 'Apr 2026', openingBalance: 504000, receipts: 172000, payments: 147000, closingBalance: 529000, netCashFlow: 25000 },
+    { period: 'May 2026', openingBalance: 529000, receipts: 208000, payments: 170000, closingBalance: 567000, netCashFlow: 38000 },
+    { period: 'Jun 2026', openingBalance: 567000, receipts: 235000, payments: 185000, closingBalance: 617000, netCashFlow: 50000 },
   ],
   arAging: [
     { customer: 'Acme Corp',       current: 68000, days30: 24000, days60: 0,     days90: 0,    over90: 0,    total: 92000 },
@@ -617,7 +673,7 @@ const DEMO_DATA: UnifiedBusinessData = {
   metadata: {
     sources: ['Demo Data'],
     asOf: new Date().toISOString(),
-    coveragePeriod: { start: 'Oct 2024', end: 'Mar 2025' },
+    coveragePeriod: { start: 'Jan 2026', end: 'Jun 2026' },
     completeness: 1.0,
     warnings: [],
   },
@@ -631,12 +687,12 @@ const PREV_DEMO: UnifiedBusinessData = {
     recurring: 624000,
     oneTime:   416000,
     byPeriod: [
-      { period: 'Apr 2024', periodType: 'monthly', revenue: 148000, cogs: 89000,  ebitda: 22200 },
-      { period: 'May 2024', periodType: 'monthly', revenue: 162000, cogs: 97000,  ebitda: 24300 },
-      { period: 'Jun 2024', periodType: 'monthly', revenue: 175000, cogs: 105000, ebitda: 26250 },
-      { period: 'Jul 2024', periodType: 'monthly', revenue: 165000, cogs: 99000,  ebitda: 24750 },
-      { period: 'Aug 2024', periodType: 'monthly', revenue: 188000, cogs: 113000, ebitda: 28200 },
-      { period: 'Sep 2024', periodType: 'monthly', revenue: 202000, cogs: 121000, ebitda: 30300 },
+      { period: 'Jul 2025', periodType: 'monthly', revenue: 148000, cogs: 89000,  ebitda: 22200 },
+      { period: 'Aug 2025', periodType: 'monthly', revenue: 162000, cogs: 97000,  ebitda: 24300 },
+      { period: 'Sep 2025', periodType: 'monthly', revenue: 175000, cogs: 105000, ebitda: 26250 },
+      { period: 'Oct 2025', periodType: 'monthly', revenue: 165000, cogs: 99000,  ebitda: 24750 },
+      { period: 'Nov 2025', periodType: 'monthly', revenue: 188000, cogs: 113000, ebitda: 28200 },
+      { period: 'Dec 2025', periodType: 'monthly', revenue: 202000, cogs: 121000, ebitda: 30300 },
     ],
   },
   costs: {
@@ -656,17 +712,17 @@ const PREV_DEMO: UnifiedBusinessData = {
     })),
   },
   cashFlow: [
-    { period: 'Apr 2024', openingBalance: 320000, receipts: 138000, payments: 118000, closingBalance: 340000, netCashFlow: 20000 },
-    { period: 'May 2024', openingBalance: 340000, receipts: 150000, payments: 131000, closingBalance: 359000, netCashFlow: 19000 },
-    { period: 'Jun 2024', openingBalance: 359000, receipts: 162000, payments: 140000, closingBalance: 381000, netCashFlow: 22000 },
-    { period: 'Jul 2024', openingBalance: 381000, receipts: 152000, payments: 134000, closingBalance: 399000, netCashFlow: 18000 },
-    { period: 'Aug 2024', openingBalance: 399000, receipts: 175000, payments: 151000, closingBalance: 423000, netCashFlow: 24000 },
-    { period: 'Sep 2024', openingBalance: 423000, receipts: 188000, payments: 164000, closingBalance: 447000, netCashFlow: 24000 },
+    { period: 'Jul 2025', openingBalance: 320000, receipts: 138000, payments: 118000, closingBalance: 340000, netCashFlow: 20000 },
+    { period: 'Aug 2025', openingBalance: 340000, receipts: 150000, payments: 131000, closingBalance: 359000, netCashFlow: 19000 },
+    { period: 'Sep 2025', openingBalance: 359000, receipts: 162000, payments: 140000, closingBalance: 381000, netCashFlow: 22000 },
+    { period: 'Oct 2025', openingBalance: 381000, receipts: 152000, payments: 134000, closingBalance: 399000, netCashFlow: 18000 },
+    { period: 'Nov 2025', openingBalance: 399000, receipts: 175000, payments: 151000, closingBalance: 423000, netCashFlow: 24000 },
+    { period: 'Dec 2025', openingBalance: 423000, receipts: 188000, payments: 164000, closingBalance: 447000, netCashFlow: 24000 },
   ],
 };
 
-const DEMO_SNAPSHOT: PeriodSnapshot = { id: 'demo', label: 'Q1 2025 (Demo)', data: DEMO_DATA, createdAt: new Date().toISOString() };
-const PREV_SNAPSHOT: PeriodSnapshot = { id: 'prev-demo', label: 'Q2–Q3 2024 (Demo)', data: PREV_DEMO, createdAt: new Date().toISOString() };
+const DEMO_SNAPSHOT: PeriodSnapshot = { id: 'demo', label: 'Q2 2026 (Demo)', data: DEMO_DATA, createdAt: new Date().toISOString() };
+const PREV_SNAPSHOT: PeriodSnapshot = { id: 'prev-demo', label: 'H2 2025 (Demo)', data: PREV_DEMO, createdAt: new Date().toISOString() };
 
 // ── Goals Panel ───────────────────────────────────────────────────────────────
 type GoalKey = keyof Goals;
@@ -798,8 +854,8 @@ function GoalsPanel({ data, goals, onSetGoal }: {
                   style={{ width: attainment !== undefined ? `${Math.min(attainment, 100)}%` : '0%' }}/>
               </div>
               {attainment !== undefined && (
-                <div className={`text-[9px] font-semibold ${attainment >= 100 ? 'text-emerald-400' : attainment >= 75 ? 'text-amber-400' : 'text-slate-600'}`}>
-                  {attainment >= 100 ? '✓ On target' : `${attainment.toFixed(0)}% of target`}
+                <div className={`text-[10px] font-semibold ${attainment >= 100 ? 'text-emerald-400' : attainment >= 75 ? 'text-amber-400' : 'text-slate-600'}`}>
+                  {attainment >= 100 ? '✓ On target' : `${attainment.toFixed(0)}%`}
                 </div>
               )}
             </div>
@@ -819,8 +875,18 @@ const Icons = {
   Intelligence: () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/><rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/></svg>,
   Data: () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><ellipse cx="7" cy="3.5" rx="4.5" ry="2"/><path d="M2.5 6c0 1.1 2 2 4.5 2s4.5-.9 4.5-2V3.5c0 1.1-2 2-4.5 2S2.5 4.6 2.5 3.5V6z"/><path d="M2.5 8.5c0 1.1 2 2 4.5 2s4.5-.9 4.5-2V6c0 1.1-2 2-4.5 2S2.5 7.1 2.5 6v2.5z"/><path d="M2.5 11c0 1.1 2 2 4.5 2s4.5-.9 4.5-2V8.5c0 1.1-2 2-4.5 2S2.5 9.6 2.5 8.5V11z"/></svg>,
   Scenarios: () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><path d="M1 10h3v3H1v-3zm4-4h2v7H5V6zm4-5h2v12H9V1z"/><path d="M7 4.5L9.5 2 12 4.5" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-  Pipeline:   () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><path d="M1 2h2.5v2H1V2zm0 4h2.5v2H1V6zm0 4h2.5v2H1v-2zm4-8h2.5v2H5V2zm0 4h2.5v2H5V6zm0 4h2.5v2H5v-2zm4-8h2.5v2H9V2zm0 4h2.5v2H9V6zm0 4h2.5v2H9v-2z"/></svg>,
-  Automations: () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><path d="M7 1L3 7h4l-1 6 5-6H8l1-6z"/></svg>,
+  Pipeline:     () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><path d="M1 2h2.5v2H1V2zm0 4h2.5v2H1V6zm0 4h2.5v2H1v-2zm4-8h2.5v2H5V2zm0 4h2.5v2H5V6zm0 4h2.5v2H5v-2zm4-8h2.5v2H9V2zm0 4h2.5v2H9V6zm0 4h2.5v2H9v-2z"/></svg>,
+  Automations:  () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><path d="M7 1L3 7h4l-1 6 5-6H8l1-6z"/></svg>,
+  Acquisitions: () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><path d="M7 1l1.8 3.6 4 .6-2.9 2.8.7 4L7 10l-3.6 2 .7-4L1.2 5.2l4-.6L7 1z"/></svg>,
+  Goals:        () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.25"/><circle cx="7" cy="7" r="3" fill="none" stroke="currentColor" strokeWidth="1.25"/><circle cx="7" cy="7" r="1"/></svg>,
+  Team:         () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><circle cx="4.5" cy="4" r="2"/><path d="M0 11c0-2.2 2-4 4.5-4S9 8.8 9 11H0z"/><circle cx="10.5" cy="4.5" r="1.5"/><path d="M14 11c0-1.7-1.5-3-3.5-3-.7 0-1.3.2-1.8.5.8.7 1.3 1.5 1.3 2.5H14z"/></svg>,
+  Cash:         () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><rect x="1" y="3" width="12" height="8" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.25"/><path d="M7 5.5v3M5.5 7h3" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/><path d="M1 6h2M11 6h2M1 8h2M11 8h2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.5"/></svg>,
+  Execute:      () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><path d="M1 3h12v1.5H1V3zm0 3.5h8v1.5H1V6.5zm0 3.5h10v1.5H1V10z"/><circle cx="11.5" cy="7" r="2" fill="none" stroke="currentColor" strokeWidth="1.25"/><path d="M11 6.3v1.4M10.3 7h1.4" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/></svg>,
+  Deals:        () => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 flex-shrink-0"><path d="M1 7.5L7 1l6 6.5V13H9v-3H5v3H1V7.5z"/></svg>,
+  Today:        () => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" className="w-3.5 h-3.5 flex-shrink-0"><rect x="1.5" y="2.5" width="11" height="10" rx="1.2"/><path d="M4.5 1.5v2M9.5 1.5v2M1.5 6h11"/><path d="M4.5 9l1.5 1.5L9.5 8" strokeWidth="1.6"/></svg>,
+  Suppliers:    () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><path d="M2 4h10v7a1 1 0 01-1 1H3a1 1 0 01-1-1V4z" fill="none" stroke="currentColor" strokeWidth="1.25"/><path d="M1 2h12v2H1V2z"/><path d="M5 7h4M5 9h2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/></svg>,
+  SKUs:         () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><rect x="1" y="1" width="5" height="5" rx="0.8"/><rect x="8" y="1" width="5" height="5" rx="0.8"/><rect x="1" y="8" width="5" height="5" rx="0.8"/><path d="M8 10.5h5M10.5 8v5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none"/></svg>,
+  Capacity:     () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><rect x="1" y="9" width="2.5" height="4" rx="0.5"/><rect x="4.5" y="6" width="2.5" height="7" rx="0.5"/><rect x="8" y="3.5" width="2.5" height="9.5" rx="0.5"/><rect x="11.5" y="1" width="1.5" height="12" rx="0.5"/><path d="M1 7.5l3-2.5 3-1.5 3.5-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none"/></svg>,
   Spinner: () => <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 animate-spin flex-shrink-0"><path opacity="0.25" d="M7 1.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11z"/><path d="M7 1.5a5.5 5.5 0 015.5 5.5h-1.5A4 4 0 007 3V1.5z"/></svg>,
   Chevron: () => <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-2.5 h-2.5 flex-shrink-0"><path d="M2 3.5L5 6.5 8 3.5"/></svg>,
   Clock: () => <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" className="w-3 h-3 flex-shrink-0"><circle cx="7" cy="7" r="5.5"/><path d="M7 4v3.5l2 1.5"/></svg>,
@@ -1116,19 +1182,6 @@ function PipelineSnapshot({ data, onAskAI }: { data: UnifiedBusinessData; onAskA
           <div className="text-[13px] font-semibold text-slate-100">Pipeline Snapshot</div>
           <div className="text-[11px] text-slate-600">{pipeline.length} deal{pipeline.length !== 1 ? 's' : ''}</div>
         </div>
-        {onAskAI && (
-          <button onClick={() => onAskAI(
-            `My sales pipeline has ${pipeline.length} deals. ` +
-            `Total pipeline value: ${fmtN(totalValue)}. Weighted (probability-adjusted): ${fmtN(weightedValue)}. ` +
-            `Coverage ratio: ${coverage !== null ? coverage.toFixed(2) + 'x' : 'N/A'}. ` +
-            `Stages: ${stages.map(([s, v]) => `${s}: ${v.count} deals worth ${fmtN(v.value)}`).join(', ')}. ` +
-            `What should I focus on to close more pipeline this period?`
-          )}
-            className="flex items-center gap-1.5 text-[11px] text-indigo-400 hover:text-indigo-300 font-medium border border-indigo-500/25 hover:border-indigo-500/50 px-2.5 py-1 rounded-lg transition-all">
-            <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3"><path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/><rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/></svg>
-            Ask AI
-          </button>
-        )}
       </div>
       <div className="p-5">
         {/* Top stats */}
@@ -1527,6 +1580,139 @@ function TopActionsWidget({ onRunAgent, onViewAll }: { onRunAgent?: () => void; 
   );
 }
 
+// ── Simple Mode Panel ─────────────────────────────────────────────────────────
+// Minimal executive view: 4 key metrics + top actions + alerts + AI shortcut.
+function SimpleModePanel({
+  data, dashboard, onAskAI, onNavigate, onExitSimple,
+}: {
+  data: UnifiedBusinessData;
+  dashboard: KPIDashboard | null;
+  onAskAI?: (msg?: string) => void;
+  onNavigate: (view: string) => void;
+  onExitSimple: () => void;
+}) {
+  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+  const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`;
+
+  const rev = data.revenue.total;
+  const cogs = data.costs.totalCOGS;
+  const opex = data.costs.totalOpEx;
+  const gp = rev - cogs;
+  const gm = rev > 0 ? gp / rev : 0;
+  const ebitda = gp - opex;
+  const em = rev > 0 ? ebitda / rev : 0;
+  const cashLatest = data.cashFlow?.length ? data.cashFlow[data.cashFlow.length - 1].closingBalance : null;
+
+  // Pull top 3 KPIs from computed dashboard or fallback to manual
+  const keyKPIs: { label: string; value: string; status: string; sub?: string }[] = dashboard?.kpis.slice(0, 4).map(k => ({
+    label: k.name,
+    value: k.formattedValue,
+    status: k.status,
+    sub: k.description,
+  })) ?? [
+    { label: 'Revenue', value: fmtN(rev), status: 'neutral' },
+    { label: 'Gross Margin', value: fmtPct(gm), status: gm > 0.4 ? 'green' : gm > 0.25 ? 'yellow' : 'red' },
+    { label: 'EBITDA', value: fmtN(ebitda), status: ebitda >= 0 ? 'green' : 'red' },
+    { label: 'EBITDA Margin', value: fmtPct(em), status: em > 0.1 ? 'green' : em > 0 ? 'yellow' : 'red' },
+  ];
+
+  const statusColor = (s: string) =>
+    s === 'green' ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5'
+    : s === 'yellow' ? 'text-amber-400 border-amber-500/20 bg-amber-500/5'
+    : s === 'red' ? 'text-red-400 border-red-500/20 bg-red-500/5'
+    : 'text-slate-200 border-slate-800/50 bg-slate-900/40';
+
+  const quickLinks: { label: string; view: string; color: string }[] = [
+    { label: 'Financial', view: 'financial', color: 'text-indigo-400 border-indigo-500/20 hover:bg-indigo-500/10' },
+    { label: 'Customers', view: 'customers', color: 'text-violet-400 border-violet-500/20 hover:bg-violet-500/10' },
+    { label: 'Cash', view: 'cash', color: 'text-teal-400 border-teal-500/20 hover:bg-teal-500/10' },
+    { label: 'Deals', view: 'deals', color: 'text-blue-400 border-blue-500/20 hover:bg-blue-500/10' },
+  ];
+
+  return (
+    <div className="space-y-6 max-w-3xl mx-auto">
+
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-[20px] font-bold text-slate-100">Executive Summary</div>
+          <div className="text-[12px] text-slate-500 mt-0.5">Simple mode — key metrics &amp; priorities only</div>
+        </div>
+        <button
+          onClick={onExitSimple}
+          className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 hover:text-slate-300 border border-slate-700/50 hover:border-slate-600 px-3 py-1.5 rounded-lg transition-all"
+        >
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-3 h-3"><rect x="1" y="1" width="4" height="4" rx="0.5"/><rect x="7" y="1" width="4" height="4" rx="0.5"/><rect x="1" y="7" width="4" height="4" rx="0.5"/><rect x="7" y="7" width="4" height="4" rx="0.5"/></svg>
+          Full dashboard
+        </button>
+      </div>
+
+      {/* Key metrics grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {keyKPIs.map((kpi, i) => (
+          <div key={i} className={`rounded-xl border px-4 py-3 ${statusColor(kpi.status)}`}>
+            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] mb-1">{kpi.label}</div>
+            <div className="text-[20px] font-bold tabular-nums leading-tight">{kpi.value}</div>
+            {kpi.sub && <div className="text-[10px] text-slate-600 mt-1 leading-snug truncate">{kpi.sub}</div>}
+          </div>
+        ))}
+        {cashLatest !== null && (
+          <div className={`rounded-xl border px-4 py-3 ${cashLatest > 0 ? 'text-slate-200 border-slate-800/50 bg-slate-900/40' : 'text-red-400 border-red-500/20 bg-red-500/5'}`}>
+            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] mb-1">Cash</div>
+            <div className="text-[20px] font-bold tabular-nums leading-tight">{fmtN(cashLatest)}</div>
+            <div className="text-[10px] text-slate-600 mt-1">Latest closing balance</div>
+          </div>
+        )}
+      </div>
+
+      {/* Top actions */}
+      <TopActionsWidget
+        onRunAgent={() => onNavigate('intelligence')}
+        onViewAll={() => onNavigate('intelligence')}
+      />
+
+      {/* Ask AI — big CTA */}
+      <div className="bg-indigo-500/[0.06] border border-indigo-500/20 rounded-xl px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <div className="text-[13px] font-semibold text-slate-200">Ask your AI CFO anything</div>
+          <div className="text-[12px] text-slate-500 mt-0.5">Get instant analysis, forecasts, or strategic advice based on your data.</div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => onAskAI?.('What are the 3 most important things I should focus on this week based on my current business data?')}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[12px] font-semibold transition-all shadow-sm whitespace-nowrap"
+          >
+            Weekly priorities →
+          </button>
+          <button
+            onClick={() => onAskAI?.()}
+            className="px-4 py-2 border border-indigo-500/30 hover:border-indigo-500/50 text-indigo-400 rounded-xl text-[12px] font-semibold transition-all whitespace-nowrap"
+          >
+            Ask AI
+          </button>
+        </div>
+      </div>
+
+      {/* Quick navigation */}
+      <div>
+        <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em] mb-2.5">Detailed Views</div>
+        <div className="flex flex-wrap gap-2">
+          {quickLinks.map(link => (
+            <button
+              key={link.view}
+              onClick={() => { onNavigate(link.view); onExitSimple(); }}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl border text-[12px] font-medium transition-all ${link.color}`}
+            >
+              {link.label} →
+            </button>
+          ))}
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
 // ── Revenue Forecast Strip ────────────────────────────────────────────────────
 function RevenueForecastStrip({ data, onAskAI }: { data: UnifiedBusinessData; onAskAI?: (msg: string) => void }) {
   const periods = data.revenue.byPeriod;
@@ -1591,23 +1777,12 @@ function RevenueForecastStrip({ data, onAskAI }: { data: UnifiedBusinessData; on
           <div className="text-[13px] font-semibold text-slate-100">Revenue Forecast</div>
           <div className="flex items-center gap-2 text-[11px]">
             <span className={`font-semibold ${trendColor}`}>
-              {slope > 0 ? '↑' : slope < 0 ? '↓' : '→'} {Math.abs(growthPct).toFixed(1)}% avg/period trend
+              {slope > 0 ? '↑' : slope < 0 ? '↓' : '→'} {Math.abs(growthPct).toFixed(1)}%/period trend
             </span>
             <span className="text-slate-700">·</span>
-            <span className={`font-medium ${confidenceColor}`}>{confidenceLabel} confidence (R²={r2.toFixed(2)})</span>
+            <span className={`font-medium ${confidenceColor}`}>{confidenceLabel} accuracy</span>
           </div>
         </div>
-        {onAskAI && (
-          <button onClick={() => onAskAI(
-            `My revenue trend over ${n} periods shows a ${slope > 0 ? 'positive' : 'negative'} slope of ${fmtN(Math.abs(slope))}/period (${Math.abs(growthPct).toFixed(1)}% avg growth). ` +
-            `Forecasted next 3 periods: ${forecasts.map(f => `${f.label}: ${fmtN(f.value)}`).join(', ')}. ` +
-            `R² = ${r2.toFixed(2)}. Is this trajectory realistic, and what risks could alter it?`
-          )}
-            className="flex items-center gap-1.5 text-[11px] text-indigo-400 hover:text-indigo-300 font-medium border border-indigo-500/25 hover:border-indigo-500/50 px-2.5 py-1 rounded-lg transition-all">
-            <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3"><path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/><rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/></svg>
-            Ask AI
-          </button>
-        )}
       </div>
 
       <div className="grid grid-cols-3 gap-3">
@@ -1627,7 +1802,73 @@ function RevenueForecastStrip({ data, onAskAI }: { data: UnifiedBusinessData; on
         })}
       </div>
       <div className="mt-3 text-[10px] text-slate-700 leading-relaxed">
-        Linear trend projection based on {n} historical periods. Range shows ±1.5 standard errors. Low confidence (R²&lt;0.6) indicates high revenue variability — treat as directional only.
+        Based on {n} historical periods. Range shows projected variance. Low accuracy indicates high revenue variability — treat as directional.
+      </div>
+    </div>
+  );
+}
+
+// ── Pipeline Revenue Forecast ─────────────────────────────────────────────────
+// Forward 30/60/90-day view using weighted pipeline EV from active CRM deals
+// Reads from the KanbanBoard localStorage key ('bos_deals')
+interface CRMDeal { value: number; probability: number; closeDate: string; stage: string }
+
+function PipelineRevenueForecast() {
+  // Load CRM deals client-side to avoid SSR/hydration mismatch
+  const [crmDeals, setCrmDeals] = useState<CRMDeal[]>([]);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('bos_deals');
+      if (raw) setCrmDeals((JSON.parse(raw) as CRMDeal[]).filter(d => d.value && d.probability != null && d.closeDate));
+    } catch { /* ignore */ }
+  }, []);
+
+  const today = new Date();
+  const active = crmDeals.filter(d =>
+    d.stage !== 'closed-lost' && d.closeDate && new Date(d.closeDate) >= today
+  );
+  if (active.length === 0) return null;
+
+  const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+
+  const buckets = [
+    { label: 'Next 30 days', days: 30 },
+    { label: 'Next 60 days', days: 60 },
+    { label: 'Next 90 days', days: 90 },
+  ].map(({ label, days }) => {
+    const cutoff = new Date(today);
+    cutoff.setDate(cutoff.getDate() + days);
+    const inWindow = active.filter(d => new Date(d.closeDate) <= cutoff);
+    const weighted = inWindow.reduce((s, d) => s + d.value * (d.probability / 100), 0);
+    const gross    = inWindow.reduce((s, d) => s + d.value, 0);
+    return { label, days, weighted, gross, count: inWindow.length };
+  });
+
+  const totalGross = buckets[2].gross;
+  const totalWt    = buckets[2].weighted;
+
+  return (
+    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <div className="text-[13px] font-semibold text-slate-100">Pipeline Revenue Forecast</div>
+          <div className="text-[11px] text-slate-500">
+            {active.length} active deal{active.length !== 1 ? 's' : ''} · {fmtN(totalWt)} weighted (90-day)
+          </div>
+        </div>
+        <div className="text-[10px] text-slate-600">
+          {totalGross > 0 ? `${((totalWt / totalGross) * 100).toFixed(0)}% avg probability` : ''}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        {buckets.map((b, i) => (
+          <div key={b.label} className={`rounded-xl border p-4 ${i === 0 ? 'border-sky-500/25 bg-sky-500/5' : 'border-slate-700/40 bg-slate-800/20'}`}>
+            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-1">{b.label}</div>
+            <div className={`text-[18px] font-bold tracking-tight ${i === 0 ? 'text-sky-300' : 'text-slate-300'}`}>{fmtN(b.weighted)}</div>
+            <div className="text-[11px] text-slate-600 mt-1">{b.count} deal{b.count !== 1 ? 's' : ''} · {fmtN(b.gross)} gross</div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1813,6 +2054,28 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
       </div>
     </div>
   );
+}
+
+// ── Snapshot Share ────────────────────────────────────────────────────────────
+function generateShareURL(data: UnifiedBusinessData, label: string, companyName: string): string {
+  const payload = {
+    v: 1,
+    company: companyName,
+    period: label,
+    rev: data.revenue.total,
+    cogs: data.costs.totalCOGS,
+    opex: data.costs.totalOpEx,
+    customers: data.customers.totalCount,
+    newCust: data.customers.newThisPeriod,
+    churned: data.customers.churned,
+    retention: data.customers.retentionRate ?? 0.88,
+    headcount: data.operations.headcount,
+    trend: data.revenue.byPeriod.slice(-8).map(p => ({ period: p.period, rev: p.revenue })),
+    topCustomers: data.customers.topCustomers.slice(0, 5).map(c => ({ name: c.name, pct: c.percentOfTotal })),
+    sharedAt: new Date().toISOString(),
+  };
+  const encoded = btoa(JSON.stringify(payload));
+  return `${window.location.origin}/share#${encoded}`;
 }
 
 // ── CSV Export ────────────────────────────────────────────────────────────────
@@ -2048,7 +2311,7 @@ function PeriodSelector({ snapshots, activeId, onSelect, onDelete, onRename }: {
 // ── Period name modal ──────────────────────────────────────────────────────────
 function PeriodModal({ onConfirm, onSkip }: { onConfirm: (label: string) => void; onSkip: () => void }) {
   const [label, setLabel] = useState('');
-  const quick = ['Q1 2025','Q2 2025','Q3 2025','Q4 2025','Jan 2025','Feb 2025','Mar 2025','YTD 2025','Full Year 2024'];
+  const quick = ['Q2 2026','Q3 2026','Q1 2026','Q4 2025','Apr 2026','May 2026','Jun 2026','YTD 2026','Full Year 2025'];
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onSkip}/>
@@ -2166,9 +2429,159 @@ function WelcomeModal({ onDismiss, onGoToData }: { onDismiss: () => void; onGoTo
   );
 }
 
+// ── Data Freshness Bar ────────────────────────────────────────────────────────
+
+function DataFreshnessBar({ snapshots, activeSnapshotId }: { snapshots: PeriodSnapshot[]; activeSnapshotId: string }) {
+  const snap = snapshots.find(s => s.id === activeSnapshotId);
+  if (!snap) return null;
+  const end = snap.data.metadata?.coveragePeriod?.end;
+  const daysSince = end ? Math.floor((Date.now() - new Date(end).getTime()) / 86400000) : null;
+  const snapshotAge = Math.floor((Date.now() - new Date(snap.createdAt).getTime()) / 86400000);
+
+  const freshColor = daysSince === null ? 'text-slate-500 border-slate-800/50 bg-slate-900/30'
+    : daysSince > 60 ? 'text-red-400 border-red-500/20 bg-red-500/5'
+    : daysSince > 30 ? 'text-amber-400 border-amber-500/20 bg-amber-500/5'
+    : 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5';
+
+  return (
+    <div className={`flex items-center justify-between px-4 py-3 rounded-xl border ${freshColor}`}>
+      <div className="flex items-center gap-3">
+        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${daysSince === null ? 'bg-slate-600' : daysSince > 60 ? 'bg-red-400' : daysSince > 30 ? 'bg-amber-400' : 'bg-emerald-400'} animate-pulse`}/>
+        <div>
+          <div className="text-[12px] font-semibold">
+            {snap.label}
+            {end && <span className="font-normal text-[11px] ml-2 opacity-70">· data through {new Date(end).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
+          </div>
+          <div className="text-[10px] opacity-60 mt-0.5">
+            {daysSince !== null ? (daysSince === 0 ? 'Current period' : `Data is ${daysSince} days old`) : 'Coverage period unknown'}
+            {' · '}snapshot loaded {snapshotAge === 0 ? 'today' : `${snapshotAge}d ago`}
+          </div>
+        </div>
+      </div>
+      {daysSince !== null && daysSince > 30 && (
+        <div className="text-[10px] font-medium opacity-70 text-right">
+          Upload newer data →<br/>
+          <span className="opacity-60">to refresh analysis</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Session Manager Panel ─────────────────────────────────────────────────────
+
+function SessionManagerPanel() {
+  const [includeSnapshots, setIncludeSnapshots] = useState(false);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+
+  const BOS_KEYS = [
+    'bos_session', 'bos_company', 'bos_company_profile',
+    'bos_deals', 'bos_deals_v2', 'bos_acq_targets',
+    'bos_goals', 'bos_memory', 'bos_automations', 'bos_tasks',
+    'bos_custom_kpis', 'bos_thresholds', 'bos_budget',
+    'bos_panel_notes', 'bos_annotations', 'bos_agent_results',
+    'bos_weekly_insight', 'bos_board_deck', 'bos_alerts',
+    'bos_report_timestamps', 'bos_onboarding',
+  ];
+
+  const exportSession = () => {
+    const keys = includeSnapshots ? [...BOS_KEYS, 'bos_snapshots', 'bos_active_id'] : BOS_KEYS;
+    const out: Record<string, unknown> = { exportedAt: new Date().toISOString(), includesSnapshots: includeSnapshots };
+    keys.forEach(key => {
+      try {
+        const val = localStorage.getItem(key);
+        if (val) out[key] = JSON.parse(val);
+      } catch { /* ignore */ }
+    });
+    const json = JSON.stringify(out, null, 2);
+    const kb = Math.round(json.length / 1024);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url;
+    a.download = `business-os-backup-${new Date().toISOString().slice(0,10)}.json`;
+    a.click(); URL.revokeObjectURL(url);
+    setImportStatus(`Exported ${kb}KB`);
+    setTimeout(() => setImportStatus(null), 3000);
+  };
+
+  const importSession = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const parsed = JSON.parse(ev.target?.result as string) as Record<string, unknown>;
+        const allKeys = [...BOS_KEYS, 'bos_snapshots', 'bos_active_id'];
+        let count = 0;
+        allKeys.forEach(key => {
+          if (parsed[key] !== undefined) {
+            localStorage.setItem(key, JSON.stringify(parsed[key]));
+            count++;
+          }
+        });
+        setImportStatus(`Imported ${count} keys — reload to apply`);
+      } catch { setImportStatus('Invalid backup file'); }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  return (
+    <div className="bg-slate-900/40 border border-slate-800/50 rounded-xl p-5">
+      <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-[0.08em] mb-3">Session Backup</div>
+      <p className="text-[12px] text-slate-500 mb-4 leading-relaxed">
+        Export your deals, acquisitions, goals, and settings as a JSON backup you can restore on any device.
+      </p>
+
+      {/* Include snapshots toggle */}
+      <label className="flex items-center gap-2.5 mb-4 cursor-pointer select-none">
+        <button
+          type="button"
+          onClick={() => setIncludeSnapshots(v => !v)}
+          className={`relative flex-shrink-0 w-8 rounded-full border transition-all ${includeSnapshots ? 'bg-indigo-600 border-indigo-500' : 'bg-slate-800 border-slate-700'}`}
+          style={{ height: '18px' }}
+          aria-checked={includeSnapshots}
+          role="switch"
+        >
+          <div className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white shadow transition-transform ${includeSnapshots ? 'left-3.5' : 'left-0.5'}`}/>
+        </button>
+        <span className="text-[12px] text-slate-400">
+          Include financial snapshots <span className="text-slate-600">(adds ~1–5MB)</span>
+        </span>
+      </label>
+
+      <div className="flex items-center gap-2.5 flex-wrap">
+        <button
+          onClick={exportSession}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600/80 hover:bg-indigo-600 text-white text-[12px] font-semibold rounded-xl transition-colors">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-3.5 h-3.5">
+            <path d="M7 1v7M4 5l3 3 3-3M2 11v1a1 1 0 001 1h8a1 1 0 001-1v-1"/>
+          </svg>
+          Export backup
+        </button>
+        <label className="flex items-center gap-2 px-4 py-2 border border-slate-700/60 hover:border-slate-600 text-slate-400 hover:text-slate-200 text-[12px] font-semibold rounded-xl cursor-pointer transition-colors">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-3.5 h-3.5">
+            <path d="M7 9V2M4 5l3-3 3 3M2 11v1a1 1 0 001 1h8a1 1 0 001-1v-1"/>
+          </svg>
+          Import backup
+          <input type="file" accept=".json" onChange={importSession} className="hidden"/>
+        </label>
+        {importStatus && (
+          <span className={`text-[11px] font-medium ${importStatus.includes('Invalid') ? 'text-red-400' : 'text-emerald-400'}`}>
+            {importStatus.includes('reload')
+              ? <>{importStatus.split(' — ')[0]} — <button onClick={() => window.location.reload()} className="underline hover:no-underline">reload now</button></>
+              : importStatus
+            }
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function BusinessOS() {
-  const [activeView, setActiveView]             = useState<ActiveView>('overview');
+  const [activeView, setActiveView]             = useState<ActiveView>('deals');
+  const [jumpDealId, setJumpDealId]             = useState<string | null>(null);
   const [snapshots, setSnapshots]               = useState<PeriodSnapshot[]>([DEMO_SNAPSHOT, PREV_SNAPSHOT]);
   const [activeSnapshotId, setActiveSnapshotId] = useState(DEMO_SNAPSHOT.id);
   const [pendingData, setPendingData]           = useState<UnifiedBusinessData | null>(null);
@@ -2183,6 +2596,7 @@ export default function BusinessOS() {
   const [chatOpen, setChatOpen]                 = useState(false);
   const [chatInitialMsg, setChatInitialMsg]     = useState<string | undefined>(undefined);
   const [mobileNavOpen, setMobileNavOpen]       = useState(false);
+  const [moreNavOpen, setMoreNavOpen]           = useState(false);
   const [goals, setGoals]                       = useState<Goals>({});
   const [budget, setBudget]                     = useState<Budget>({});
   const [annotations, setAnnotations]           = useState<Record<string, string>>({});
@@ -2198,6 +2612,28 @@ export default function BusinessOS() {
   const [showOnboarding, setShowOnboarding]       = useState(false);
   const [paletteOpen, setPaletteOpen]             = useState(false);
   const [pricingOpen, setPricingOpen]             = useState(false);
+  const [showDeepAnalysis, setShowDeepAnalysis]   = useState(false);
+  const [simpleMode, setSimpleModeState]          = useState(false);
+
+  // Run Report progress modal
+  type StepStatus = 'pending' | 'running' | 'done' | 'error';
+  type ReportStep = { id: string; label: string; status: StepStatus; detail?: string };
+  const [reportProgress, setReportProgress]       = useState<ReportStep[] | null>(null);
+
+  // Deal pipeline (loaded from localStorage, refreshed when switching to deals view)
+  const [deals, setDeals]             = useState<Deal[]>([]);
+  // Active scenario overlay — propagated to all modules
+  const [scenarioAdj, setScenarioAdj] = useState<ScenarioAdjustment | null>(null);
+
+  // Load deals from localStorage
+  useEffect(() => {
+    setDeals(loadDeals());
+  }, []);
+
+  // Recompute deals when navigating to deals tab
+  useEffect(() => {
+    if (activeView === 'deals') setDeals(loadDeals());
+  }, [activeView]);
 
   // Hydrate persisted state from localStorage (client-side only)
   useEffect(() => {
@@ -2245,25 +2681,37 @@ export default function BusinessOS() {
     } catch { /* ignore */ }
     const savedCompare = localStorage.getItem('bos_compare_mode');
     if (savedCompare === 'true') setCompareMode(true);
+    const savedUXMode = localStorage.getItem('bos_ux_mode');
+    if (savedUXMode === 'simple') setSimpleModeState(true);
     try {
       const savedTs = localStorage.getItem('bos_report_timestamps');
       if (savedTs) setReportTimestamps(JSON.parse(savedTs));
     } catch { /* ignore */ }
     // Restore user-uploaded period snapshots
     let hasUserData = false;
-    try {
-      const savedSnaps = localStorage.getItem('bos_snapshots');
-      if (savedSnaps) {
-        const parsed = JSON.parse(savedSnaps) as PeriodSnapshot[];
-        if (Array.isArray(parsed) && parsed.length > 0) {
+    const savedSnaps = localStorage.getItem('bos_snapshots');
+    if (savedSnaps) {
+      let parsed: PeriodSnapshot[] | null = null;
+      try {
+        parsed = JSON.parse(savedSnaps) as PeriodSnapshot[];
+      } catch {
+        // Stale or corrupt snapshot data — clear it so it doesn't repeat on every load
+        localStorage.removeItem('bos_snapshots');
+        localStorage.removeItem('bos_active_id');
+      }
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        try {
           setSnapshots([...parsed, PREV_SNAPSHOT, DEMO_SNAPSHOT]);
           const savedActiveId = localStorage.getItem('bos_active_id');
           const restoredId = savedActiveId && parsed.find(s => s.id === savedActiveId) ? savedActiveId : parsed[0].id;
           setActiveSnapshotId(restoredId);
           hasUserData = true;
+        } catch {
+          localStorage.removeItem('bos_snapshots');
+          localStorage.removeItem('bos_active_id');
         }
       }
-    } catch { /* ignore */ }
+    }
     // Check onboarding status
     const session = loadSession();
     if (!session.onboarded) {
@@ -2281,6 +2729,14 @@ export default function BusinessOS() {
   const saveCompanyName = useCallback((name: string) => {
     setCompanyName(name);
     localStorage.setItem('bos_company', name);
+  }, []);
+
+  const toggleSimpleMode = useCallback(() => {
+    setSimpleModeState(prev => {
+      const next = !prev;
+      localStorage.setItem('bos_ux_mode', next ? 'simple' : 'advanced');
+      return next;
+    });
   }, []);
 
   const setGoal = useCallback((key: GoalKey, value: number | undefined) => {
@@ -2347,9 +2803,48 @@ export default function BusinessOS() {
   }, []);
   const dismissToast = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), []);
 
+  // ── Handle Stripe billing return (needs addToast, so lives here) ──────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const billingStatus   = params.get('billing');
+    const stripeSessionId = params.get('session_id');
+    if (!billingStatus) return;
+
+    if (billingStatus === 'success' && stripeSessionId) {
+      fetch('/api/billing/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: stripeSessionId }),
+      })
+        .then(r => r.json())
+        .then(result => {
+          if (result.planId) {
+            const updated = {
+              ...loadSession(),
+              planId:              result.planId,
+              stripeCustomerId:    result.customerId,
+              stripeSubscriptionId: result.subscriptionId,
+              customerEmail:       result.customerEmail,
+              billingVerifiedAt:   new Date().toISOString(),
+            };
+            saveSession(updated);
+            addToast('success', `You're now on the ${result.planId.charAt(0).toUpperCase() + result.planId.slice(1)} plan — all features unlocked!`);
+          }
+        })
+        .catch(() => {});
+      window.history.replaceState({}, '', '/');
+    } else if (billingStatus === 'cancelled') {
+      window.history.replaceState({}, '', '/');
+    }
+  }, [addToast]);
+
   // Derived state
   const activeSnapshot  = snapshots.find(s => s.id === activeSnapshotId) ?? snapshots[0];
   const data            = activeSnapshot.data;
+  // Scenario-adjusted data — all downstream modules use this instead of raw data
+  const effectiveData   = useMemo(() => applyScenario(data, scenarioAdj), [data, scenarioAdj]);
+  // Connected model chain: Deals → Revenue → EBITDA → Cash → Runway
+  const modelChain      = useMemo(() => computeModelChain(effectiveData, deals, scenarioAdj), [effectiveData, deals, scenarioAdj]);
   const usingDemo       = activeSnapshot.id === DEMO_SNAPSHOT.id || activeSnapshot.id === PREV_SNAPSHOT.id;
   const prevSnapshot    = snapshots.find(s => s.id !== activeSnapshotId);
   const visibleAlerts   = alerts.filter((_, i) => !dismissedAlerts.includes(i));
@@ -2428,6 +2923,86 @@ export default function BusinessOS() {
       setLoading(null);
     }
   }, [data, prevSnapshot, addToast, companyName, companyProfile]);
+
+  // ── Run Report — sequential steps with live progress ───────────────────────
+  const runFullReport = useCallback(async () => {
+    const steps: ReportStep[] = [
+      { id: 'kpis',    label: 'Refresh KPIs & metrics',    status: 'pending' },
+      { id: 'alerts',  label: 'Scan for risk alerts',       status: 'pending' },
+      { id: 'insight', label: 'Generate weekly insight',    status: 'pending' },
+    ];
+    setReportProgress([...steps]);
+
+    const post = (action: string) => fetch('/api/insights', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, data, previousData: prevSnapshot?.data ?? PREV_DEMO, companyName, companyProfile }),
+    }).then(r => r.json());
+
+    const mark = (id: string, status: StepStatus, detail?: string) =>
+      setReportProgress(prev => prev?.map(s => s.id === id ? { ...s, status, detail } : s) ?? null);
+
+    try {
+      // Step 1: KPIs
+      mark('kpis', 'running');
+      const r1 = await post('compute-kpis');
+      if (r1.error) { mark('kpis', 'error', r1.error); return; }
+      if (r1.dashboard) setDashboard(r1.dashboard);
+      mark('kpis', 'done', `${r1.dashboard?.kpis?.length ?? 0} metrics computed`);
+
+      // Step 2: Alerts
+      mark('alerts', 'running');
+      const r2 = await post('alerts');
+      if (r2.error) { mark('alerts', 'error', r2.error); return; }
+      if (r2.alerts) {
+        setAlerts(r2.alerts);
+        try { localStorage.setItem('bos_alerts', JSON.stringify(r2.alerts)); } catch { /* ignore */ }
+        setDismissedAlerts([]);
+        const high = (r2.alerts as {severity:string}[]).filter(a => a.severity === 'HIGH').length;
+        mark('alerts', 'done', `${r2.alerts.length} alert${r2.alerts.length !== 1 ? 's' : ''}${high > 0 ? ` — ${high} HIGH` : ''}`);
+      } else {
+        mark('alerts', 'done', 'No alerts found');
+      }
+
+      // Step 3: Weekly insight
+      mark('insight', 'running');
+      const r3 = await post('weekly-insight');
+      if (r3.error) { mark('insight', 'error', r3.error); return; }
+      if (r3.insight) {
+        setWeeklyInsight(r3.insight);
+        try { localStorage.setItem('bos_weekly_insight', JSON.stringify(r3.insight)); } catch { /* ignore */ }
+        const ts = new Date().toISOString();
+        setReportTimestamps(prev => ({ ...prev, 'weekly-insight': ts, 'alerts': ts }));
+        mark('insight', 'done', 'Insight ready');
+      } else {
+        mark('insight', 'done', 'Complete');
+      }
+
+      // Navigate to intelligence after a short pause
+      setTimeout(() => {
+        setActiveView('intelligence');
+        setReportProgress(null);
+        addToast('success', 'Full report complete — check Intelligence tab');
+      }, 1400);
+    } catch {
+      addToast('error', 'Report failed. Verify ANTHROPIC_API_KEY is configured.');
+      setReportProgress(null);
+    }
+  }, [data, prevSnapshot, addToast, companyName, companyProfile, setDashboard, setAlerts, setWeeklyInsight, setDismissedAlerts, setReportTimestamps, setActiveView]);
+
+  // ── Create task from an alert (alert → Execute tab) ──────────────────────────
+  const createTaskFromAlert = useCallback(async (title: string, context: string) => {
+    try {
+      await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, context, priority: 'p1', created_by: 'ai' }),
+      });
+      addToast('success', `Task created: ${title.slice(0, 50)}`);
+    } catch {
+      addToast('error', 'Failed to create task');
+    }
+  }, [addToast]);
 
   const handleDataUpdate = useCallback((newData: UnifiedBusinessData) => {
     setPendingData(newData);
@@ -2519,7 +3094,7 @@ export default function BusinessOS() {
 
   // Keyboard shortcuts: 1–9 switch views, / or Cmd+K opens chat
   useEffect(() => {
-    const viewOrder: ActiveView[] = ['overview', 'financial', 'customers', 'operations', 'intelligence', 'scenarios', 'data', 'pipeline', 'automations'];
+    const viewOrder: ActiveView[] = ['deals', 'today', 'execute', 'overview', 'acquisitions', 'goals', 'team', 'cash', 'financial', 'customers', 'intelligence'];
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return;
@@ -2528,13 +3103,24 @@ export default function BusinessOS() {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === '/') { e.preventDefault(); setPaletteOpen(v => !v); return; }
       if (e.key === '?') { e.preventDefault(); setShortcutsOpen(v => !v); return; }
-      if (e.key === 'Escape') { setShortcutsOpen(false); setPaletteOpen(false); return; }
+      if (e.key === 'Escape') { setShortcutsOpen(false); setPaletteOpen(false); setMoreNavOpen(false); return; }
       const idx = parseInt(e.key, 10) - 1;
       if (idx >= 0 && idx < viewOrder.length) setActiveView(viewOrder[idx]);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [openChat]);
+
+  // Close More dropdown on outside click
+  useEffect(() => {
+    if (!moreNavOpen) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-more-nav]')) setMoreNavOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [moreNavOpen]);
 
   const isLoading = (action: string) => loading === action;
 
@@ -2567,31 +3153,59 @@ export default function BusinessOS() {
     }
   };
 
-  const navItems: { id: ActiveView; label: string; Icon: () => JSX.Element; badge?: number; activeClass: string }[] = [
-    { id: 'overview',     label: 'Overview',     Icon: Icons.Overview,     activeClass: 'bg-slate-800/80 text-slate-100', badge: triggeredCount || undefined },
-    { id: 'financial',    label: 'Financial',    Icon: Icons.Financial,    activeClass: 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/20' },
-    { id: 'customers',    label: 'Customers',    Icon: Icons.Customers,    activeClass: 'bg-violet-500/15 text-violet-300 border border-violet-500/20' },
-    { id: 'operations',   label: 'Operations',   Icon: Icons.Operations,   activeClass: 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/20' },
-    { id: 'intelligence', label: 'Intelligence', Icon: Icons.Intelligence, activeClass: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20', badge: highAlerts.length || undefined },
-    { id: 'pipeline',     label: 'Pipeline',     Icon: Icons.Pipeline,     activeClass: 'bg-sky-500/15 text-sky-300 border border-sky-500/20' },
-    { id: 'automations',  label: 'Automations',  Icon: Icons.Automations,  activeClass: 'bg-rose-500/15 text-rose-300 border border-rose-500/20' },
-    { id: 'scenarios',    label: 'Scenarios',    Icon: Icons.Scenarios,    activeClass: 'bg-amber-500/15 text-amber-300 border border-amber-500/20' },
-    { id: 'data',         label: 'Data Sources', Icon: Icons.Data,         activeClass: 'bg-slate-800/80 text-slate-100' },
+  // Session loaded once per render (localStorage read, safe in browser)
+  const currentSession = loadSession();
+
+  // Primary: 6 items always visible in header nav
+  // Secondary: everything else, exposed via "More ⌄" dropdown
+  const navItems: { id: ActiveView; label: string; Icon: () => JSX.Element; badge?: number; activeClass: string; primary?: boolean }[] = [
+    { id: 'today',         label: 'Today',         Icon: Icons.Today,         activeClass: 'bg-amber-500/15 text-amber-300 border border-amber-500/20',    primary: true },
+    { id: 'overview',      label: 'Overview',      Icon: Icons.Overview,      activeClass: 'bg-slate-800/80 text-slate-100',  badge: triggeredCount || undefined, primary: true },
+    { id: 'deals',         label: 'Deals',         Icon: Icons.Deals,         activeClass: 'bg-blue-500/15 text-blue-300 border border-blue-500/20',       primary: true },
+    { id: 'financial',     label: 'Financial',     Icon: Icons.Financial,     activeClass: 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/20', primary: true },
+    { id: 'customers',     label: 'Customers',     Icon: Icons.Customers,     activeClass: 'bg-violet-500/15 text-violet-300 border border-violet-500/20', primary: true },
+    { id: 'intelligence',  label: 'Intelligence',  Icon: Icons.Intelligence,  activeClass: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20', badge: highAlerts.length || undefined, primary: true },
+    // ── Secondary ("More" dropdown) ──
+    { id: 'acquisitions',  label: 'Acquisitions',  Icon: Icons.Acquisitions,  activeClass: 'bg-sky-500/15 text-sky-300 border border-sky-500/20' },
+    { id: 'cash',          label: 'Cash',          Icon: Icons.Cash,          activeClass: 'bg-teal-500/15 text-teal-300 border border-teal-500/20' },
+    { id: 'goals',         label: 'Goals',         Icon: Icons.Goals,         activeClass: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20' },
+    { id: 'operations',    label: 'Operations',    Icon: Icons.Operations,    activeClass: 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/20' },
+    { id: 'scenarios',     label: 'Scenarios',     Icon: Icons.Scenarios,     activeClass: 'bg-amber-500/15 text-amber-300 border border-amber-500/20' },
+    { id: 'pipeline',      label: 'CRM',           Icon: Icons.Pipeline,      activeClass: 'bg-sky-500/15 text-sky-300 border border-sky-500/20' },
+    { id: 'execute',       label: 'Execute',       Icon: Icons.Execute,       activeClass: 'bg-orange-500/15 text-orange-300 border border-orange-500/20' },
+    { id: 'automations',   label: 'Automations',   Icon: Icons.Automations,   activeClass: 'bg-rose-500/15 text-rose-300 border border-rose-500/20' },
+    { id: 'team',          label: 'Team',          Icon: Icons.Team,          activeClass: 'bg-violet-500/15 text-violet-300 border border-violet-500/20' },
+    { id: 'suppliers',     label: 'Suppliers',     Icon: Icons.Suppliers,     activeClass: 'bg-lime-500/15 text-lime-300 border border-lime-500/20' },
+    { id: 'skus',          label: 'SKUs',          Icon: Icons.SKUs,          activeClass: 'bg-fuchsia-500/15 text-fuchsia-300 border border-fuchsia-500/20' },
+    { id: 'capacity',      label: 'Capacity',      Icon: Icons.Capacity,      activeClass: 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/20' },
+    { id: 'data',          label: 'Data',          Icon: Icons.Data,          activeClass: 'bg-slate-800/80 text-slate-100' },
   ];
 
   const pageTitle: Record<ActiveView, string> = {
-    overview:     'Performance Overview',
-    financial:    'Financial Analysis',
-    customers:    'Customer Intelligence',
-    operations:   'Operations & Efficiency',
-    intelligence: 'AI Intelligence',
-    pipeline:     'Deal Pipeline',
+    deals:        'Deals',
+    today:        'Today',
+    overview:     'Overview',
+    financial:    'Financial',
+    customers:    'Customers',
+    operations:   'Operations',
+    intelligence: 'Intelligence',
+    pipeline:     'CRM',
     automations:  'Automations',
-    scenarios:    'Scenario Modeling',
-    data:         'Data Sources',
+    scenarios:    'Scenarios',
+    data:         'Data',
+    acquisitions: 'Acquisitions',
+    goals:        'Goals',
+    team:         'Team Feed',
+    cash:         'Cash Runway',
+    execute:      'Task Execution',
+    suppliers:    'Supplier Spend',
+    skus:         'SKU Analyzer',
+    capacity:     'Capacity & Cost',
   };
 
   const pageAccent: Record<ActiveView, string> = {
+    deals:        'text-blue-400',
+    today:        'text-amber-400',
     overview:     'text-slate-400',
     financial:    'text-indigo-400',
     customers:    'text-violet-400',
@@ -2601,6 +3215,14 @@ export default function BusinessOS() {
     automations:  'text-rose-400',
     scenarios:    'text-amber-400',
     data:         'text-slate-400',
+    acquisitions: 'text-sky-400',
+    goals:        'text-emerald-400',
+    team:         'text-violet-400',
+    cash:         'text-teal-400',
+    execute:      'text-orange-400',
+    suppliers:    'text-lime-400',
+    skus:         'text-fuchsia-400',
+    capacity:     'text-cyan-400',
   };
 
   return (
@@ -2629,44 +3251,40 @@ export default function BusinessOS() {
 
         {/* ── Header ── */}
         <header className="no-print border-b border-slate-800/60 bg-[#060a12]/95 backdrop-blur-md sticky top-0 z-50">
-          <div className="max-w-[1440px] mx-auto px-3 sm:px-4 md:px-6 h-[52px] flex items-center gap-2.5 md:gap-4">
+          <div className="h-[52px] flex items-center">
 
-            {/* Brand */}
-            <div className="flex items-center gap-2.5 flex-shrink-0">
+            {/* Brand — matches sidebar width (176px) so logo aligns with nav */}
+            <div className="hidden md:flex items-center gap-2.5 w-[176px] flex-shrink-0 px-4 border-r border-slate-800/50 h-full">
               <div className="w-[26px] h-[26px] rounded-[6px] bg-gradient-to-br from-indigo-400 to-indigo-700 flex items-center justify-center shadow-sm flex-shrink-0">
                 <svg viewBox="0 0 12 12" fill="white" className="w-3.5 h-3.5"><rect x="1" y="1" width="4" height="4" rx="0.5"/><rect x="7" y="1" width="4" height="4" rx="0.5"/><rect x="1" y="7" width="4" height="4" rx="0.5"/><rect x="7" y="7" width="4" height="4" rx="0.5"/></svg>
               </div>
-              <div className="hidden sm:block">
+              <div>
                 <CompanyNameEditor value={companyName} onChange={saveCompanyName} />
-                <div className="text-[9px] font-medium text-slate-600 tracking-wide uppercase -mt-0.5">Business OS</div>
+                <div className="text-[10px] font-medium text-slate-600 tracking-wide uppercase -mt-0.5">Business OS</div>
               </div>
-              <div className="sm:hidden text-[13px] font-semibold text-slate-100 truncate max-w-[100px]">{companyName}</div>
             </div>
 
-            <div className="hidden md:block h-4 w-px bg-slate-800/80 flex-shrink-0"/>
+            {/* Mobile brand */}
+            <div className="md:hidden flex items-center gap-2 px-3 flex-shrink-0">
+              <div className="w-[24px] h-[24px] rounded-[5px] bg-gradient-to-br from-indigo-400 to-indigo-700 flex items-center justify-center shadow-sm">
+                <svg viewBox="0 0 12 12" fill="white" className="w-3 h-3"><rect x="1" y="1" width="4" height="4" rx="0.5"/><rect x="7" y="1" width="4" height="4" rx="0.5"/><rect x="1" y="7" width="4" height="4" rx="0.5"/><rect x="7" y="7" width="4" height="4" rx="0.5"/></svg>
+              </div>
+              <span className="text-[13px] font-semibold text-slate-100 truncate max-w-[110px]">{companyName}</span>
+            </div>
 
-            {/* Desktop nav */}
-            <nav className="hidden md:flex items-center gap-0.5 flex-1 overflow-x-auto">
-              {navItems.map(({ id, label, Icon, badge, activeClass }) => {
-                const health = getSectionHealth(id);
-                const dotCls = health === 'green' ? 'bg-emerald-400' : health === 'amber' ? 'bg-amber-400' : health === 'red' ? 'bg-red-400' : null;
-                return (
-                  <button key={id} onClick={() => setActiveView(id)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all whitespace-nowrap flex-shrink-0 ${
-                      activeView === id ? activeClass : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/30 border border-transparent'}`}>
-                    <Icon/>{label}
-                    {dotCls && !badge && (
-                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotCls} opacity-60`}/>
-                    )}
-                    {badge ? <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center ml-0.5">{badge}</span> : null}
-                  </button>
-                );
-              })}
-            </nav>
+            {/* Right section — fills remaining width */}
+            <div className="flex-1 flex items-center justify-between px-4 md:px-6 gap-3">
 
             {/* Mobile: current view label */}
             <div className="md:hidden flex-1 text-[12px] font-medium text-slate-400 truncate">
               {pageTitle[activeView]}
+            </div>
+
+            {/* Desktop: page title + period */}
+            <div className="hidden md:flex items-center gap-2 min-w-0">
+              <span className={`text-[13px] font-semibold ${pageAccent[activeView]}`}>{pageTitle[activeView]}</span>
+              <span className="text-slate-700">·</span>
+              <span className="text-[11px] text-slate-500 font-medium truncate">{activeSnapshot.label}</span>
             </div>
 
             {/* Right controls */}
@@ -2687,17 +3305,66 @@ export default function BusinessOS() {
                 </span>
               )}
               <PeriodSelector snapshots={snapshots} activeId={activeSnapshotId} onSelect={id => { setActiveSnapshotId(id); localStorage.setItem('bos_active_id', id); addToast('info', `Viewing: ${snapshots.find(s => s.id === id)?.label}`); }} onDelete={handleDeleteSnapshot} onRename={handleRenameSnapshot}/>
+              {/* Billing button */}
+              {currentSession.planId !== 'starter' && !!currentSession.stripeCustomerId ? (
+                <button
+                  onClick={async () => {
+                    const r = await fetch('/api/billing/portal', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ customerId: currentSession.stripeCustomerId, returnUrl: window.location.href }),
+                    });
+                    const d = await r.json();
+                    if (d.url) window.location.href = d.url;
+                  }}
+                  className="hidden lg:flex items-center gap-1 text-[11px] font-medium text-emerald-400/80 hover:text-emerald-300 border border-emerald-500/20 hover:border-emerald-500/40 px-2.5 py-1.5 rounded-lg transition-colors"
+                  title="Manage your subscription"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0"/>
+                  {currentSession.planId.charAt(0).toUpperCase() + currentSession.planId.slice(1)} plan
+                </button>
+              ) : (
+                <button
+                  onClick={() => setPricingOpen(true)}
+                  className="hidden lg:flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-slate-300 border border-slate-700/50 hover:border-slate-600 px-2.5 py-1.5 rounded-lg transition-colors"
+                  title="View pricing plans"
+                >
+                  <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3"><path d="M7 1l1.5 3.5L12 5l-2.5 2.5.5 3.5L7 9.5 4 11l.5-3.5L2 5l3.5-.5L7 1z"/></svg>
+                  Upgrade
+                </button>
+              )}
+              {/* Simple / Advanced mode toggle */}
               <button
-                onClick={() => setPricingOpen(true)}
-                className="hidden lg:flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-slate-300 border border-slate-700/50 hover:border-slate-600 px-2.5 py-1.5 rounded-lg transition-colors"
-                title="View pricing plans"
+                onClick={toggleSimpleMode}
+                title={simpleMode ? 'Switch to Advanced mode' : 'Switch to Simple mode'}
+                className={`hidden sm:flex items-center gap-1.5 px-2.5 py-[7px] rounded-lg border text-[11px] font-semibold transition-all ${
+                  simpleMode
+                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20'
+                    : 'bg-slate-800/30 border-slate-700/50 text-slate-500 hover:text-slate-300 hover:border-slate-600'
+                }`}
               >
-                <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3"><path d="M7 1l1.5 3.5L12 5l-2.5 2.5.5 3.5L7 9.5 4 11l.5-3.5L2 5l3.5-.5L7 1z"/></svg>
-                Upgrade
+                {simpleMode ? (
+                  <>
+                    <svg viewBox="0 0 12 12" fill="currentColor" className="w-3 h-3 flex-shrink-0"><path d="M6 1a4 4 0 100 8A4 4 0 006 1zm0 1.5a2.5 2.5 0 110 5 2.5 2.5 0 010-5z"/></svg>
+                    Simple
+                  </>
+                ) : (
+                  <>
+                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-3 h-3 flex-shrink-0"><rect x="1" y="1" width="4" height="4" rx="0.5"/><rect x="7" y="1" width="4" height="4" rx="0.5"/><rect x="1" y="7" width="4" height="4" rx="0.5"/><rect x="7" y="7" width="4" height="4" rx="0.5"/></svg>
+                    Advanced
+                  </>
+                )}
               </button>
-              <button onClick={() => runAction('full-report')} disabled={!!loading}
-                className="flex items-center gap-1.5 px-2.5 md:px-3.5 py-[7px] bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-[12px] font-semibold transition-all shadow-sm">
-                {isLoading('full-report') ? <><Icons.Spinner/><span className="hidden sm:inline">Running…</span></> : <><span className="hidden sm:inline">✦ Run Report</span><span className="sm:hidden">✦</span></>}
+
+              {/* Ask AI CFO — primary action in header */}
+              <button
+                onClick={() => openChat()}
+                className="flex items-center gap-1.5 px-3 py-[7px] bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[12px] font-semibold transition-all shadow-sm">
+                <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0">
+                  <path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/>
+                  <rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/>
+                </svg>
+                <span className="hidden sm:inline">Ask AI</span>
               </button>
 
               {/* Mobile hamburger */}
@@ -2713,87 +3380,150 @@ export default function BusinessOS() {
                 </svg>
               </button>
             </div>
+            </div>{/* /right section */}
           </div>
 
-          {/* Mobile nav drawer */}
+          {/* Mobile nav drawer — shows all sections (bottom tab bar handles primary 5) */}
           {mobileNavOpen && (
-            <div className="md:hidden border-t border-slate-800/60 bg-[#060a12]/98 px-3 py-2.5 flex flex-col gap-0.5 animate-fade-in">
+            <div className="md:hidden border-t border-slate-800/60 bg-[#060a12]/98 px-3 py-2.5 flex flex-col gap-0.5 animate-fade-in max-h-[70vh] overflow-y-auto">
+              <div className="text-[10px] font-semibold text-slate-700 uppercase tracking-[0.1em] px-3 pt-1 pb-0.5">All Sections</div>
               {navItems.map(({ id, label, Icon, badge, activeClass }) => (
                 <button key={id} onClick={() => { setActiveView(id); setMobileNavOpen(false); }}
-                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all ${
+                  className={`flex items-center gap-2.5 px-3 py-3 rounded-xl text-[13px] font-medium transition-all min-h-[44px] ${
                     activeView === id ? activeClass : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/40 border border-transparent'}`}>
                   <Icon/>{label}
-                  {badge ? <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center ml-auto">{badge}</span> : null}
+                  {badge ? <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ml-auto">{badge}</span> : null}
                 </button>
               ))}
             </div>
           )}
         </header>
 
+        {/* ── Body: sidebar + content ── */}
+        <div className="flex flex-1 min-h-0">
+
+        {/* Left sidebar — desktop only, all 16 sections always visible */}
+        <aside className="hidden md:flex flex-col w-[176px] flex-shrink-0 border-r border-slate-800/50 sticky top-[52px] h-[calc(100vh-52px)] overflow-y-auto bg-[#060a12] no-print z-40">
+          <nav className="flex flex-col py-3 px-2">
+            <div className="px-2 pb-1.5 text-[9px] font-semibold tracking-widest uppercase text-slate-600">Main</div>
+            {navItems.filter(n => n.primary).map(({ id, label, Icon, badge, activeClass }) => {
+              const SideIcon = Icon;
+              const health = getSectionHealth(id);
+              const dotCls = health === 'green' ? 'bg-emerald-400' : health === 'amber' ? 'bg-amber-400' : health === 'red' ? 'bg-red-400' : null;
+              return (
+                <button key={id} onClick={() => setActiveView(id)}
+                  className={`flex items-center gap-2 w-full px-2.5 py-[7px] rounded-lg text-[12px] font-medium transition-all text-left mb-0.5 ${
+                    activeView === id ? activeClass : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/40 border border-transparent'
+                  }`}>
+                  <SideIcon/>
+                  <span className="flex-1 truncate">{label}</span>
+                  {dotCls && !badge && <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotCls} opacity-60`}/>}
+                  {badge ? <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">{badge}</span> : null}
+                </button>
+              );
+            })}
+            <div className="px-2 pt-3 pb-1.5 text-[9px] font-semibold tracking-widest uppercase text-slate-600">Tools</div>
+            {navItems.filter(n => !n.primary).map(({ id, label, Icon, badge, activeClass }) => {
+              const SideIcon = Icon;
+              return (
+                <button key={id} onClick={() => setActiveView(id)}
+                  className={`flex items-center gap-2 w-full px-2.5 py-[7px] rounded-lg text-[12px] font-medium transition-all text-left mb-0.5 ${
+                    activeView === id ? activeClass : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/40 border border-transparent'
+                  }`}>
+                  <SideIcon/>
+                  <span className="flex-1 truncate">{label}</span>
+                  {badge ? <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">{badge}</span> : null}
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
+
+        {/* Content column */}
+        <div className="flex-1 min-w-0 flex flex-col">
+
         {/* ── Breadcrumb / page bar ── */}
         <div className="border-b border-slate-800/40 bg-slate-900/15">
-          <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between">
+          <div className="px-4 sm:px-6 py-2 flex items-center justify-between gap-4">
+            {/* Data status pill */}
             <div className="flex items-center gap-2 min-w-0 overflow-hidden">
-              <span className={`text-[13px] font-semibold flex-shrink-0 ${pageAccent[activeView]}`}>{pageTitle[activeView]}</span>
-              <span className="text-slate-700 flex-shrink-0">·</span>
-              <span className="text-[11px] text-slate-500 font-medium truncate min-w-0">{activeSnapshot.label}</span>
-              <span className="hidden sm:inline text-slate-700 flex-shrink-0">·</span>
-              <span className={`hidden sm:inline text-[11px] font-medium flex-shrink-0 ${data.metadata.completeness >= 0.9 ? 'text-emerald-500/70' : 'text-amber-500/70'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${data.metadata.completeness >= 0.9 ? 'bg-emerald-400' : 'bg-amber-400'}`}/>
+              <span className={`text-[11px] font-medium flex-shrink-0 ${data.metadata.completeness >= 0.9 ? 'text-emerald-500/70' : 'text-amber-500/70'}`}>
                 {Math.round(data.metadata.completeness * 100)}% coverage
               </span>
               {!usingDemo && activeSnapshot.createdAt && (
                 <>
-                  <span className="hidden md:inline text-slate-700 flex-shrink-0">·</span>
-                  <span className="hidden md:inline text-[11px] text-slate-600 flex-shrink-0">
-                    uploaded {new Date(activeSnapshot.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  <span className="hidden sm:inline text-slate-700 flex-shrink-0">·</span>
+                  <span className="hidden sm:inline text-[11px] text-slate-600 flex-shrink-0">
+                    updated {new Date(activeSnapshot.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </span>
                 </>
               )}
+              {usingDemo && <span className="text-[11px] text-amber-400/60 flex-shrink-0">Demo data</span>}
             </div>
-            <div className="flex items-center gap-2 no-print">
-              {activeView === 'overview' && (
-                <button onClick={() => runAction('compute-kpis')} disabled={!!loading}
-                  className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 border border-slate-800/60 hover:border-slate-700 px-3 py-1 rounded-lg transition-all disabled:opacity-40 font-medium">
-                  {isLoading('compute-kpis') ? <><Icons.Spinner/>Computing…</> : '↺ Refresh KPIs'}
-                </button>
-              )}
+            {/* Action buttons */}
+            <div className="flex items-center gap-1.5 no-print">
+              {/* Compare — only if prior period exists */}
               {prevSnapshot && (
                 <button
                   onClick={toggleCompareMode}
-                  title="Toggle period comparison view"
-                  className={`flex items-center gap-1.5 text-[11px] font-medium px-3 py-1 rounded-lg transition-all border ${
+                  title="Toggle period comparison"
+                  className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-lg transition-all border min-h-[30px] ${
                     compareMode
                       ? 'text-indigo-300 border-indigo-500/30 bg-indigo-500/10'
                       : 'text-slate-500 hover:text-slate-300 border-slate-800/60 hover:border-slate-700'
                   }`}>
                   <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3 flex-shrink-0"><path d="M1 7h5V2L1 7zm7-5v5h5L8 2z"/></svg>
-                  Compare
+                  <span className="hidden sm:inline">Compare</span>
                 </button>
               )}
+              {/* Share */}
               <button
-                onClick={() => setShortcutsOpen(true)}
-                title="Keyboard shortcuts (?)"
-                className="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 border border-slate-800/60 hover:border-slate-700 px-3 py-1 rounded-lg transition-all font-medium">
-                <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3 flex-shrink-0"><rect x="1" y="1" width="3" height="3" rx="0.5"/><rect x="5.5" y="1" width="3" height="3" rx="0.5"/><rect x="10" y="1" width="3" height="3" rx="0.5"/><rect x="1" y="5.5" width="3" height="3" rx="0.5"/><rect x="5.5" y="5.5" width="3" height="3" rx="0.5"/><rect x="10" y="5.5" width="3" height="3" rx="0.5"/><rect x="3" y="10" width="8" height="3" rx="0.5"/></svg>
-                Shortcuts
-              </button>
-              <button
-                onClick={() => exportKPIsAsCSV(data, activeSnapshot.label)}
-                className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 border border-slate-800/60 hover:border-slate-700 px-3 py-1 rounded-lg transition-all font-medium"
-                title="Download KPIs, period data, and customers as CSV">
-                <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3 flex-shrink-0">
-                  <path d="M7 1v7M4 5l3 3 3-3M2 10v2a1 1 0 001 1h8a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none"/>
+                onClick={() => {
+                  const url = generateShareURL(data, activeSnapshot.label, companyName);
+                  navigator.clipboard.writeText(url).then(() => addToast('success', 'Share link copied'));
+                }}
+                title="Copy read-only share link"
+                className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 border border-slate-800/60 hover:border-slate-700 px-2.5 py-1 rounded-lg transition-all font-medium min-h-[30px]">
+                <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" className="w-3 h-3 flex-shrink-0">
+                  <path d="M5 7a2 2 0 003 0l3-3a2 2 0 00-3-3L6 3M9 7a2 2 0 00-3 0l-3 3a2 2 0 003 3l2-2"/>
                 </svg>
-                Export CSV
+                <span className="hidden sm:inline">Share</span>
               </button>
+              {/* Export PDF */}
               <button
                 onClick={() => window.print()}
-                className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 border border-slate-800/60 hover:border-slate-700 px-3 py-1 rounded-lg transition-all font-medium"
-                title="Export to PDF — use browser Print → Save as PDF">
+                title="Export to PDF"
+                className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 border border-slate-800/60 hover:border-slate-700 px-2.5 py-1 rounded-lg transition-all font-medium min-h-[30px]">
                 <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3 flex-shrink-0">
                   <path d="M3 1h8v4H3V1zM1 6h12v6H1V6zm2 2h2v1H3V8zm0 2h4v1H3v-1zM11 8h-1v1h1V8z"/>
                 </svg>
-                Export PDF
+                <span className="hidden md:inline">Export PDF</span>
+              </button>
+              {/* Refresh KPIs inline when on overview */}
+              {activeView === 'overview' && (
+                <button onClick={() => runAction('compute-kpis')} disabled={!!loading}
+                  className="hidden lg:flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 border border-slate-800/60 hover:border-slate-700 px-2.5 py-1 rounded-lg transition-all disabled:opacity-40 font-medium min-h-[30px]">
+                  {isLoading('compute-kpis') ? <><Icons.Spinner/>Computing…</> : '↺ KPIs'}
+                </button>
+              )}
+              {/* Export CSV — hidden on small screens */}
+              <button
+                onClick={() => exportKPIsAsCSV(data, activeSnapshot.label)}
+                className="hidden xl:flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 border border-slate-800/60 hover:border-slate-700 px-2.5 py-1 rounded-lg transition-all font-medium min-h-[30px]"
+                title="Export CSV">
+                <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3 flex-shrink-0">
+                  <path d="M7 1v7M4 5l3 3 3-3M2 10v2a1 1 0 001 1h8a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none"/>
+                </svg>
+                CSV
+              </button>
+              {/* Shortcuts */}
+              <button
+                onClick={() => setShortcutsOpen(true)}
+                title="Keyboard shortcuts (?)"
+                className="hidden xl:flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 border border-slate-800/60 hover:border-slate-700 px-2.5 py-1 rounded-lg transition-all font-medium min-h-[30px]">
+                <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3 flex-shrink-0"><rect x="1" y="1" width="3" height="3" rx="0.5"/><rect x="5.5" y="1" width="3" height="3" rx="0.5"/><rect x="10" y="1" width="3" height="3" rx="0.5"/><rect x="1" y="5.5" width="3" height="3" rx="0.5"/><rect x="5.5" y="5.5" width="3" height="3" rx="0.5"/><rect x="10" y="5.5" width="3" height="3" rx="0.5"/><rect x="3" y="10" width="8" height="3" rx="0.5"/></svg>
+                Shortcuts
               </button>
             </div>
           </div>
@@ -2805,9 +3535,9 @@ export default function BusinessOS() {
         </div>
 
         {/* ── Demo data banner (non-overview tabs) ── */}
-        {usingDemo && activeView !== 'overview' && activeView !== 'data' && activeView !== 'pipeline' && activeView !== 'automations' && (
+        {usingDemo && activeView !== 'overview' && activeView !== 'data' && activeView !== 'pipeline' && activeView !== 'automations' && activeView !== 'acquisitions' && activeView !== 'goals' && activeView !== 'team' && activeView !== 'cash' && activeView !== 'execute' && (
           <div className="no-print border-b border-amber-500/10 bg-amber-500/[0.03]">
-            <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-2 flex items-center justify-between gap-3">
+            <div className="px-4 sm:px-6 py-2 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-400/70 animate-pulse flex-shrink-0"/>
                 <span className="text-[11px] text-amber-400/70">You're viewing demo data — analysis below reflects simulated numbers</span>
@@ -2821,7 +3551,7 @@ export default function BusinessOS() {
         )}
 
         {/* ── Content ── */}
-        <main className="max-w-[1440px] mx-auto px-4 sm:px-6 py-5 sm:py-6 flex-1 w-full">
+        <main className="px-4 sm:px-6 py-5 sm:py-6 flex-1 w-full pb-20 md:pb-6">
 
           {/* Period comparison strip */}
           {compareMode && prevSnapshot && (
@@ -2848,79 +3578,153 @@ export default function BusinessOS() {
             </div>
           )}
 
+          {/* ── Simple Mode ── */}
+          {simpleMode && (
+            <SimpleModePanel
+              data={effectiveData}
+              dashboard={dashboard}
+              onAskAI={(msg) => openChat(msg)}
+              onNavigate={v => setActiveView(v as ActiveView)}
+              onExitSimple={toggleSimpleMode}
+            />
+          )}
+
           {/* ── Overview ── */}
-          {activeView === 'overview' && (
+          {!simpleMode && activeView === 'overview' && (
             <div className="space-y-5">
 
-              {/* Demo nudge */}
-              {usingDemo && (
-                <div className="border border-indigo-500/15 bg-indigo-500/[0.04] rounded-xl px-4 sm:px-5 py-3.5 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0"/>
-                      <div className="text-[13px] font-semibold text-slate-200">You're viewing demo data</div>
-                    </div>
-                    <div className="text-[12px] text-slate-400 leading-relaxed">
-                      Connect your accounting, CRM, or billing system to unlock live AI analysis on your real numbers.
+              {/* Connected model chain — always at the top of the overview */}
+              <ConnectedModel chain={modelChain} onNavigate={v => setActiveView(v as ActiveView)}/>
+
+              {/* Data status bar — replaces the old demo nudge */}
+              {usingDemo ? (
+                <div className="border border-indigo-500/15 bg-indigo-500/[0.04] rounded-xl px-4 sm:px-5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0"/>
+                    <div className="text-[12px] text-slate-300">
+                      Demo data · Model above uses sample numbers.{' '}
+                      <span className="text-indigo-400">Upload your financials to see your real model.</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button onClick={() => setActiveView('data')}
-                      className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[12px] font-semibold transition-all shadow-sm whitespace-nowrap">
-                      Connect data →
+                  <button onClick={() => setActiveView('data')}
+                    className="flex-shrink-0 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[11px] font-semibold transition-all whitespace-nowrap">
+                    Connect data →
+                  </button>
+                </div>
+              ) : (
+                <div className="border border-emerald-500/15 bg-emerald-500/[0.03] rounded-xl px-4 py-2.5 flex items-center gap-3">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0"/>
+                  <div className="text-[11px] text-slate-400 flex-1">
+                    Live data · as of {data.metadata.asOf ? new Date(data.metadata.asOf).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'recent'}
+                    {' · '}{data.metadata.sources.join(', ')}
+                  </div>
+                  {scenarioAdj && (
+                    <button onClick={() => setScenarioAdj(null)} className="text-[10px] text-violet-400 hover:text-violet-300 border border-violet-500/20 px-2 py-0.5 rounded transition-colors">
+                      Clear scenario: {scenarioAdj.name}
                     </button>
-                  </div>
+                  )}
                 </div>
               )}
 
-              <DailyBriefing data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} companyName={companyName} onAskAI={openChat} onNavigate={(v) => setActiveView(v as ActiveView)}/>
-              <MonthlyTrendStrip data={data}/>
-              <CEOWatchlist data={data} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
-              <TopActionsWidget onRunAgent={() => setActiveView('intelligence')} onViewAll={() => setActiveView('intelligence')}/>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <ExitReadinessWidget onViewAll={() => setActiveView('intelligence')}/>
-                <GrowthPlaybookWidget onViewAll={() => setActiveView('intelligence')}/>
+              {/* ── Section: Priorities ─────────────────────────────── */}
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em] flex-shrink-0">Priorities</span>
+                <div className="flex-1 h-px bg-slate-800/50"/>
               </div>
-              <ExecutiveSummary data={data} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
-              {prevSnapshot && <BiggestMovers data={data} previous={prevSnapshot.data}/>}
-              <RevenueQuality data={data} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
-              <NarrativeBar data={data} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
-              <HealthScoreHistory snapshots={snapshots} activeId={activeSnapshotId}/>
-              <BusinessHealthScore data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
+              <DailyBriefing data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} companyName={companyName} onAskAI={openChat} onNavigate={(v) => setActiveView(v as ActiveView)}/>
+              <DecisionEngine data={effectiveData} companyName={companyName} onAskAI={openChat} onNavigate={(v) => setActiveView(v as ActiveView)}/>
+              <CEOWatchlist data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
 
               {/* Data quality warnings */}
-              {data.metadata.warnings.length > 0 && (
+              {effectiveData.metadata.warnings.length > 0 && (
                 <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl px-4 py-3 flex items-start gap-2.5">
                   <span className="text-amber-400/70 text-sm flex-shrink-0 mt-0.5">⚠</span>
                   <div>
                     <div className="text-[11px] font-semibold text-amber-400/80 mb-1">Data quality notes</div>
                     <ul className="space-y-0.5">
-                      {data.metadata.warnings.map((w, i) => (
+                      {effectiveData.metadata.warnings.map((w, i) => (
                         <li key={i} className="text-[11px] text-amber-400/60">· {w}</li>
                       ))}
                     </ul>
                   </div>
                 </div>
               )}
-              <GoalsPanel data={data} goals={goals} onSetGoal={setGoal}/>
-              <KPIGrid dashboard={dashboard} data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} goals={goals}/>
-              <RevenueChart data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} revenueGoal={goals.revenue} annotations={annotations} onAnnotate={setAnnotation} onAskAI={openChat}/>
 
-              <RevenueForecastStrip data={data} onAskAI={openChat}/>
+              {/* ── Section: Key Metrics ─────────────────────────────── */}
+              <div className="flex items-center gap-3 pt-1">
+                <span className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em] flex-shrink-0">Key Metrics</span>
+                <div className="flex-1 h-px bg-slate-800/50"/>
+                <button onClick={() => runAction('compute-kpis')} disabled={!!loading}
+                  className="text-[10px] text-slate-600 hover:text-slate-400 transition-colors disabled:opacity-40 flex-shrink-0">
+                  {isLoading('compute-kpis') ? 'Computing…' : '↺ Refresh'}
+                </button>
+              </div>
+              <KPIGrid dashboard={dashboard} data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} goals={goals} onNavigate={v => setActiveView(v as ActiveView)}/>
 
-              <PipelineSnapshot data={data} onAskAI={openChat}/>
+              {/* ── Section: Revenue ─────────────────────────────────── */}
+              <div className="flex items-center gap-3 pt-1">
+                <span className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em] flex-shrink-0">Revenue</span>
+                <div className="flex-1 h-px bg-slate-800/50"/>
+              </div>
+              <RevenueChart data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} revenueGoal={goals.revenue} annotations={annotations} onAnnotate={setAnnotation} onAskAI={openChat}/>
+              <RevenueForecastStrip data={effectiveData} onAskAI={openChat}/>
+              <PipelineRevenueForecast/>
+              <PipelineSnapshot data={effectiveData} onAskAI={openChat}/>
 
-              <TrendSignalsPanel data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
-
+              {/* ── Section: Breakdown ───────────────────────────────── */}
+              <div className="flex items-center gap-3 pt-1">
+                <span className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em] flex-shrink-0">Breakdown</span>
+                <div className="flex-1 h-px bg-slate-800/50"/>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-5">
                 <CostBreakdownChart data={data}/>
                 <CustomerMetricsChart data={data}/>
-                <AlertFeed alerts={visibleAlerts} onRunAlerts={() => runAction('alerts')} loading={isLoading('alerts')} onDismiss={dismissAlert}/>
+                <AlertFeed
+                  alerts={visibleAlerts}
+                  onRunAlerts={() => runAction('alerts')}
+                  loading={isLoading('alerts')}
+                  onDismiss={dismissAlert}
+                  onCreateTask={createTaskFromAlert}
+                  onAskAI={openChat}
+                  onNavigate={v => setActiveView(v as ActiveView)}
+                />
               </div>
 
-              <MetricThresholdsPanel data={data} thresholds={thresholds} onChange={saveThresholds}/>
+              {/* ── Deep analysis (expandable) ─────────────────────────── */}
+              <button
+                onClick={() => setShowDeepAnalysis(v => !v)}
+                className="w-full flex items-center gap-3 py-2 group"
+              >
+                <div className="flex-1 h-px bg-slate-800/50 group-hover:bg-slate-700/50 transition-colors"/>
+                <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 group-hover:text-slate-400 transition-colors whitespace-nowrap">
+                  <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
+                    className={`w-2.5 h-2.5 transition-transform ${showDeepAnalysis ? 'rotate-180' : ''}`}>
+                    <path d="M2 3.5l3 3 3-3"/>
+                  </svg>
+                  {showDeepAnalysis ? 'Hide' : 'Show'} detailed analysis
+                </span>
+                <div className="flex-1 h-px bg-slate-800/50 group-hover:bg-slate-700/50 transition-colors"/>
+              </button>
 
-              <CustomKPIPanel kpis={customKPIs} onChange={saveCustomKPIs} onAskAI={openChat}/>
+              {showDeepAnalysis && (
+                <div className="space-y-4">
+                  <NarrativeBar data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
+                  <MonthlyTrendStrip data={data}/>
+                  <BusinessHealthScore data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
+                  <HealthScoreHistory snapshots={snapshots} activeId={activeSnapshotId}/>
+                  <ExecutiveSummary data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
+                  {prevSnapshot && <BiggestMovers data={effectiveData} previous={prevSnapshot.data}/>}
+                  <RevenueQuality data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
+                  <TrendSignalsPanel data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
+                  <GoalsPanel data={effectiveData} goals={goals} onSetGoal={setGoal}/>
+                  <TopActionsWidget onRunAgent={() => setActiveView('intelligence')} onViewAll={() => setActiveView('intelligence')}/>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <ExitReadinessWidget onViewAll={() => setActiveView('intelligence')}/>
+                    <GrowthPlaybookWidget onViewAll={() => setActiveView('intelligence')}/>
+                  </div>
+                  <CustomKPIPanel kpis={customKPIs} onChange={saveCustomKPIs} onAskAI={openChat}/>
+                </div>
+              )}
 
               {/* Quick nav cards */}
               <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3 pt-1">
@@ -2936,25 +3740,20 @@ export default function BusinessOS() {
             </div>
           )}
 
+          {!simpleMode && (<>
           {activeView === 'financial' && (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
                 <div className="h-px flex-1 bg-indigo-500/10"/>
                 <SectionNote noteKey="financial" notes={panelNotes} onSave={setPanelNote}/>
-                <button onClick={() => openChat('Analyze my P&L: revenue, margins, cost structure. What are the biggest risks and the top 2 actions I should take?')}
-                  className="flex items-center gap-1.5 text-[12px] text-indigo-400 hover:text-indigo-300 bg-indigo-500/8 hover:bg-indigo-500/15 border border-indigo-500/25 hover:border-indigo-500/50 px-3 py-1.5 rounded-lg transition-all font-medium">
-                  <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5">
-                    <path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/>
-                    <rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/>
-                  </svg>
-                  Ask AI CFO about financials
-                </button>
                 <div className="h-px flex-1 bg-indigo-500/10"/>
               </div>
-              <FinancialDashboard data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} dashboard={dashboard} budget={budget} onSetBudget={setBudgetLine} annotations={annotations} onAnnotate={setAnnotation} onAskAI={openChat}/>
+              <FinancialDashboard data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} dashboard={dashboard} budget={budget} onSetBudget={setBudgetLine} annotations={annotations} onAnnotate={setAnnotation} onAskAI={openChat}/>
               <PLStatement data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} showChange showPct/>
               <BudgetPanel data={data} budget={budget} onSetBudget={setBudgetLine} onAskAI={openChat}/>
+              <BenchmarkFeed data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onNavigate={v => setActiveView(v as ActiveView)} onAskAI={openChat}/>
               <IndustryBenchmarksPanel data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
+              <MetricThresholdsPanel data={data} thresholds={thresholds} onChange={saveThresholds}/>
               {data.transactions && data.transactions.length > 0 && (
                 <div>
                   <div className="flex items-center gap-3 mb-3">
@@ -2971,17 +3770,9 @@ export default function BusinessOS() {
               <div className="flex items-center gap-2">
                 <div className="h-px flex-1 bg-violet-500/10"/>
                 <SectionNote noteKey="customers" notes={panelNotes} onSave={setPanelNote}/>
-                <button onClick={() => openChat(`Analyze my customer base: ${data.customers.totalCount} total customers, top customer at ${data.customers.topCustomers[0]?.percentOfTotal?.toFixed(1)}%, ${((data.customers.retentionRate ?? 0.88)*100).toFixed(0)}% retention. What's the biggest customer risk and how do I address it?`)}
-                  className="flex items-center gap-1.5 text-[12px] text-violet-400 hover:text-violet-300 bg-violet-500/8 hover:bg-violet-500/15 border border-violet-500/25 hover:border-violet-500/50 px-3 py-1.5 rounded-lg transition-all font-medium">
-                  <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5">
-                    <path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/>
-                    <rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/>
-                  </svg>
-                  Ask AI CFO about customers
-                </button>
                 <div className="h-px flex-1 bg-violet-500/10"/>
               </div>
-              <CustomerDashboard data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
+              <CustomerDashboard data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
             </div>
           )}
           {activeView === 'operations' && (
@@ -2989,17 +3780,9 @@ export default function BusinessOS() {
               <div className="flex items-center gap-2">
                 <div className="h-px flex-1 bg-cyan-500/10"/>
                 <SectionNote noteKey="operations" notes={panelNotes} onSave={setPanelNote}/>
-                <button onClick={() => openChat(`Analyze my operations: ${data.operations.headcount ?? 'unknown'} headcount, OpEx is ${((data.costs.totalOpEx / data.revenue.total)*100).toFixed(1)}% of revenue. Where are the biggest efficiency opportunities?`)}
-                  className="flex items-center gap-1.5 text-[12px] text-cyan-400 hover:text-cyan-300 bg-cyan-500/8 hover:bg-cyan-500/15 border border-cyan-500/25 hover:border-cyan-500/50 px-3 py-1.5 rounded-lg transition-all font-medium">
-                  <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5">
-                    <path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/>
-                    <rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/>
-                  </svg>
-                  Ask AI CFO about operations
-                </button>
                 <div className="h-px flex-1 bg-cyan-500/10"/>
               </div>
-              <OperationsDashboard data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
+              <OperationsDashboard data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
             </div>
           )}
           {activeView === 'intelligence' && (
@@ -3018,27 +3801,17 @@ export default function BusinessOS() {
               <div className="flex items-center gap-2">
                 <div className="h-px flex-1 bg-amber-500/10"/>
                 <SectionNote noteKey="scenarios" notes={panelNotes} onSave={setPanelNote}/>
-                <button onClick={() => openChat('Help me understand what scenario I should be planning for. Based on my current financials, what are the most important variables to model — revenue growth, margins, or headcount?')}
-                  className="flex items-center gap-1.5 text-[12px] text-amber-400 hover:text-amber-300 bg-amber-500/8 hover:bg-amber-500/15 border border-amber-500/25 hover:border-amber-500/50 px-3 py-1.5 rounded-lg transition-all font-medium">
-                  <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5"><path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/><rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/></svg>
-                  Ask AI what to model
-                </button>
                 <div className="h-px flex-1 bg-amber-500/10"/>
               </div>
-              <ScenarioModeler data={data} onAskAI={openChat}/>
+              <ScenarioModeler
+                data={data}
+                onAskAI={openChat}
+                onScenarioChange={s => setScenarioAdj(s && (s.revenueGrowthPct !== 0 || s.grossMarginPct !== 0 || s.opexChangePct !== 0 || s.newHires !== 0 || s.priceIncreasePct !== 0) ? s : null)}
+              />
             </div>
           )}
           {activeView === 'pipeline' && (
             <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <div className="h-px flex-1 bg-sky-500/10"/>
-                <button onClick={() => openChat('Analyze my deal pipeline. What deals are at risk, which should I prioritize to hit my number this quarter, and what actions should I take today?')}
-                  className="flex items-center gap-1.5 text-[12px] text-sky-400 hover:text-sky-300 bg-sky-500/8 hover:bg-sky-500/15 border border-sky-500/25 hover:border-sky-500/50 px-3 py-1.5 rounded-lg transition-all font-medium">
-                  <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5"><path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/><rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/></svg>
-                  Ask AI about pipeline
-                </button>
-                <div className="h-px flex-1 bg-sky-500/10"/>
-              </div>
               <KanbanBoard />
             </div>
           )}
@@ -3052,8 +3825,163 @@ export default function BusinessOS() {
               <AutomationBuilder />
             </div>
           )}
-          {activeView === 'data'         && <DataSourcePanel data={data} onDataUpdate={handleDataUpdate} onSuccess={handleDataSuccess} companyProfile={companyProfile} onProfileChange={saveCompanyProfile}/>}
+          {activeView === 'acquisitions' && (
+            <div className="space-y-4">
+              <AcquisitionPipeline onAskAI={openChat}/>
+            </div>
+          )}
+          {activeView === 'goals' && (
+            <div className="space-y-4">
+              <GoalEngine/>
+            </div>
+          )}
+          {activeView === 'team' && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <div className="h-px flex-1 bg-violet-500/10"/>
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em]">Deal Activity & Tasks</div>
+                <div className="h-px flex-1 bg-violet-500/10"/>
+              </div>
+              <TeamFeed/>
+            </div>
+          )}
+          {activeView === 'cash' && (
+            <div className="space-y-4">
+              <CashRunway data={effectiveData} onAskAI={openChat}/>
+            </div>
+          )}
+          {activeView === 'deals' && (
+            <DealList
+              onAskAI={openChat}
+              initialDealId={jumpDealId}
+              key={jumpDealId ?? 'list'}
+            />
+          )}
+          {activeView === 'today' && (
+            <div className="space-y-4">
+              {/* Today — business health snapshot */}
+              {(() => {
+                const fmtN = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n.toFixed(0)}`;
+                const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`;
+                const rev    = data.revenue.total;
+                const cogs   = data.costs.totalCOGS;
+                const opex   = data.costs.totalOpEx;
+                const grossProfit = rev - cogs;
+                const grossMargin = rev > 0 ? grossProfit / rev : 0;
+                const ebitda = rev - cogs - opex;
+                const ebitdaMargin = rev > 0 ? ebitda / rev : 0;
+                const cashLatest = data.cashFlow?.length ? data.cashFlow[data.cashFlow.length - 1].closingBalance : null;
+                const burnRate = data.cashFlow?.length && data.cashFlow.length >= 2
+                  ? data.cashFlow[data.cashFlow.length - 1].closingBalance - data.cashFlow[data.cashFlow.length - 2].closingBalance
+                  : null;
+                const activeDeals = (data.pipeline ?? []).filter(d => d.stage !== 'Closed Won' && d.stage !== 'Closed Lost');
+                const weighted = activeDeals.reduce((s, d) => s + d.value * (d.probability / 100), 0);
+                const customers = data.customers;
+                const churnRate = customers.retentionRate != null ? (1 - customers.retentionRate) : null;
+                const utilization = data.operations.employeeUtilization ?? data.operations.utilizationRate ?? data.operations.capacityUtilization ?? null;
+
+                type StatItem = { label: string; value: string; sub: string; color: string; border: string };
+                const stats: StatItem[] = [
+                  {
+                    label: 'Revenue',
+                    value: fmtN(rev),
+                    sub: `Gross margin ${rev > 0 ? fmtPct(grossMargin) : '—'}`,
+                    color: 'text-slate-100',
+                    border: 'border-slate-800/50',
+                  },
+                  {
+                    label: 'EBITDA',
+                    value: fmtN(ebitda),
+                    sub: `${rev > 0 ? fmtPct(ebitdaMargin) : '—'} margin`,
+                    color: ebitda >= 0 ? 'text-emerald-400' : 'text-red-400',
+                    border: ebitda >= 0 ? 'border-emerald-500/20' : 'border-red-500/20',
+                  },
+                  ...(cashLatest !== null ? [{
+                    label: 'Cash',
+                    value: fmtN(cashLatest),
+                    sub: burnRate !== null ? (burnRate >= 0 ? `+${fmtN(burnRate)} last period` : `${fmtN(burnRate)} burn`) : 'Latest close',
+                    color: cashLatest > 0 ? 'text-slate-100' : 'text-red-400',
+                    border: cashLatest > 0 ? 'border-slate-800/50' : 'border-red-500/20',
+                  } as StatItem] : []),
+                  {
+                    label: 'Pipeline (Wtd)',
+                    value: fmtN(weighted),
+                    sub: `${activeDeals.length} active deal${activeDeals.length !== 1 ? 's' : ''}`,
+                    color: 'text-blue-300',
+                    border: 'border-blue-500/15',
+                  },
+                  ...(churnRate !== null ? [{
+                    label: 'Churn Rate',
+                    value: fmtPct(churnRate),
+                    sub: `${customers.totalCount ?? '—'} customers`,
+                    color: churnRate <= 0.02 ? 'text-emerald-400' : churnRate <= 0.05 ? 'text-amber-400' : 'text-red-400',
+                    border: churnRate <= 0.05 ? 'border-slate-800/50' : 'border-red-500/20',
+                  } as StatItem] : []),
+                  ...(utilization !== null ? [{
+                    label: 'Utilization',
+                    value: fmtPct(utilization),
+                    sub: data.operations.headcount ? `${data.operations.headcount} headcount` : 'Team capacity',
+                    color: utilization >= 0.75 ? 'text-emerald-400' : utilization >= 0.5 ? 'text-amber-400' : 'text-red-400',
+                    border: 'border-slate-800/50',
+                  } as StatItem] : []),
+                ];
+
+                return (
+                  <div className="space-y-3">
+                    <div className={`grid gap-3 ${stats.length <= 4 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-6'}`}>
+                      {stats.map(s => (
+                        <div key={s.label} className={`bg-slate-900/50 border ${s.border} rounded-xl px-4 py-3`}>
+                          <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-1">{s.label}</div>
+                          <div className={`text-[18px] font-bold tabular-nums ${s.color}`}>{s.value}</div>
+                          <div className="text-[10px] text-slate-600 mt-0.5">{s.sub}</div>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => openChat('What should I focus on today? Summarize the top 3 priorities based on my current financial performance, pipeline, and any risks.')}
+                        className="bg-indigo-600/10 border border-indigo-500/20 hover:bg-indigo-600/15 hover:border-indigo-500/30 rounded-xl px-4 py-3 text-left transition-colors group">
+                        <div className="text-[10px] font-semibold text-indigo-400/70 uppercase tracking-[0.08em] mb-1">AI Insight</div>
+                        <div className="text-[13px] font-semibold text-indigo-300 group-hover:text-indigo-200">What to focus on →</div>
+                        <div className="text-[10px] text-indigo-400/50 mt-0.5">Top 3 priorities</div>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+              <DailyPriorities
+                onOpenDeal={(dealId) => {
+                  setJumpDealId(dealId);
+                  setActiveView('deals');
+                  setTimeout(() => setJumpDealId(null), 100);
+                }}
+              />
+            </div>
+          )}
+          {activeView === 'execute' && (
+            <div className="space-y-5">
+              <TaskBoard data={data} onAskAI={openChat}/>
+            </div>
+          )}
+          {activeView === 'suppliers' && (
+            <SupplierDashboard data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/>
+          )}
+          {activeView === 'skus' && (
+            <SKUAnalyzer data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/>
+          )}
+          {activeView === 'capacity' && (
+            <CapacityAnalyzer data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/>
+          )}
+          {activeView === 'data' && (
+            <div className="space-y-5">
+              <DataFreshnessBar snapshots={snapshots} activeSnapshotId={activeSnapshotId}/>
+              <DataSourcePanel data={data} onDataUpdate={handleDataUpdate} onSuccess={handleDataSuccess} companyProfile={companyProfile} onProfileChange={saveCompanyProfile}/>
+              <SessionManagerPanel/>
+            </div>
+          )}
+          </>)}
         </main>
+
+        </div>{/* /content column */}
+        </div>{/* /body flex row */}
 
         {/* ── Onboarding flow ── */}
         {showOnboarding && (
@@ -3071,18 +3999,15 @@ export default function BusinessOS() {
           />
         )}
 
-        {/* ── Floating action button (opens command palette) ── */}
+        {/* ── Floating ⌘K button (desktop only, AI is now in header) ── */}
         {!chatOpen && !paletteOpen && (
           <button
             onClick={() => setPaletteOpen(true)}
-            className="no-print fixed bottom-5 right-5 z-[145] flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-[13px] font-semibold shadow-2xl transition-all hover:scale-105 active:scale-95"
-            style={{ boxShadow: '0 8px 32px rgba(99,102,241,0.4)' }}>
-            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-3.5 h-3.5 flex-shrink-0">
+            className="no-print hidden md:flex fixed bottom-5 right-5 z-[145] w-9 h-9 items-center justify-center bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/60 text-slate-400 hover:text-slate-200 rounded-xl shadow-lg transition-all hover:scale-105 active:scale-95"
+            title="Command palette (⌘K)">
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-3.5 h-3.5">
               <circle cx="6.5" cy="6.5" r="4.5"/><path d="M11 11l2 2"/>
             </svg>
-            <span className="hidden sm:inline">Search</span>
-            <span className="sm:hidden">⌘K</span>
-            <span className="hidden sm:inline text-[10px] opacity-60 font-normal">⌘K</span>
           </button>
         )}
 
@@ -3096,6 +4021,8 @@ export default function BusinessOS() {
           companyName={companyName}
           activeView={activeView}
           companyProfile={companyProfile}
+          onCreateTask={createTaskFromAlert}
+          onNavigate={v => setActiveView(v as ActiveView)}
         />
 
         {/* ── Command palette ── */}
@@ -3111,8 +4038,8 @@ export default function BusinessOS() {
         <PricingModal
           open={pricingOpen}
           onClose={() => setPricingOpen(false)}
-          currentPlan="growth"
-          onSelectPlan={() => { setPricingOpen(false); addToast('info', 'Plan changes coming soon — contact us to upgrade'); }}
+          currentPlan={currentSession.planId}
+          onSelectPlan={(planId) => { if (planId === 'starter') { setPricingOpen(false); } }}
         />
 
         {/* ── Keyboard shortcuts modal ── */}
@@ -3126,8 +4053,89 @@ export default function BusinessOS() {
           />
         )}
 
+        {/* ── Mobile bottom tab bar (md: hidden) ── */}
+        <nav className="md:hidden no-print fixed bottom-0 left-0 right-0 z-[140] bg-[#060a12]/97 border-t border-slate-800/60 backdrop-blur-md flex">
+          {(['today', 'overview', 'deals', 'financial', 'intelligence'] as const).map(id => {
+            const item = navItems.find(n => n.id === id)!;
+            const isActive = activeView === id;
+            const TabIcon = item.Icon;
+            return (
+              <button key={id} onClick={() => { setActiveView(id); setMobileNavOpen(false); }}
+                className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 min-h-[52px] transition-colors ${
+                  isActive ? 'text-indigo-300' : 'text-slate-600 hover:text-slate-400'}`}>
+                <TabIcon/>
+                <span className={`text-[9px] font-semibold uppercase tracking-[0.06em] ${isActive ? 'text-indigo-300' : 'text-slate-600'}`}>{item.label}</span>
+              </button>
+            );
+          })}
+          {/* More button opens mobile nav drawer */}
+          <button
+            onClick={() => setMobileNavOpen(v => !v)}
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 min-h-[52px] transition-colors ${
+              mobileNavOpen || !['today','overview','deals','financial','intelligence'].includes(activeView)
+                ? 'text-indigo-300' : 'text-slate-600 hover:text-slate-400'}`}>
+            <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5">
+              <circle cx="2" cy="7" r="1.2"/><circle cx="7" cy="7" r="1.2"/><circle cx="12" cy="7" r="1.2"/>
+            </svg>
+            <span className={`text-[9px] font-semibold uppercase tracking-[0.06em] ${
+              mobileNavOpen || !['today','overview','deals','financial','intelligence'].includes(activeView)
+                ? 'text-indigo-300' : 'text-slate-600'}`}>More</span>
+          </button>
+        </nav>
+
         {/* ── Toasts ── */}
         <ToastContainer toasts={toasts} dismiss={dismissToast}/>
+
+        {/* ── Run Report progress overlay ── */}
+        {reportProgress && (
+          <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center p-4 sm:p-6 pointer-events-none">
+            <div className="pointer-events-auto bg-[#0d1117] border border-slate-700/60 rounded-2xl p-5 w-full max-w-sm shadow-2xl">
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-[13px] font-semibold text-slate-100">Running full report…</div>
+                <div className="flex gap-0.5">
+                  {[0,1,2].map(i => (
+                    <div key={i} className="w-1 h-1 rounded-full bg-indigo-400 animate-bounce" style={{ animationDelay: `${i * 150}ms` }}/>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                {reportProgress.map(step => (
+                  <div key={step.id} className="flex items-start gap-3">
+                    <div className="w-4 h-4 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      {step.status === 'done' && (
+                        <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3.5 h-3.5 text-emerald-400">
+                          <path d="M2 5.5l2 2 4-4"/>
+                        </svg>
+                      )}
+                      {step.status === 'running' && (
+                        <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 text-indigo-400 animate-spin">
+                          <path opacity="0.25" d="M7 1.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11z"/>
+                          <path d="M7 1.5a5.5 5.5 0 015.5 5.5h-1.5A4 4 0 007 3V1.5z"/>
+                        </svg>
+                      )}
+                      {step.status === 'pending' && (
+                        <div className="w-1.5 h-1.5 rounded-full bg-slate-700"/>
+                      )}
+                      {step.status === 'error' && (
+                        <svg viewBox="0 0 10 10" fill="currentColor" className="w-3.5 h-3.5 text-red-400">
+                          <path d="M5 1L9 9H1L5 1z"/><path d="M5 4.5v2M5 7.5v.5" stroke="white" strokeWidth="1" strokeLinecap="round"/>
+                        </svg>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-[12px] font-medium ${step.status === 'done' ? 'text-slate-300' : step.status === 'running' ? 'text-slate-100' : step.status === 'error' ? 'text-red-400' : 'text-slate-600'}`}>
+                        {step.label}
+                      </div>
+                      {step.detail && (
+                        <div className={`text-[10px] mt-0.5 ${step.status === 'error' ? 'text-red-400/70' : 'text-slate-500'}`}>{step.detail}</div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

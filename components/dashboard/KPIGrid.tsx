@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { KPIDashboard, UnifiedBusinessData, KPIResult, Goals } from '../../types';
 
+type SourceLabel = 'Imported' | 'Calculated' | 'User-set' | 'AI-generated';
+
 // ── Linear regression helper ──────────────────────────────────────────────────
 function linReg(y: number[]): { slope: number; intercept: number } {
   const n = y.length;
@@ -21,6 +23,7 @@ interface Props {
   data: UnifiedBusinessData;
   previousData?: UnifiedBusinessData;
   goals?: Goals;
+  onNavigate?: (view: string) => void;
 }
 
 // Industry benchmarks for LMM/MM companies ($5M-$250M revenue)
@@ -32,6 +35,9 @@ const BENCHMARKS: Record<string, { label: string; value: string; good: string }>
   'retention-rate':        { label: 'LMM median', value: '88%',  good: '>92% is best-in-class' },
   'rev-per-employee':      { label: 'LMM median', value: '$85k', good: '>$120k is strong' },
   'gp-per-employee':       { label: 'Prof. services', value: '$60k', good: '>$100k is strong for professional services' },
+  'ltv-cac':               { label: 'Healthy min', value: '3×',  good: '>3× sustainable growth; >5× excellent' },
+  'ltv':                   { label: 'Context-dependent', value: '—', good: 'Higher is better; compare to CAC' },
+  'cac':                   { label: 'Context-dependent', value: '—', good: 'Lower is better; compare to LTV' },
 };
 
 // Numeric benchmark values for inline bar comparison
@@ -43,7 +49,206 @@ const BENCHMARK_VALS: Partial<Record<string, { val: number; label: string; inver
   'retention-rate':         { val: 88,    label: 'LMM 88%' },
   'rev-per-employee':       { val: 85000, label: 'LMM $85k' },
   'gp-per-employee':        { val: 60000, label: 'LMM $60k' },
+  'ltv-cac':                { val: 3,     label: 'min 3×' },
 };
+
+// ── Source metadata ───────────────────────────────────────────────────────────
+const METRIC_SOURCE: Record<string, SourceLabel> = {
+  'total-revenue':          'Imported',
+  'revenue-growth':         'Calculated',
+  'gross-margin':           'Calculated',
+  'ebitda-margin':          'Calculated',
+  'ebitda':                 'Calculated',
+  'customer-concentration': 'Calculated',
+  'retention-rate':         'Imported',
+  'net-new-customers':      'Calculated',
+  'rev-per-employee':       'Calculated',
+  'gp-per-employee':        'Calculated',
+  'cash-balance':           'Imported',
+  'cash-runway':            'Calculated',
+  'net-cash-flow':          'Calculated',
+  'ltv':                    'Calculated',
+  'cac':                    'Calculated',
+  'ltv-cac':                'Calculated',
+};
+
+const SOURCE_STYLE: Record<SourceLabel, string> = {
+  'Imported':      'text-blue-400 bg-blue-500/8 border-blue-500/20',
+  'Calculated':    'text-violet-400 bg-violet-500/8 border-violet-500/20',
+  'User-set':      'text-amber-400 bg-amber-500/8 border-amber-500/20',
+  'AI-generated':  'text-emerald-400 bg-emerald-500/8 border-emerald-500/20',
+};
+
+// Category → detailed tab for drilldown
+const CATEGORY_DRILLDOWN: Record<string, string> = {
+  revenue:       'financial',
+  profitability: 'financial',
+  customers:     'customers',
+  operations:    'operations',
+  cash:          'cash',
+};
+
+// ── Formula lineage — real values substituted in ──────────────────────────────
+interface LineageStep { label: string; value: string; operator?: '−' | '+' | '÷' | '×' }
+interface Lineage { steps: LineageStep[]; result: string; note?: string }
+
+function fmtShort(n: number): string {
+  if (Math.abs(n) >= 1_000_000) return `$${(n/1_000_000).toFixed(2)}M`;
+  if (Math.abs(n) >= 1_000) return `$${(n/1_000).toFixed(0)}k`;
+  return `$${n.toFixed(0)}`;
+}
+
+function computeLineage(id: string, data: UnifiedBusinessData, previousData?: UnifiedBusinessData): Lineage | null {
+  const rev  = data.revenue.total;
+  const cogs = data.costs.totalCOGS;
+  const opex = data.costs.totalOpEx;
+  const gp   = rev - cogs;
+
+  switch (id) {
+    case 'total-revenue':
+      return { steps: [{ label: 'Sum of all revenue streams', value: fmtShort(rev) }], result: fmtShort(rev), note: 'Sourced directly from revenue data' };
+
+    case 'ebitda':
+      return {
+        steps: [
+          { label: 'Revenue',  value: fmtShort(rev) },
+          { label: 'COGS',     value: fmtShort(cogs), operator: '−' },
+          { label: 'OpEx',     value: fmtShort(opex), operator: '−' },
+        ],
+        result: fmtShort(gp - opex),
+        note: 'Earnings before interest, taxes, depreciation & amortization',
+      };
+
+    case 'gross-margin': {
+      const gm = rev > 0 ? (gp / rev) * 100 : 0;
+      return {
+        steps: [
+          { label: 'Gross Profit', value: fmtShort(gp) },
+          { label: 'Revenue',      value: fmtShort(rev), operator: '÷' },
+          { label: '× 100',        value: '' },
+        ],
+        result: `${gm.toFixed(1)}%`,
+        note: `GP of ${fmtShort(gp)} ÷ Revenue of ${fmtShort(rev)}`,
+      };
+    }
+
+    case 'ebitda-margin': {
+      const ebitda = gp - opex;
+      const margin = rev > 0 ? (ebitda / rev) * 100 : 0;
+      return {
+        steps: [
+          { label: 'EBITDA',   value: fmtShort(ebitda) },
+          { label: 'Revenue',  value: fmtShort(rev), operator: '÷' },
+          { label: '× 100',    value: '' },
+        ],
+        result: `${margin.toFixed(1)}%`,
+        note: `${fmtShort(ebitda)} ÷ ${fmtShort(rev)}`,
+      };
+    }
+
+    case 'revenue-growth': {
+      if (!previousData) return null;
+      const prev = previousData.revenue.total;
+      const growth = prev > 0 ? ((rev - prev) / prev) * 100 : 0;
+      return {
+        steps: [
+          { label: 'Current Revenue',  value: fmtShort(rev) },
+          { label: 'Prior Revenue',    value: fmtShort(prev), operator: '−' },
+          { label: 'Prior Revenue',    value: fmtShort(prev), operator: '÷' },
+          { label: '× 100',           value: '' },
+        ],
+        result: `${growth >= 0 ? '+' : ''}${growth.toFixed(1)}%`,
+        note: `${fmtShort(rev - prev)} increase over ${fmtShort(prev)} base`,
+      };
+    }
+
+    case 'customer-concentration': {
+      const top3 = data.customers.topCustomers.slice(0, 3);
+      const top3pct = top3.reduce((s, c) => s + c.percentOfTotal, 0);
+      return {
+        steps: top3.map((c, i) => ({ label: c.name, value: `${c.percentOfTotal.toFixed(1)}%`, operator: i > 0 ? '+' as const : undefined })),
+        result: `${top3pct.toFixed(1)}%`,
+        note: 'Share of total revenue from top 3 customers',
+      };
+    }
+
+    case 'net-new-customers': {
+      const { newThisPeriod, churned } = data.customers;
+      return {
+        steps: [
+          { label: 'New Added', value: `+${newThisPeriod}` },
+          { label: 'Churned',   value: `${churned}`, operator: '−' },
+        ],
+        result: `${newThisPeriod - churned >= 0 ? '+' : ''}${newThisPeriod - churned}`,
+        note: `${newThisPeriod} gained, ${churned} lost`,
+      };
+    }
+
+    case 'rev-per-employee': {
+      const hc = data.operations.headcount;
+      if (!hc) return null;
+      return {
+        steps: [
+          { label: 'Revenue',   value: fmtShort(rev) },
+          { label: 'Headcount', value: `${hc} people`, operator: '÷' },
+        ],
+        result: fmtShort(rev / hc),
+      };
+    }
+
+    case 'cash-balance': {
+      if (!data.cashFlow?.length) return null;
+      const latest = data.cashFlow[data.cashFlow.length - 1];
+      return {
+        steps: [{ label: `Closing balance — ${latest.period}`, value: fmtShort(latest.closingBalance) }],
+        result: fmtShort(latest.closingBalance),
+        note: 'Latest period closing cash balance',
+      };
+    }
+
+    case 'cash-runway': {
+      if (!data.cashFlow?.length) return null;
+      const cf = data.cashFlow;
+      const latest = cf[cf.length - 1];
+      const avg = cf.reduce((s, p) => s + (p.netCashFlow ?? 0), 0) / cf.length;
+      if (avg >= 0) return null;
+      return {
+        steps: [
+          { label: 'Cash Balance', value: fmtShort(latest.closingBalance) },
+          { label: 'Avg Monthly Burn', value: fmtShort(Math.abs(avg)), operator: '÷' },
+        ],
+        result: `${Math.abs(latest.closingBalance / avg).toFixed(1)} months`,
+        note: `${fmtShort(Math.abs(avg))}/mo burn rate`,
+      };
+    }
+
+    case 'ltv-cac': {
+      const churnFrac = 1 - (((data.customers.retentionRate ?? 0.88)));
+      const arpcVal = data.customers.avgRevenuePerCustomer ?? (data.customers.totalCount > 0 ? rev / data.customers.totalCount : 0);
+      const gmFrac  = rev > 0 ? (rev - cogs) / rev : 0;
+      const ltvVal  = churnFrac > 0 ? (arpcVal * gmFrac) / churnFrac : 0;
+      const smCat   = data.costs.byCategory?.find(c => /sales|marketing/i.test(c.category));
+      const cacVal  = smCat && data.customers.newThisPeriod > 0 ? smCat.amount / data.customers.newThisPeriod : 0;
+      if (ltvVal === 0 || cacVal === 0) return null;
+      return {
+        steps: [
+          { label: 'ARPC',                 value: fmtShort(arpcVal) },
+          { label: 'Gross Margin %',        value: `${(gmFrac * 100).toFixed(1)}%`, operator: '×' },
+          { label: 'Churn Rate',            value: `${(churnFrac * 100).toFixed(1)}%`, operator: '÷' },
+          { label: '= LTV',                 value: fmtShort(ltvVal) },
+          { label: `S&M Spend (${smCat?.category ?? 'S&M'})`, value: fmtShort(smCat?.amount ?? 0) },
+          { label: 'New Customers',         value: `${data.customers.newThisPeriod}`, operator: '÷' },
+          { label: '= CAC',                 value: fmtShort(cacVal) },
+        ],
+        result: `${(ltvVal / cacVal).toFixed(1)}×`,
+        note: 'Contribution-margin LTV ÷ period CAC',
+      };
+    }
+
+    default:
+      return null;
+  }
+}
 
 // Maps KPI IDs to Goals keys
 const KPI_GOAL_MAP: Partial<Record<string, keyof Goals>> = {
@@ -153,12 +358,23 @@ function computeKPIs(data: UnifiedBusinessData, prev?: UnifiedBusinessData): KPI
   const prevOpex       = prev?.costs.totalOpEx ?? 0;
   const prevEbitda     = prevRev ? prevRev - prevCogs - prevOpex : undefined;
   const prevGrossMargin= prevRev ? ((prevRev - prevCogs) / prevRev) * 100 : undefined;
-  const { totalCount, newThisPeriod, churned, topCustomers, retentionRate } = data.customers;
+  const { totalCount, newThisPeriod, churned, topCustomers, retentionRate, avgRevenuePerCustomer } = data.customers;
   const top3        = topCustomers.slice(0, 3).reduce((s, c) => s + c.percentOfTotal, 0);
   const retention   = (retentionRate ?? ((totalCount - churned) / Math.max(totalCount - newThisPeriod + churned, 1))) * 100;
   const netNew      = newThisPeriod - churned;
   const headcount   = data.operations.headcount;
   const revPerEmp   = headcount ? rev / headcount : 0;
+
+  // LTV / CAC calculation
+  const churnRate   = 1 - (retention / 100);
+  const arpc        = avgRevenuePerCustomer ?? (totalCount > 0 ? rev / totalCount : 0);
+  const grossMarginFrac = rev > 0 ? (rev - cogs) / rev : 0;
+  // LTV = (ARPC × Gross Margin) / Churn Rate  — contribution-margin LTV
+  const ltv         = churnRate > 0 ? (arpc * grossMarginFrac) / churnRate : 0;
+  // CAC = S&M spend / new customers acquired this period
+  const smSpend     = data.costs.byCategory?.find(c => /sales|marketing/i.test(c.category))?.amount ?? 0;
+  const cac         = newThisPeriod > 0 && smSpend > 0 ? smSpend / newThisPeriod : 0;
+  const ltvCacRatio = cac > 0 && ltv > 0 ? ltv / cac : 0;
 
   // Cash KPIs from cash flow data
   const cashKPIs: KPIResult[] = [];
@@ -208,6 +424,15 @@ function computeKPIs(data: UnifiedBusinessData, prev?: UnifiedBusinessData): KPI
     { id: 'customer-concentration', name: 'Top 3 Concentration', value: top3,           formattedValue: fmtV(top3,'%'),                  unit: '%', trend: 'unknown',              status: top3 > 60 ? 'red' : top3 > 40 ? 'yellow' : 'green', description: '% of revenue from top 3 customers', formula: 'Sum(Top3 Revenue) / Total Revenue', category: 'customers' },
     { id: 'retention-rate',         name: 'Retention Rate',      value: retention,      formattedValue: fmtV(retention,'%'),             unit: '%', trend: 'unknown',              status: statusFn(retention, 90, 80), description: '% of customers retained this period', formula: '(End Customers − New) / Start Customers', category: 'customers' },
     { id: 'net-new-customers',      name: 'Net New',             value: netNew,         formattedValue: netNew >= 0 ? `+${netNew}` : `${netNew}`, unit: '', trend: netNew > 0 ? 'up' : netNew < 0 ? 'down' : 'flat', status: netNew > 0 ? 'green' : netNew === 0 ? 'yellow' : 'red', description: 'New customers minus churned', formula: 'New Added − Churned', category: 'customers' },
+    ...(ltv > 0 ? [
+      { id: 'ltv',       name: 'LTV',         value: ltv,         formattedValue: fmtV(ltv,'$'),          unit: '$', trend: 'unknown' as const, status: 'neutral' as const, description: '(ARPC × Gross Margin) ÷ Churn Rate — contribution-margin lifetime value per customer', formula: '(ARPC × GM%) / Churn Rate', category: 'customers' as const },
+    ] : []),
+    ...(cac > 0 ? [
+      { id: 'cac',       name: 'CAC',         value: cac,         formattedValue: fmtV(cac,'$'),          unit: '$', trend: 'unknown' as const, status: 'neutral' as const, description: 'Sales & Marketing spend ÷ new customers acquired this period', formula: 'S&M Spend / New Customers', category: 'customers' as const },
+    ] : []),
+    ...(ltvCacRatio > 0 ? [
+      { id: 'ltv-cac',   name: 'LTV / CAC',   value: ltvCacRatio, formattedValue: `${ltvCacRatio.toFixed(1)}×`, unit: 'x', trend: 'unknown' as const, status: ltvCacRatio >= 3 ? 'green' as const : ltvCacRatio >= 1 ? 'yellow' as const : 'red' as const, description: 'Customer lifetime value vs. acquisition cost — 3× or above is healthy', formula: 'LTV / CAC', category: 'customers' as const },
+    ] : []),
     ...(headcount ? [
       { id: 'rev-per-employee', name: 'Rev / Employee', value: revPerEmp, formattedValue: fmtV(revPerEmp,'$'), unit: '$', trend: 'unknown' as const, status: 'neutral' as const, description: 'Revenue generated per team member', formula: 'Revenue / Headcount', category: 'operations' as const },
       { id: 'gp-per-employee',  name: 'GP / Employee',  value: grossProfit / headcount, formattedValue: fmtV(grossProfit / headcount,'$'), unit: '$', trend: 'unknown' as const, status: (grossProfit/headcount) >= 100000 ? 'green' as const : (grossProfit/headcount) >= 60000 ? 'yellow' as const : 'red' as const, description: 'Gross profit generated per team member — shows delivery efficiency', formula: '(Revenue − COGS) / Headcount', category: 'operations' as const },
@@ -217,8 +442,20 @@ function computeKPIs(data: UnifiedBusinessData, prev?: UnifiedBusinessData): KPI
 }
 
 // ── KPI detail modal ───────────────────────────────────────────────────────────
-function KPIDetailModal({ kpi, goal, onClose }: { kpi: KPIResult; goal?: number; onClose: () => void }) {
+function KPIDetailModal({
+  kpi, goal, onClose, data, previousData, onNavigate,
+}: {
+  kpi: KPIResult;
+  goal?: number;
+  onClose: () => void;
+  data: UnifiedBusinessData;
+  previousData?: UnifiedBusinessData;
+  onNavigate?: (view: string) => void;
+}) {
   const bench = BENCHMARKS[kpi.id];
+  const source = METRIC_SOURCE[kpi.id];
+  const lineage = computeLineage(kpi.id, data, previousData);
+  const drillView = CATEGORY_DRILLDOWN[kpi.category];
   const attainment = goal !== undefined && goal !== 0 ? (kpi.value / goal) * 100 : undefined;
   const goalFmt = goal !== undefined
     ? kpi.unit === '$'
@@ -226,92 +463,168 @@ function KPIDetailModal({ kpi, goal, onClose }: { kpi: KPIResult; goal?: number;
       : `${goal}%`
     : undefined;
 
+  const CATEGORY_LABEL: Record<string, string> = {
+    revenue: 'Revenue', profitability: 'Profitability', customers: 'Customers',
+    operations: 'Operations', cash: 'Cash'
+  };
+  const TAB_LABEL: Record<string, string> = {
+    financial: 'Financial', customers: 'Customers', operations: 'Operations', cash: 'Cash'
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm"/>
-      <div className="relative bg-[#0d1117] border border-slate-700/60 rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-start justify-between mb-4">
+      <div className="relative bg-[#0d1117] border border-slate-700/60 rounded-2xl w-full max-w-md shadow-2xl overflow-y-auto max-h-[90vh]" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="sticky top-0 bg-[#0d1117] border-b border-slate-800/60 px-5 py-4 flex items-start justify-between z-10">
           <div>
-            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">{kpi.category}</div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">{CATEGORY_LABEL[kpi.category] ?? kpi.category}</span>
+              {source && (
+                <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${SOURCE_STYLE[source]}`}>
+                  {source}
+                </span>
+              )}
+            </div>
             <div className="text-[18px] font-bold text-slate-100 tracking-tight">{kpi.name}</div>
           </div>
-          <button onClick={onClose} className="text-slate-600 hover:text-slate-300 text-xl leading-none -mt-0.5 transition-colors">×</button>
-        </div>
-        <div className="bg-slate-900/60 border border-slate-800/50 rounded-xl p-4 mb-4 text-center">
-          <div className="text-[32px] font-bold text-slate-100 tracking-tight">{kpi.formattedValue}</div>
-          {kpi.changePercent !== undefined && (
-            <div className={`text-[13px] font-medium mt-1 ${kpi.changePercent >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {kpi.changePercent >= 0 ? '↑' : '↓'} {Math.abs(kpi.changePercent).toFixed(1)}% vs prior period
-            </div>
-          )}
-          {/* Sparkline in modal */}
-          {kpi.sparkline && (
-            <div className="mt-3 flex justify-center">
-              <Sparkline values={kpi.sparkline} positive={!kpi.id.includes('concentration')}/>
-            </div>
-          )}
+          <button onClick={onClose} className="text-slate-600 hover:text-slate-300 text-xl leading-none mt-0.5 transition-colors flex-shrink-0">×</button>
         </div>
 
-        {/* Trajectory projection */}
-        {kpi.sparkline && kpi.sparkline.length >= 2 && (() => {
-          const { slope, intercept } = linReg(kpi.sparkline);
-          const n = kpi.sparkline.length;
-          const proj3 = intercept + slope * (n + 2); // 3 periods ahead (0-indexed: n+2)
-          const isImproving = kpi.id.includes('concentration') ? slope < 0 : slope > 0;
-          const projFmt = kpi.unit === '$'
-            ? (Math.abs(proj3) >= 1_000_000 ? `$${(proj3/1_000_000).toFixed(1)}M` : Math.abs(proj3) >= 1_000 ? `$${(proj3/1_000).toFixed(0)}k` : `$${proj3.toFixed(0)}`)
-            : `${proj3.toFixed(1)}%`;
-          return (
-            <div className={`rounded-xl border px-3.5 py-3 mb-4 ${isImproving ? 'bg-emerald-500/5 border-emerald-500/15' : 'bg-red-500/5 border-red-500/15'}`}>
-              <div className="text-[10px] font-semibold uppercase tracking-wider mb-1.5 text-slate-500">Trend Projection</div>
-              <div className={`text-[12px] font-semibold ${isImproving ? 'text-emerald-400' : 'text-red-400'}`}>
-                At the current trend, {kpi.name} will reach {projFmt} in 3 periods
+        <div className="px-5 py-4 space-y-4">
+          {/* Value hero */}
+          <div className="bg-slate-900/60 border border-slate-800/50 rounded-xl p-4 text-center">
+            <div className="text-[32px] font-bold text-slate-100 tracking-tight">{kpi.formattedValue}</div>
+            {kpi.changePercent !== undefined && (
+              <div className={`text-[13px] font-medium mt-1 ${kpi.changePercent >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {kpi.changePercent >= 0 ? '↑' : '↓'} {Math.abs(kpi.changePercent).toFixed(1)}% vs prior period
               </div>
-              <div className="text-[10px] text-slate-600 mt-1">
-                Based on linear regression of {n} data points · slope: {slope >= 0 ? '+' : ''}{kpi.unit === '$' ? `$${slope.toFixed(0)}` : `${slope.toFixed(2)}pp`}/period
+            )}
+            {kpi.sparkline && (
+              <div className="mt-3 flex justify-center">
+                <Sparkline values={kpi.sparkline} positive={!kpi.id.includes('concentration')}/>
+              </div>
+            )}
+          </div>
+
+          {/* Formula lineage — real values */}
+          {lineage && (
+            <div className="bg-slate-900/40 border border-slate-800/50 rounded-xl p-4">
+              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-3">How It&apos;s Calculated</div>
+              <div className="space-y-1.5">
+                {lineage.steps.map((step, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    {step.operator ? (
+                      <span className="w-4 text-center text-slate-500 text-sm font-medium flex-shrink-0">{step.operator}</span>
+                    ) : (
+                      <span className="w-4 flex-shrink-0"/>
+                    )}
+                    <div className="flex-1 flex items-center justify-between gap-3 bg-[#0d1117] border border-slate-800/40 rounded-lg px-3 py-1.5">
+                      <span className="text-[11px] text-slate-400">{step.label}</span>
+                      {step.value && <span className="text-[12px] font-mono font-semibold text-slate-200 tabular-nums">{step.value}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 pt-3 border-t border-slate-800/40 flex items-center justify-between">
+                <span className="text-[11px] text-slate-500">= Result</span>
+                <span className="text-[14px] font-bold text-slate-100 font-mono tabular-nums">{lineage.result}</span>
+              </div>
+              {lineage.note && (
+                <div className="mt-1.5 text-[10px] text-slate-600 italic">{lineage.note}</div>
+              )}
+            </div>
+          )}
+
+          {/* Abstract formula fallback when no lineage */}
+          {!lineage && (
+            <div>
+              <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Formula</div>
+              <div className="text-[12px] text-slate-400 font-mono bg-slate-900/40 border border-slate-800/40 rounded-lg px-3 py-2">{kpi.formula}</div>
+            </div>
+          )}
+
+          {/* Trajectory projection */}
+          {kpi.sparkline && kpi.sparkline.length >= 2 && (() => {
+            const { slope, intercept } = linReg(kpi.sparkline);
+            const n = kpi.sparkline.length;
+            const proj3 = intercept + slope * (n + 2);
+            const isImproving = kpi.id.includes('concentration') ? slope < 0 : slope > 0;
+            const projFmt = kpi.unit === '$'
+              ? (Math.abs(proj3) >= 1_000_000 ? `$${(proj3/1_000_000).toFixed(1)}M` : Math.abs(proj3) >= 1_000 ? `$${(proj3/1_000).toFixed(0)}k` : `$${proj3.toFixed(0)}`)
+              : `${proj3.toFixed(1)}%`;
+            return (
+              <div className={`rounded-xl border px-3.5 py-3 ${isImproving ? 'bg-emerald-500/5 border-emerald-500/15' : 'bg-red-500/5 border-red-500/15'}`}>
+                <div className="text-[10px] font-semibold uppercase tracking-wider mb-1.5 text-slate-500">Trend Projection</div>
+                <div className={`text-[12px] font-semibold ${isImproving ? 'text-emerald-400' : 'text-red-400'}`}>
+                  At the current trend, {kpi.name} will reach {projFmt} in 3 periods
+                </div>
+                <div className="text-[10px] text-slate-600 mt-1">
+                  Linear regression on {n} data points · slope: {slope >= 0 ? '+' : ''}{kpi.unit === '$' ? `$${slope.toFixed(0)}` : `${slope.toFixed(2)}pp`}/period
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Goal attainment */}
+          {attainment !== undefined && goalFmt && (
+            <div className="bg-slate-900/40 border border-slate-800/40 rounded-xl p-3.5">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-semibold text-slate-400">Target: {goalFmt}</span>
+                <span className={`text-[12px] font-bold ${attainment >= 100 ? 'text-emerald-400' : attainment >= 75 ? 'text-amber-400' : 'text-slate-400'}`}>
+                  {attainment >= 100 ? '✓ Goal met' : `${attainment.toFixed(0)}% of target`}
+                </span>
+              </div>
+              <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full transition-all ${attainment >= 100 ? 'bg-emerald-500' : attainment >= 75 ? 'bg-amber-500' : 'bg-indigo-500/50'}`}
+                  style={{ width: `${Math.min(attainment, 100)}%` }}/>
               </div>
             </div>
-          );
-        })()}
-        {/* Goal attainment */}
-        {attainment !== undefined && goalFmt && (
-          <div className="bg-slate-900/40 border border-slate-800/40 rounded-xl p-3.5 mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-semibold text-slate-400">Target: {goalFmt}</span>
-              <span className={`text-[12px] font-bold ${attainment >= 100 ? 'text-emerald-400' : attainment >= 75 ? 'text-amber-400' : 'text-slate-400'}`}>
-                {attainment >= 100 ? '✓ Goal met' : `${attainment.toFixed(0)}% of target`}
-              </span>
+          )}
+
+          {/* Benchmark */}
+          {bench && (
+            <div className="bg-indigo-500/5 border border-indigo-500/15 rounded-xl p-3.5">
+              <div className="text-[10px] font-semibold text-indigo-400/70 uppercase tracking-wider mb-2">Industry Benchmark</div>
+              <div className="flex items-center justify-between">
+                <span className="text-[12px] text-slate-400">{bench.label}</span>
+                <span className="text-[13px] font-bold text-slate-200">{bench.value}</span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1.5 italic">{bench.good}</div>
             </div>
-            <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-              <div className={`h-full rounded-full transition-all ${attainment >= 100 ? 'bg-emerald-500' : attainment >= 75 ? 'bg-amber-500' : 'bg-indigo-500/50'}`}
-                style={{ width: `${Math.min(attainment, 100)}%` }}/>
-            </div>
-          </div>
-        )}
-        {bench && (
-          <div className="bg-indigo-500/5 border border-indigo-500/15 rounded-xl p-3.5 mb-4">
-            <div className="text-[10px] font-semibold text-indigo-400/70 uppercase tracking-wider mb-2">Industry Benchmark</div>
-            <div className="flex items-center justify-between">
-              <span className="text-[12px] text-slate-400">{bench.label}</span>
-              <span className="text-[13px] font-bold text-slate-200">{bench.value}</span>
-            </div>
-            <div className="text-[11px] text-slate-500 mt-1.5 italic">{bench.good}</div>
-          </div>
-        )}
-        <div className="mb-3">
-          <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Formula</div>
-          <div className="text-[12px] text-slate-400 font-mono bg-slate-900/40 border border-slate-800/40 rounded-lg px-3 py-2">{kpi.formula}</div>
+          )}
+
+          <div className="text-[12px] text-slate-500 leading-relaxed">{kpi.description}</div>
+
+          {/* Drilldown action */}
+          {drillView && onNavigate && (
+            <button
+              onClick={() => { onNavigate(drillView); onClose(); }}
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700/40 rounded-xl text-sm font-medium text-slate-300 hover:text-white transition-colors"
+            >
+              View full {TAB_LABEL[drillView]} analysis
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><path d="M6 4l4 4-4 4"/></svg>
+            </button>
+          )}
         </div>
-        <div className="text-[12px] text-slate-500 leading-relaxed">{kpi.description}</div>
       </div>
     </div>
   );
 }
 
 // ── KPI card ───────────────────────────────────────────────────────────────────
-function KPICard({ kpi, goal }: { kpi: KPIResult; goal?: number }) {
+function KPICard({
+  kpi, goal, data, previousData, onNavigate,
+}: {
+  kpi: KPIResult;
+  goal?: number;
+  data: UnifiedBusinessData;
+  previousData?: UnifiedBusinessData;
+  onNavigate?: (view: string) => void;
+}) {
   const [showDetail, setShowDetail] = useState(false);
   const [copied, setCopied]         = useState(false);
+  const source = METRIC_SOURCE[kpi.id];
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -352,15 +665,16 @@ function KPICard({ kpi, goal }: { kpi: KPIResult; goal?: number }) {
       <button onClick={() => setShowDetail(true)}
         className={`group w-full text-left ${statusStyles.bg} hover:bg-slate-800/60 border border-slate-800/50 border-l-2 ${statusStyles.border} rounded-xl p-3.5 relative transition-all cursor-pointer print-break-avoid`}>
         {kpi.isAnomalous && <div className="absolute top-2.5 right-2.5 w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"/>}
-        {BENCHMARKS[kpi.id] && !kpi.isAnomalous && <div className="absolute top-2.5 right-2.5 text-[8px] text-slate-700 group-hover:text-slate-500 font-bold transition-colors">BENCH</div>}
+        {/* Name row */}
         <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] truncate mb-2">{kpi.name}</div>
+        {/* Value + change pill */}
         <div className="flex items-end justify-between gap-1">
           <div
             className="text-[18px] font-bold tracking-tight text-slate-100 leading-none cursor-copy group-hover:text-indigo-100 transition-colors relative"
             onClick={handleCopy}
             title="Click to copy"
           >
-            {copied ? <span className="text-[13px] text-emerald-400 font-semibold">✓ Copied</span> : kpi.formattedValue}
+            {copied ? <span className="text-xs text-emerald-400 font-semibold">✓ Copied</span> : kpi.formattedValue}
           </div>
           {kpi.changePercent !== undefined && (
             <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md flex-shrink-0 ${pillCls}`}>
@@ -371,71 +685,52 @@ function KPICard({ kpi, goal }: { kpi: KPIResult; goal?: number }) {
 
         {/* Sparkline */}
         {kpi.sparkline && kpi.sparkline.length > 1 && (
-          <div className="mt-2 flex items-center justify-between">
-            <Sparkline values={kpi.sparkline} positive={!isInverse}/>
-            <span className="text-[9px] text-slate-700 font-medium">{kpi.sparkline.length}p</span>
-          </div>
-        )}
-
-        {/* Goal attainment bar */}
-        {attainment !== undefined && (
           <div className="mt-2">
-            <div className="flex items-center justify-between mb-0.5">
-              <span className="text-[9px] text-slate-600">vs target</span>
-              <span className={`text-[9px] font-semibold ${attainment >= 100 ? 'text-emerald-400' : attainment >= 75 ? 'text-amber-400' : 'text-slate-600'}`}>
-                {attainment >= 100 ? '✓' : `${attainment.toFixed(0)}%`}
-              </span>
-            </div>
-            <div className="h-0.5 bg-slate-800 rounded-full overflow-hidden">
-              <div className={`h-full rounded-full ${attainmentColor}`} style={{ width: `${attainment}%` }}/>
-            </div>
+            <Sparkline values={kpi.sparkline} positive={!isInverse}/>
           </div>
         )}
 
-        {/* Inline benchmark comparison */}
+        {/* Benchmark — single text line, no bar */}
         {(() => {
           const bv = BENCHMARK_VALS[kpi.id];
           if (!bv) return null;
-          const isInverse = bv.inverse ?? false;
+          const isInvB = bv.inverse ?? false;
           const diff = kpi.value - bv.val;
-          const isAhead = isInverse ? diff < 0 : diff > 0;
+          const isAhead = isInvB ? diff < 0 : diff > 0;
           const absDiff = Math.abs(diff);
           const isMonetary = kpi.unit === '$';
           const fmtDiff = isMonetary
             ? (absDiff >= 1_000_000 ? `$${(absDiff/1_000_000).toFixed(1)}M` : absDiff >= 1000 ? `$${(absDiff/1000).toFixed(0)}k` : `$${absDiff.toFixed(0)}`)
             : `${absDiff.toFixed(1)}pp`;
-          const maxVal = Math.max(kpi.value, bv.val) * 1.05;
-          const curPct  = Math.min(100, (kpi.value / maxVal) * 100);
-          const benchPct= Math.min(100, (bv.val   / maxVal) * 100);
           return (
-            <div className="mt-1.5 pt-1.5 border-t border-slate-800/30 space-y-1">
-              {/* Bar with benchmark tick */}
-              <div className="relative h-1 bg-slate-800/80 rounded-full overflow-visible">
-                <div className={`absolute inset-y-0 left-0 rounded-full ${isAhead ? 'bg-emerald-500/35' : 'bg-amber-500/35'}`}
-                  style={{ width: `${curPct}%` }}/>
-                <div className="absolute top-1/2 -translate-y-1/2 w-px h-2.5 bg-slate-500/70 rounded-full"
-                  style={{ left: `${benchPct}%` }}/>
-              </div>
-              <div className={`text-[9px] font-medium tabular-nums ${isAhead ? 'text-emerald-400/65' : 'text-amber-400/65'}`}>
-                {isAhead ? `+${fmtDiff} ahead of` : `${fmtDiff} behind`} {bv.label}
-              </div>
+            <div className={`mt-2 text-[10px] font-medium tabular-nums ${isAhead ? 'text-emerald-400/60' : 'text-amber-400/60'}`}>
+              {isAhead ? `+${fmtDiff} vs` : `${fmtDiff} below`} {bv.label}
             </div>
           );
         })()}
-        <div className="text-[10px] text-slate-600 mt-1 leading-snug group-hover:text-slate-500 transition-colors truncate">{kpi.description}</div>
       </button>
-      {showDetail && <KPIDetailModal kpi={kpi} goal={goal} onClose={() => setShowDetail(false)}/>}
+      {showDetail && (
+        <KPIDetailModal
+          kpi={kpi} goal={goal}
+          data={data} previousData={previousData}
+          onNavigate={onNavigate}
+          onClose={() => setShowDetail(false)}
+        />
+      )}
     </>
   );
 }
 
 // ── Category group ─────────────────────────────────────────────────────────────
 function KPIGroup({
-  categoryId, kpis, goals, defaultExpanded = true,
+  categoryId, kpis, goals, data, previousData, onNavigate, defaultExpanded = true,
 }: {
   categoryId: string;
   kpis: KPIResult[];
   goals?: Goals;
+  data: UnifiedBusinessData;
+  previousData?: UnifiedBusinessData;
+  onNavigate?: (view: string) => void;
   defaultExpanded?: boolean;
 }) {
   const [open, setOpen] = useState(defaultExpanded);
@@ -468,30 +763,29 @@ function KPIGroup({
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800/20 transition-colors text-left no-print">
         <div className={`flex-shrink-0 ${cfg.accent}`}>{cfg.icon}</div>
-        <div className="flex-1 min-w-0 flex items-center gap-3">
-          <span className={`text-[12px] font-semibold ${cfg.accent}`}>{cfg.label}</span>
+        <div className="flex-1 min-w-0 flex items-center gap-2.5">
+          <span className={`text-[12px] font-semibold flex-shrink-0 ${cfg.accent}`}>{cfg.label}</span>
           {headline && (
             <>
               <span className="text-slate-700">·</span>
-              <span className="text-[12px] font-bold text-slate-200">{headline.formattedValue}</span>
-              <span className="text-[11px] text-slate-500 truncate">{headline.name}</span>
+              <span className="text-[12px] font-bold text-slate-200 flex-shrink-0">{headline.formattedValue}</span>
+              <span className="text-[11px] text-slate-600 truncate hidden sm:block">{headline.name}</span>
             </>
           )}
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
-          {kpisWithGoals.length > 0 && (
-            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full border bg-indigo-500/8 text-indigo-400/70 border-indigo-500/15">
-              {goalsOnTrack}/{kpisWithGoals.length} goals
-            </span>
-          )}
+        <div className="flex items-center gap-2 flex-shrink-0">
           {statusSummary && (
-            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${
+            <span className={`hidden sm:inline text-[10px] font-medium px-2 py-0.5 rounded-full border ${
               redCount > 0 ? 'text-red-400 bg-red-500/10 border-red-500/20' : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
             }`}>{statusSummary}</span>
           )}
-          <span className="text-[10px] text-slate-600">{kpis.length} metric{kpis.length !== 1 ? 's' : ''}</span>
+          {kpisWithGoals.length > 0 && goalsOnTrack > 0 && (
+            <span className="hidden lg:inline text-[10px] font-medium px-2 py-0.5 rounded-full border bg-indigo-500/8 text-indigo-400/70 border-indigo-500/15">
+              {goalsOnTrack}/{kpisWithGoals.length}
+            </span>
+          )}
           <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
-            className={`w-2.5 h-2.5 text-slate-600 transition-transform ${open ? 'rotate-180' : ''}`}>
+            className={`w-2.5 h-2.5 text-slate-600 transition-transform flex-shrink-0 ${open ? 'rotate-180' : ''}`}>
             <path d="M2 3.5L5 6.5 8 3.5"/>
           </svg>
         </div>
@@ -509,7 +803,7 @@ function KPIGroup({
             {kpis.map(kpi => {
               const goalKey = KPI_GOAL_MAP[kpi.id];
               const goal    = goalKey ? goals?.[goalKey] : undefined;
-              return <KPICard key={kpi.id} kpi={kpi} goal={goal}/>;
+              return <KPICard key={kpi.id} kpi={kpi} goal={goal} data={data} previousData={previousData} onNavigate={onNavigate}/>;
             })}
           </div>
         </div>
@@ -519,7 +813,7 @@ function KPIGroup({
 }
 
 // ── Grid ───────────────────────────────────────────────────────────────────────
-export default function KPIGrid({ dashboard, data, previousData, goals }: Props) {
+export default function KPIGrid({ dashboard, data, previousData, goals, onNavigate }: Props) {
   const kpis = dashboard?.kpis ?? computeKPIs(data, previousData);
 
   const categories = ['revenue', 'profitability', 'customers', 'operations', 'cash'] as const;
@@ -535,6 +829,9 @@ export default function KPIGrid({ dashboard, data, previousData, goals }: Props)
           categoryId={cat}
           kpis={items}
           goals={goals}
+          data={data}
+          previousData={previousData}
+          onNavigate={onNavigate}
           defaultExpanded={cat === 'revenue' || cat === 'profitability'}
         />
       ))}

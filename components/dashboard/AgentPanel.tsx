@@ -771,7 +771,10 @@ export default function AgentPanel({ data, previousData, companyName, companyPro
     try {
       const saved = localStorage.getItem(AGENT_RESULTS_KEY);
       if (saved) return JSON.parse(saved) as Record<string, Record<string, unknown>>;
-    } catch { /* ignore */ }
+    } catch {
+      // Stale/corrupt data — clear so it doesn't repeat on every mount
+      localStorage.removeItem(AGENT_RESULTS_KEY);
+    }
     return {};
   });
   const [loading, setLoading]   = useState<string | null>(null);

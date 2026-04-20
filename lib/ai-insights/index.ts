@@ -74,7 +74,7 @@ Return ONLY valid JSON matching this exact schema:
 
 Generate at least 3 items in whatChanged, 2 in whyItMatters, and 3 in whatToDoNext.`;
 
-  const raw = await complete(prompt, 3000, true);
+  const raw = await complete(prompt, 4096, true);
   return parseJSON<WeeklyInsight>(raw);
 }
 
@@ -223,11 +223,50 @@ async function complete(prompt: string, maxTokens: number, fast = false): Promis
 
 function parseJSON<T>(raw: string): T {
   const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  try {
-    return JSON.parse(cleaned) as T;
-  } catch {
-    const match = cleaned.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-    if (match) return JSON.parse(match[0]) as T;
-    throw new Error(`JSON parse failed: ${cleaned.slice(0, 100)}`);
+
+  // First try: direct parse
+  try { return JSON.parse(cleaned) as T; } catch { /* fall through */ }
+
+  // Second try: extract outermost {...} or [...]
+  const match = cleaned.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+  if (match) {
+    try { return JSON.parse(match[0]) as T; } catch { /* fall through */ }
   }
+
+  // Third try: response was truncated mid-JSON — attempt repair by closing open
+  // structures. Walk from the end, closing any unclosed [ { " braces.
+  const repaired = repairTruncatedJSON(cleaned);
+  if (repaired) {
+    try { return JSON.parse(repaired) as T; } catch { /* fall through */ }
+  }
+
+  throw new Error(`JSON parse failed after repair attempt. Raw (first 200 chars): ${cleaned.slice(0, 200)}`);
+}
+
+function repairTruncatedJSON(s: string): string | null {
+  // Find the last complete-ish JSON object by trimming after the last } or ]
+  const lastBrace   = s.lastIndexOf('}');
+  const lastBracket = s.lastIndexOf(']');
+  const cutAt = Math.max(lastBrace, lastBracket);
+  if (cutAt < 0) return null;
+
+  let candidate = s.slice(0, cutAt + 1);
+
+  // Balance open braces/brackets
+  const opens: string[] = [];
+  let inStr = false;
+  let escape = false;
+  for (const ch of candidate) {
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inStr) { escape = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === '{') opens.push('}');
+    else if (ch === '[') opens.push(']');
+    else if (ch === '}' || ch === ']') opens.pop();
+  }
+
+  // Close any remaining open structures
+  candidate += opens.reverse().join('');
+  return candidate;
 }

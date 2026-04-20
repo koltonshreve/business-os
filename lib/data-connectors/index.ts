@@ -1,4 +1,4 @@
-import type { UnifiedBusinessData, GoogleSheetsConfig, CSVUpload } from '../../types';
+import type { UnifiedBusinessData, GoogleSheetsConfig, CSVUpload, SupplierRecord, SupplierData, SupplierCategoryRollup, SupplierRedundancy, CapacityResource, CapacityData, CapacitySummary } from '../../types';
 
 // ─── Google Sheets Connector ──────────────────────────────────────────────────
 
@@ -57,6 +57,8 @@ export function parseCSVUpload(upload: CSVUpload): Partial<UnifiedBusinessData> 
     case 'cashflow':   return { cashFlow: parseCashFlowData(rows) };
     case 'ar_aging':      return { arAging: parseARAgingData(rows) };
     case 'transactions':  return { transactions: parseTransactionsData(rows) };
+    case 'suppliers':     return { suppliers: parseSuppliersCSV(rows) };
+    case 'capacity':      return { capacity: parseCapacityCSV(rows) };
     default: throw new Error(`Unknown upload type: ${upload.type}`);
   }
 }
@@ -99,6 +101,8 @@ export function mergeDataSources(
     if (source.cashFlow) merged.cashFlow = source.cashFlow;
     if (source.arAging) merged.arAging = source.arAging;
     if (source.transactions) merged.transactions = source.transactions;
+    if (source.suppliers) merged.suppliers = source.suppliers;
+    if (source.capacity) merged.capacity = source.capacity;
   }
 
   merged.metadata.completeness = calculateCompleteness(merged);
@@ -228,11 +232,35 @@ function parseOperationsCSV(rows: string[][]): UnifiedBusinessData['operations']
 
   const result: UnifiedBusinessData['operations'] = {};
 
-  const headcountIdx = headers.findIndex(h => h.includes('headcount') || h.includes('employee'));
+  const headcountIdx    = headers.findIndex(h => h.includes('headcount') || h.includes('employee'));
   if (headcountIdx >= 0) result.headcount = parseNum(data[headcountIdx]);
 
-  const utilizationIdx = headers.findIndex(h => h.includes('utilization'));
+  const openPosIdx      = headers.findIndex(h => h.includes('open') && h.includes('position'));
+  if (openPosIdx >= 0) result.openPositions = parseNum(data[openPosIdx]);
+
+  const billableIdx     = headers.findIndex(h => h.includes('billable'));
+  if (billableIdx >= 0) result.billableHours = parseNum(data[billableIdx]);
+
+  const totalHrsIdx     = headers.findIndex(h => h === 'totalhours' || h === 'total_hours' || h === 'total hours' || (h.includes('total') && h.includes('hour')));
+  if (totalHrsIdx >= 0) result.totalHours = parseNum(data[totalHrsIdx]);
+
+  // Compute employee utilization from hours if both provided; otherwise look for direct column
+  if (result.billableHours && result.totalHours && result.totalHours > 0) {
+    result.employeeUtilization = result.billableHours / result.totalHours;
+  } else {
+    const empUtilIdx  = headers.findIndex(h => (h.includes('employee') || h.includes('staff')) && h.includes('util'));
+    if (empUtilIdx >= 0) result.employeeUtilization = parseNum(data[empUtilIdx]);
+  }
+
+  // Legacy column name still supported
+  const utilizationIdx  = headers.findIndex(h => h === 'utilization' || h === 'utilizationrate' || h === 'utilization rate');
   if (utilizationIdx >= 0) result.utilizationRate = parseNum(data[utilizationIdx]);
+
+  const capUtilIdx      = headers.findIndex(h => h.includes('capacity'));
+  if (capUtilIdx >= 0) result.capacityUtilization = parseNum(data[capUtilIdx]);
+
+  const assetUtilIdx    = headers.findIndex(h => h.includes('asset'));
+  if (assetUtilIdx >= 0) result.assetUtilization = parseNum(data[assetUtilIdx]);
 
   return result;
 }
@@ -474,4 +502,193 @@ function detectWarnings(data: Partial<UnifiedBusinessData>): string[] {
   if (!data.customers?.totalCount) warnings.push('Customer data missing — concentration risk cannot be assessed');
   if (data.revenue?.total && !data.costs?.totalOpEx) warnings.push('OpEx data missing — EBITDA estimate may be incomplete');
   return warnings;
+}
+
+// ─── Supplier / Spend Intelligence Engine ────────────────────────────────────
+
+export function buildSupplierData(suppliers: SupplierRecord[]): SupplierData {
+  const total = suppliers.reduce((s, r) => s + (r.spendOverride ?? r.spend), 0);
+
+  // Enrich each record with computed fields
+  const enriched: SupplierRecord[] = suppliers.map(s => {
+    const spend = s.spendOverride ?? s.spend;
+    const pct   = total > 0 ? (spend / total) * 100 : 0;
+    return {
+      ...s,
+      spend,
+      spendPct:  parseFloat(pct.toFixed(2)),
+      isTail:    pct < 2,
+      riskLevel: pct >= 20 ? 'high' : pct >= 10 ? 'medium' : 'low',
+    };
+  });
+
+  // Mark redundant suppliers (same category has ≥2 suppliers)
+  const catCounts: Record<string, number> = {};
+  for (const s of enriched) catCounts[s.category] = (catCounts[s.category] ?? 0) + 1;
+  const withRedundancy = enriched.map(s => ({ ...s, isRedundant: (catCounts[s.category] ?? 0) >= 2 }));
+
+  // Category rollups
+  const catMap: Record<string, { spend: number; names: string[] }> = {};
+  for (const s of withRedundancy) {
+    if (!catMap[s.category]) catMap[s.category] = { spend: 0, names: [] };
+    catMap[s.category].spend += s.spendOverride ?? s.spend;
+    catMap[s.category].names.push(s.name);
+  }
+  const byCategory: SupplierCategoryRollup[] = Object.entries(catMap)
+    .map(([cat, { spend, names }]) => ({
+      category:       cat,
+      spend,
+      spendPct:       total > 0 ? parseFloat(((spend / total) * 100).toFixed(2)) : 0,
+      supplierCount:  names.length,
+      isConcentrated: total > 0 && (spend / total) > 0.35,
+      suppliers:      names,
+    }))
+    .sort((a, b) => b.spend - a.spend);
+
+  // Redundancy analysis
+  const redundancies: SupplierRedundancy[] = byCategory
+    .filter(c => c.supplierCount >= 2)
+    .map(c => ({
+      category:        c.category,
+      suppliers:       c.suppliers,
+      combinedSpend:   c.spend,
+      potentialSavings: Math.round(c.spend * 0.15), // 15% consolidation estimate
+    }));
+
+  // Tail suppliers
+  const tailSuppliers = withRedundancy.filter(s => s.isTail).map(s => s.name);
+
+  // HHI (Herfindahl-Hirschman Index) — supplier-level, 0–10000
+  const hhi = total > 0
+    ? Math.round(withRedundancy.reduce((s, r) => {
+        const share = (r.spendOverride ?? r.spend) / total;
+        return s + share * share * 10000;
+      }, 0))
+    : 0;
+
+  const concentrationRisk: SupplierData['concentrationRisk'] =
+    hhi >= 2500 ? 'high' : hhi >= 1500 ? 'medium' : 'low';
+
+  return {
+    suppliers:         withRedundancy,
+    totalSpend:        total,
+    byCategory,
+    tailSuppliers,
+    redundancies,
+    hhi,
+    concentrationRisk,
+  };
+}
+
+function parseSuppliersCSV(rows: string[][]): SupplierData {
+  const headers = rows[0]?.map(h => h.toLowerCase().trim()) ?? [];
+  const data    = rows.slice(1).filter(r => r.some(c => c.trim()));
+
+  const nameIdx     = headers.findIndex(h => h.includes('supplier') || h.includes('vendor') || h.includes('name'));
+  const catIdx      = headers.findIndex(h => h.includes('category') || h.includes('type'));
+  const spendIdx    = headers.findIndex(h => h.includes('spend') || h.includes('amount') || h.includes('cost') || h.includes('total'));
+  const invoiceIdx  = headers.findIndex(h => h.includes('invoice') && h.includes('count'));
+  const dateIdx     = headers.findIndex(h => h.includes('date') || h.includes('last'));
+  const contractIdx = headers.findIndex(h => h.includes('contract'));
+  const termsIdx    = headers.findIndex(h => h.includes('term') || h.includes('payment'));
+  const contactIdx  = headers.findIndex(h => h.includes('contact') || h.includes('email'));
+  const notesIdx    = headers.findIndex(h => h.includes('note'));
+
+  const suppliers: SupplierRecord[] = data.map((r, i) => ({
+    id:              `s${i + 1}`,
+    name:            nameIdx >= 0    ? (r[nameIdx] ?? `Supplier ${i + 1}`).trim() : `Supplier ${i + 1}`,
+    category:        catIdx >= 0     ? (r[catIdx]  ?? 'Uncategorized').trim()     : 'Uncategorized',
+    spend:           spendIdx >= 0   ? parseNum(r[spendIdx])                      : 0,
+    invoiceCount:    invoiceIdx >= 0 ? parseNum(r[invoiceIdx]) || undefined        : undefined,
+    lastInvoiceDate: dateIdx >= 0    ? r[dateIdx]                                  : undefined,
+    contractValue:   contractIdx >= 0? parseNum(r[contractIdx]) || undefined       : undefined,
+    paymentTerms:    termsIdx >= 0   ? r[termsIdx]                                : undefined,
+    contact:         contactIdx >= 0 ? r[contactIdx]                              : undefined,
+    notes:           notesIdx >= 0   ? r[notesIdx]                                : undefined,
+  }));
+
+  return buildSupplierData(suppliers);
+}
+
+// ─── Capacity CSV Parser ──────────────────────────────────────────────────────
+
+function buildCapacityFromResources(resources: CapacityResource[]): CapacityData {
+  const computed = resources.map(r => {
+    const utilization = r.capacity > 0 ? r.actualVolume / r.capacity : 0;
+    const totalCost = r.fixedCost + r.variableCostPerUnit * r.actualVolume;
+    const costPerUnit = r.actualVolume > 0 ? totalCost / r.actualVolume : 0;
+    const costPerUnitAtCapacity = r.capacity > 0
+      ? (r.fixedCost + r.variableCostPerUnit * r.capacity) / r.capacity
+      : 0;
+    const savingsAtCapacity = r.actualVolume > 0 && r.capacity > 0
+      ? (costPerUnit - costPerUnitAtCapacity) * r.actualVolume
+      : 0;
+    return {
+      ...r,
+      utilization,
+      totalCost,
+      costPerUnit,
+      costPerUnitAtCapacity,
+      isBottleneck: utilization >= 0.85,
+      isUnderutilized: utilization < 0.50,
+      savingsAtCapacity: Math.max(0, savingsAtCapacity),
+    };
+  });
+
+  const totalFixed = computed.reduce((s, r) => s + r.fixedCost, 0);
+  const totalVariable = computed.reduce((s, r) => s + (r.variableCostPerUnit * r.actualVolume), 0);
+  const totalCost = totalFixed + totalVariable;
+
+  const totalCapacity = computed.reduce((s, r) => s + r.capacity, 0);
+  const totalActual = computed.reduce((s, r) => s + r.actualVolume, 0);
+  const weightedUtilization = totalCapacity > 0 ? totalActual / totalCapacity : 0;
+
+  const summary: CapacitySummary = {
+    totalFixed,
+    totalVariable,
+    totalCost,
+    weightedUtilization,
+    bottlenecks: computed.filter(r => r.isBottleneck).map(r => r.name),
+    underutilized: computed.filter(r => r.isUnderutilized).map(r => r.name),
+    potentialSavings: computed.reduce((s, r) => s + (r.savingsAtCapacity ?? 0), 0),
+  };
+
+  return { resources: computed, summary };
+}
+
+export function parseCapacityCSV(rows: string[][]): CapacityData {
+  if (rows.length < 2) return { resources: [], summary: { totalFixed: 0, totalVariable: 0, totalCost: 0, weightedUtilization: 0, bottlenecks: [], underutilized: [], potentialSavings: 0 } };
+
+  const headers = rows[0].map(h => h.toLowerCase().trim());
+  const data = rows.slice(1);
+
+  const idx = (terms: string[]) =>
+    headers.findIndex(h => terms.some(t => h.includes(t)));
+
+  const nameIdx     = idx(['name', 'resource']);
+  const catIdx      = idx(['category', 'type']);
+  const actualIdx   = idx(['actual', 'volume', 'units']);
+  const capacityIdx = idx(['capacity', 'max']);
+  const unitIdx     = idx(['unit']);
+  const fixedIdx    = idx(['fixed']);
+  const varIdx      = idx(['variable', 'variablecost', 'var_cost']);
+  const revenueIdx  = idx(['revenue', 'price', 'revenueperunit']);
+  const notesIdx    = idx(['note']);
+
+  const resources: CapacityResource[] = data
+    .filter(r => r.length > 1)
+    .map((r, i) => ({
+      id: `cap${i + 1}`,
+      name:                nameIdx >= 0     ? (r[nameIdx] ?? `Resource ${i + 1}`).trim() : `Resource ${i + 1}`,
+      category:            catIdx >= 0      ? (r[catIdx]  ?? 'Operations').trim()        : 'Operations',
+      actualVolume:        actualIdx >= 0   ? parseNum(r[actualIdx])                     : 0,
+      capacity:            capacityIdx >= 0 ? parseNum(r[capacityIdx])                   : 0,
+      unit:                unitIdx >= 0     ? (r[unitIdx] ?? 'units').trim()             : 'units',
+      fixedCost:           fixedIdx >= 0    ? parseNum(r[fixedIdx])                      : 0,
+      variableCostPerUnit: varIdx >= 0      ? parseNum(r[varIdx])                        : 0,
+      revenuePerUnit:      revenueIdx >= 0  ? parseNum(r[revenueIdx]) || undefined       : undefined,
+      notes:               notesIdx >= 0    ? r[notesIdx]                                : undefined,
+    }));
+
+  return buildCapacityFromResources(resources);
 }

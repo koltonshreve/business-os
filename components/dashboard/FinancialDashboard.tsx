@@ -92,8 +92,8 @@ function CashFlowPanel({ periods, onAskAI }: { periods: CashFlowPeriod[]; onAskA
       {/* Period table */}
       <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-x-auto">
         <table className="w-full min-w-[560px]">
-          <thead>
-            <tr className="border-b border-slate-800/50">
+          <thead className="sticky top-0 z-10">
+            <tr className="border-b border-slate-800/50 bg-[#060a12]/95 backdrop-blur-sm">
               {['Period','Opening Balance','Receipts','Payments','Closing Balance','Net Flow'].map(h => (
                 <th key={h} className="px-4 py-2.5 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] whitespace-nowrap">{h}</th>
               ))}
@@ -103,13 +103,13 @@ function CashFlowPanel({ periods, onAskAI }: { periods: CashFlowPeriod[]; onAskA
             {periods.map((p, i) => {
               const net = p.netCashFlow ?? (p.closingBalance - p.openingBalance);
               return (
-                <tr key={i} className="border-b border-slate-800/30 hover:bg-slate-800/20 transition-colors">
-                  <td className="px-4 py-3 text-[12px] font-medium text-slate-200">{p.period}</td>
-                  <td className="px-4 py-3 text-[12px] text-slate-300">{fmt(p.openingBalance)}</td>
-                  <td className="px-4 py-3 text-[12px] text-emerald-400">{fmt(p.receipts)}</td>
-                  <td className="px-4 py-3 text-[12px] text-red-400">({fmt(p.payments)})</td>
-                  <td className="px-4 py-3 text-[12px] font-semibold text-slate-100">{fmt(p.closingBalance)}</td>
-                  <td className={`px-4 py-3 text-[12px] font-medium ${net >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                <tr key={i} className={`border-b border-slate-800/30 hover:bg-slate-800/30 transition-colors ${i % 2 === 1 ? 'bg-slate-900/20' : ''}`}>
+                  <td className="px-4 py-3 text-xs font-medium text-slate-200">{p.period}</td>
+                  <td className="px-4 py-3 text-xs text-slate-300 font-mono tabular-nums">{fmt(p.openingBalance)}</td>
+                  <td className="px-4 py-3 text-xs text-emerald-400 font-mono tabular-nums">{fmt(p.receipts)}</td>
+                  <td className="px-4 py-3 text-xs text-red-400 font-mono tabular-nums">({fmt(p.payments)})</td>
+                  <td className="px-4 py-3 text-xs font-semibold text-slate-100 font-mono tabular-nums">{fmt(p.closingBalance)}</td>
+                  <td className={`px-4 py-3 text-xs font-medium font-mono tabular-nums ${net >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                     {net >= 0 ? '+' : ''}{fmt(net)}
                   </td>
                 </tr>
@@ -366,8 +366,8 @@ function ARAgingPanel({ buckets, revenue, onAskAI }: { buckets: ARAgingBucket[];
           </div>
           <div className="overflow-x-auto">
           <table className="w-full min-w-[520px]">
-            <thead>
-              <tr className="border-b border-slate-800/40">
+            <thead className="sticky top-0 z-10">
+              <tr className="border-b border-slate-800/40 bg-[#060a12]/95 backdrop-blur-sm">
                 {['Customer','Current','1–30','31–60','61–90','90+','Total'].map(h => (
                   <th key={h} className="px-4 py-2.5 text-right first:text-left text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] whitespace-nowrap">{h}</th>
                 ))}
@@ -375,14 +375,14 @@ function ARAgingPanel({ buckets, revenue, onAskAI }: { buckets: ARAgingBucket[];
             </thead>
             <tbody>
               {buckets.sort((a, b) => b.total - a.total).map((b, i) => (
-                <tr key={i} className="border-b border-slate-800/30 hover:bg-slate-800/20 transition-colors">
-                  <td className="px-4 py-3 text-[12px] font-medium text-slate-200">{b.customer}</td>
-                  <td className="px-4 py-3 text-[12px] text-right text-emerald-400/80">{b.current > 0 ? fmt(b.current) : '—'}</td>
-                  <td className="px-4 py-3 text-[12px] text-right text-amber-400/80">{b.days30 > 0 ? fmt(b.days30) : '—'}</td>
-                  <td className="px-4 py-3 text-[12px] text-right text-orange-400/80">{b.days60 > 0 ? fmt(b.days60) : '—'}</td>
-                  <td className="px-4 py-3 text-[12px] text-right text-red-400/80">{b.days90 > 0 ? fmt(b.days90) : '—'}</td>
-                  <td className="px-4 py-3 text-[12px] text-right text-red-500/80 font-medium">{b.over90 > 0 ? fmt(b.over90) : '—'}</td>
-                  <td className="px-4 py-3 text-[12px] text-right font-semibold text-slate-100">{fmt(b.total)}</td>
+                <tr key={i} className={`border-b border-slate-800/30 hover:bg-slate-800/30 transition-colors ${i % 2 === 1 ? 'bg-slate-900/20' : ''}`}>
+                  <td className="px-4 py-3 text-xs font-medium text-slate-200">{b.customer}</td>
+                  <td className="px-4 py-3 text-xs text-right text-emerald-400/80 font-mono tabular-nums">{b.current > 0 ? fmt(b.current) : '—'}</td>
+                  <td className="px-4 py-3 text-xs text-right text-amber-400/80 font-mono tabular-nums">{b.days30 > 0 ? fmt(b.days30) : '—'}</td>
+                  <td className="px-4 py-3 text-xs text-right text-orange-400/80 font-mono tabular-nums">{b.days60 > 0 ? fmt(b.days60) : '—'}</td>
+                  <td className="px-4 py-3 text-xs text-right text-red-400/80 font-mono tabular-nums">{b.days90 > 0 ? fmt(b.days90) : '—'}</td>
+                  <td className="px-4 py-3 text-xs text-right text-red-500/80 font-medium font-mono tabular-nums">{b.over90 > 0 ? fmt(b.over90) : '—'}</td>
+                  <td className="px-4 py-3 text-xs text-right font-semibold text-slate-100 font-mono tabular-nums">{fmt(b.total)}</td>
                 </tr>
               ))}
             </tbody>

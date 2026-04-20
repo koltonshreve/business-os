@@ -5,6 +5,8 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Refere
 interface Props {
   data: UnifiedBusinessData;
   onAskAI?: (msg: string) => void;
+  /** Called whenever the active scenario changes so parent can propagate it to all modules */
+  onScenarioChange?: (s: { name: string; revenueGrowthPct: number; grossMarginPct: number; opexChangePct: number; newHires: number; avgCompK: number; priceIncreasePct: number } | null) => void;
 }
 
 interface Scenario {
@@ -239,7 +241,7 @@ function ScenarioCard({
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
-export default function ScenarioModeler({ data, onAskAI }: Props) {
+export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Props) {
   const baseRev      = data.revenue.total;
   const baseCOGS     = data.costs.totalCOGS;
   const baseOpEx     = data.costs.totalOpEx;
@@ -270,8 +272,20 @@ export default function ScenarioModeler({ data, onAskAI }: Props) {
   const proj = project(data, active);
 
   const set = useCallback((key: keyof Scenario, val: number) => {
-    setActive(prev => ({ ...prev, [key]: val }));
-  }, []);
+    setActive(prev => {
+      const next = { ...prev, [key]: val };
+      onScenarioChange?.({
+        name: next.name,
+        revenueGrowthPct: next.revenueGrowthPct,
+        grossMarginPct:   next.grossMarginPct,
+        opexChangePct:    next.opexChangePct,
+        newHires:         next.newHires,
+        avgCompK:         next.avgCompK,
+        priceIncreasePct: next.priceIncreasePct,
+      });
+      return next;
+    });
+  }, [onScenarioChange]);
 
   // Persist saved scenarios
   useEffect(() => {

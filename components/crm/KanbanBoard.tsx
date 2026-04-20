@@ -2,6 +2,10 @@ import { useState, useRef, useCallback } from 'react';
 import type { Deal, DealStage } from '../../types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+// ⚠  localStorage key is 'bos_deals' — this is the CRM sales pipeline.
+//    DO NOT confuse with:
+//      'bos_deals_v2'    → M&A deal flow (lib/deals.ts, DealList.tsx)
+//      'bos_acq_targets' → Acquisition targets (AcquisitionPipeline.tsx)
 
 const STORAGE_KEY = 'bos_deals';
 

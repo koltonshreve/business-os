@@ -142,7 +142,7 @@ export function saveSession(session: AppSession): void {
 
 export function defaultSession(): AppSession {
   return {
-    planId: 'growth', // default to growth for demo purposes
+    planId: 'starter',
     aiQueriesUsed: 0,
     aiQueriesResetAt: new Date().toISOString(),
     onboarded: false,

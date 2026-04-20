@@ -273,8 +273,8 @@ export default function TransactionLedger({ transactions, onAskAI }: Props) {
       {/* Table */}
       <div className="overflow-x-auto">
         <table className="w-full min-w-[640px]">
-          <thead>
-            <tr className="border-b border-slate-800/50 bg-slate-900/30">
+          <thead className="sticky top-0 z-10">
+            <tr className="border-b border-slate-800/50 bg-[#060a12]/95 backdrop-blur-sm">
               <th className="px-4 py-2.5 text-left">
                 <button onClick={() => sort('date')} className="flex items-center text-[10px] font-semibold text-slate-500 hover:text-slate-300 uppercase tracking-[0.08em]">
                   Date <SortIcon k="date"/>
@@ -301,7 +301,7 @@ export default function TransactionLedger({ transactions, onAskAI }: Props) {
           </thead>
           <tbody className="divide-y divide-slate-800/30">
             {paginated.map((t, i) => (
-              <tr key={i} className="hover:bg-slate-800/20 transition-colors">
+              <tr key={i} className={`hover:bg-slate-800/30 transition-colors ${i % 2 === 1 ? 'bg-slate-900/20' : ''}`}>
                 <td className="px-4 py-2.5 text-[12px] text-slate-400 whitespace-nowrap font-mono">{t.date}</td>
                 <td className="px-4 py-2.5 text-[12px] text-slate-200 max-w-[220px]">
                   <div className="truncate">{t.description}</div>

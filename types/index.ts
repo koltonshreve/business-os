@@ -12,6 +12,8 @@ export interface UnifiedBusinessData {
   cashFlow?: CashFlowPeriod[];
   arAging?: ARAgingBucket[];
   transactions?: Transaction[];
+  suppliers?: SupplierData;
+  capacity?: CapacityData;
 }
 
 export interface RevenueData {
@@ -84,6 +86,12 @@ export interface OperationsData {
   projectCount?: number;
   avgProjectValue?: number;
   utilizationRate?: number;
+  // Expanded utilization fields
+  billableHours?: number;
+  totalHours?: number;
+  employeeUtilization?: number;   // billable / total hours (or direct input)
+  capacityUtilization?: number;   // capacity used vs available (0-1)
+  assetUtilization?: number;      // asset / equipment utilization (0-1)
 }
 
 export interface DataMetadata {
@@ -229,9 +237,56 @@ export interface GoogleSheetsConfig {
 }
 
 export interface CSVUpload {
-  type: 'revenue' | 'costs' | 'customers' | 'operations' | 'pipeline' | 'payroll' | 'cashflow' | 'ar_aging' | 'transactions';
+  type: 'revenue' | 'costs' | 'customers' | 'operations' | 'pipeline' | 'payroll' | 'cashflow' | 'ar_aging' | 'transactions' | 'suppliers' | 'capacity';
   filename: string;
   content: string; // CSV text
+}
+
+// ─── Supplier / Spend Intelligence ───────────────────────────────────────────
+
+export interface SupplierRecord {
+  id: string;
+  name: string;
+  category: string;
+  spend: number;
+  spendOverride?: number;   // manual override takes precedence over parsed value
+  invoiceCount?: number;
+  lastInvoiceDate?: string;
+  contractValue?: number;
+  paymentTerms?: string;
+  contact?: string;
+  notes?: string;
+  // computed (set by engine)
+  spendPct?: number;
+  isTail?: boolean;         // spend < 2% of total
+  isRedundant?: boolean;    // same category has another supplier
+  riskLevel?: 'low' | 'medium' | 'high';
+}
+
+export interface SupplierCategoryRollup {
+  category: string;
+  spend: number;
+  spendPct: number;
+  supplierCount: number;
+  isConcentrated: boolean;  // >35% of total spend in one category
+  suppliers: string[];
+}
+
+export interface SupplierRedundancy {
+  category: string;
+  suppliers: string[];
+  combinedSpend: number;
+  potentialSavings: number; // estimated 10-20% if consolidated
+}
+
+export interface SupplierData {
+  suppliers: SupplierRecord[];
+  totalSpend: number;
+  byCategory: SupplierCategoryRollup[];
+  tailSuppliers: string[];        // names of tail suppliers (<2%)
+  redundancies: SupplierRedundancy[];
+  hhi: number;                    // Herfindahl-Hirschman Index (0-10000)
+  concentrationRisk: 'low' | 'medium' | 'high';
 }
 
 // Extended fields on UnifiedBusinessData (optional, populated when uploaded)
@@ -283,6 +338,44 @@ export interface ARAgingBucket {
   days90: number;
   over90: number;
   total: number;
+}
+
+// ─── Capacity & Cost Analysis ────────────────────────────────────────────────
+
+export interface CapacityResource {
+  id: string;
+  name: string;
+  category: string;        // 'People' | 'Equipment' | 'Facilities' | 'Technology'
+  actualVolume: number;    // units currently produced/consumed
+  capacity: number;        // max units possible
+  unit: string;            // 'hours', 'units', 'sq ft', 'seats'
+  fixedCost: number;       // cost regardless of volume (monthly)
+  variableCostPerUnit: number; // cost per unit of output
+  revenuePerUnit?: number; // optional: revenue per unit (for margin calc)
+  notes?: string;
+  // computed (set by engine)
+  utilization?: number;      // actual / capacity (0-1)
+  totalCost?: number;        // fixedCost + variableCostPerUnit * actual
+  costPerUnit?: number;      // totalCost / actual
+  costPerUnitAtCapacity?: number; // totalCost-at-full / capacity
+  isBottleneck?: boolean;    // utilization > 85%
+  isUnderutilized?: boolean; // utilization < 50%
+  savingsAtCapacity?: number; // cost savings if run at 90% vs current
+}
+
+export interface CapacitySummary {
+  totalFixed: number;
+  totalVariable: number;
+  totalCost: number;
+  weightedUtilization: number;  // capacity-weighted avg utilization
+  bottlenecks: string[];        // names of bottleneck resources
+  underutilized: string[];      // names of underutilized resources
+  potentialSavings: number;     // if underutilized resources were outsourced
+}
+
+export interface CapacityData {
+  resources: CapacityResource[];
+  summary: CapacitySummary;
 }
 
 // ─── CRM / Deal Pipeline ──────────────────────────────────────────────────────
@@ -391,4 +484,9 @@ export interface AppSession {
   aiQueriesUsed: number;
   aiQueriesResetAt: string; // ISO date, resets monthly
   onboarded: boolean;
+  // Billing
+  stripeCustomerId?:    string;
+  stripeSubscriptionId?: string;
+  customerEmail?:       string;
+  billingVerifiedAt?:   string; // ISO timestamp of last verification
 }

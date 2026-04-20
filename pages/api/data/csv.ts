@@ -20,8 +20,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const results: { type: string; filename: string; rowCount: number; warnings: string[] }[] = [];
     const parsed: Partial<UnifiedBusinessData>[] = [];
 
+    const VALID_TYPES = ['revenue', 'costs', 'customers', 'operations', 'pipeline', 'payroll', 'cashflow', 'ar_aging', 'transactions', 'suppliers', 'capacity'];
     for (const upload of uploads) {
-      if (!['revenue', 'costs', 'customers', 'operations', 'pipeline', 'payroll', 'cashflow', 'ar_aging'].includes(upload.type)) {
+      if (!VALID_TYPES.includes(upload.type)) {
         return res.status(400).json({ error: `Invalid upload type: ${upload.type}` });
       }
 

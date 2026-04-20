@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { PLANS, canAccess as canAccessFn } from '../../lib/plan';
 import type { GatedFeature } from '../../lib/plan';
 import type { PlanId } from '../../types';
@@ -85,9 +86,34 @@ function CellValue({ val }: { val: string | boolean }) {
 }
 
 export default function PricingModal({ open, onClose, currentPlan, highlightFeature, onSelectPlan }: PricingModalProps) {
+  const [loading, setLoading] = useState<PlanId | null>(null);
+  const [error, setError] = useState('');
+
   if (!open) return null;
 
   const plans: PlanId[] = ['starter', 'growth', 'pro'];
+
+  async function handleUpgrade(planId: PlanId) {
+    if (planId === 'starter') { onSelectPlan(planId); return; }
+    setLoading(planId); setError('');
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planId, appUrl: window.location.origin }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        setError(data.error ?? 'Checkout failed — please try again');
+        setLoading(null);
+      }
+    } catch {
+      setError('Network error — please try again');
+      setLoading(null);
+    }
+  }
   const planColors: Record<PlanId, { accent: string; ring: string; btn: string; badge: string }> = {
     starter: {
       accent: 'text-slate-300',
@@ -169,20 +195,37 @@ export default function PricingModal({ open, onClose, currentPlan, highlightFeat
                 </ul>
 
                 <button
-                  onClick={() => onSelectPlan(planId)}
-                  disabled={isCurrent}
-                  className={`w-full py-2.5 rounded-xl text-[13px] font-semibold transition-all ${
+                  onClick={() => handleUpgrade(planId)}
+                  disabled={isCurrent || loading !== null}
+                  className={`w-full py-2.5 rounded-xl text-[13px] font-semibold transition-all flex items-center justify-center gap-2 ${
                     isCurrent
                       ? 'bg-slate-800/60 text-slate-500 cursor-default border border-slate-700/40'
+                      : loading === planId
+                      ? 'opacity-70 cursor-wait ' + colors.btn
                       : colors.btn
                   }`}
                 >
-                  {isCurrent ? 'Current plan' : planId === 'starter' ? 'Downgrade' : 'Upgrade →'}
+                  {loading === planId ? (
+                    <>
+                      <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 animate-spin">
+                        <path opacity="0.25" d="M7 1.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11z"/>
+                        <path d="M7 1.5a5.5 5.5 0 015.5 5.5h-1.5A4 4 0 007 3V1.5z"/>
+                      </svg>
+                      Redirecting to Stripe…
+                    </>
+                  ) : isCurrent ? 'Current plan' : planId === 'starter' ? 'Downgrade' : 'Upgrade →'}
                 </button>
               </div>
             );
           })}
         </div>
+
+        {/* Error */}
+        {error && (
+          <div className="mx-6 mb-4 px-4 py-3 bg-red-500/8 border border-red-500/25 rounded-xl text-[12px] text-red-400">
+            {error}
+          </div>
+        )}
 
         {/* Feature table */}
         <div className="px-6 pb-6">

@@ -65,7 +65,9 @@ function parseJSON<T>(raw: string): T {
   const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
   try { return JSON.parse(cleaned) as T; } catch {
     const m = cleaned.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-    if (m) return JSON.parse(m[0]) as T;
+    if (m) {
+      try { return JSON.parse(m[0]) as T; } catch { /* fall through */ }
+    }
     throw new Error('JSON parse failed');
   }
 }

@@ -23,12 +23,6 @@ const ROLES: { value: UserRole; label: string; icon: string }[] = [
   { value: 'other',        label: 'Other',             icon: '•' },
 ];
 
-const INDUSTRIES = [
-  'Professional Services', 'SaaS / Technology', 'Manufacturing',
-  'Healthcare', 'Construction', 'Distribution', 'Financial Services',
-  'Retail / E-commerce', 'Consulting', 'Other',
-];
-
 const GOALS: { value: BusinessGoal; label: string; icon: string; color: string }[] = [
   { value: 'grow-revenue',         label: 'Grow revenue faster',       icon: '↑',  color: 'emerald' },
   { value: 'improve-margins',      label: 'Improve profit margins',     icon: '◆',  color: 'indigo' },
@@ -51,15 +45,27 @@ const GOAL_COLOR_MAP: Record<string, string> = {
   slate:   'border-slate-600/60 bg-slate-700/20 text-slate-300',
 };
 
+// Suggested first questions keyed by primary goal
+const FIRST_QUESTIONS: Record<string, string> = {
+  'grow-revenue':       "What's driving our revenue growth and what's the single biggest lever to accelerate it?",
+  'improve-margins':    "Where is margin being lost and what's the fastest path to improving EBITDA by 2 points?",
+  'reduce-churn':       "Which customers are at highest churn risk right now and what should I do about it?",
+  'close-more-deals':   "What does our pipeline look like and where are deals getting stuck?",
+  'manage-cash':        "What's our current cash runway and what actions would extend it the most?",
+  'hire-and-scale':     "At our current revenue per employee, what's the right headcount for our growth rate?",
+  'prep-for-fundraise': "How do our margins and growth rate compare to LMM benchmarks for a fundraise?",
+  'understand-numbers': "Give me a plain-English summary of where this business actually stands right now.",
+};
+
 export default function OnboardingFlow({ onComplete, onSkip }: OnboardingFlowProps) {
   const [step, setStep] = useState(0);
   const [companyName, setCompanyName] = useState('');
   const [companySize, setCompanySize] = useState<CompanySize | null>(null);
-  const [industry, setIndustry] = useState('');
   const [role, setRole] = useState<UserRole | null>(null);
   const [goals, setGoals] = useState<BusinessGoal[]>([]);
 
-  const totalSteps = 4;
+  // 3 steps: 0=Company+Role, 1=Goals, 2=Launch
+  const totalSteps = 3;
 
   const toggleGoal = (g: BusinessGoal) => {
     setGoals(prev =>
@@ -71,7 +77,7 @@ export default function OnboardingFlow({ onComplete, onSkip }: OnboardingFlowPro
     const data: OnboardingData = {
       companyName: companyName.trim() || 'My Company',
       companySize: companySize ?? '6-20',
-      industry: industry || 'Professional Services',
+      industry: 'Professional Services',
       role: role ?? 'founder-ceo',
       goals: goals.length > 0 ? goals : ['understand-numbers'],
       completedAt: new Date().toISOString(),
@@ -80,16 +86,18 @@ export default function OnboardingFlow({ onComplete, onSkip }: OnboardingFlowPro
     onComplete(data);
   };
 
-  const canProceed0 = companyName.trim().length > 0 && companySize !== null;
-  const canProceed1 = industry !== '' && role !== null;
-  const canProceed2 = goals.length > 0;
+  const canProceed0 = companyName.trim().length > 0 && companySize !== null && role !== null;
+  const canProceed1 = goals.length > 0;
 
   const steps = [
-    { label: 'Company',  canProceed: canProceed0 },
-    { label: 'Role',     canProceed: canProceed1 },
-    { label: 'Goals',    canProceed: canProceed2 },
-    { label: 'Ready',    canProceed: true },
+    { label: 'Setup',   canProceed: canProceed0 },
+    { label: 'Goals',   canProceed: canProceed1 },
+    { label: 'Launch',  canProceed: true },
   ];
+
+  const suggestedQuestion = goals.length > 0
+    ? FIRST_QUESTIONS[goals[0]] ?? FIRST_QUESTIONS['understand-numbers']
+    : FIRST_QUESTIONS['understand-numbers'];
 
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-[#060a12]">
@@ -124,12 +132,12 @@ export default function OnboardingFlow({ onComplete, onSkip }: OnboardingFlowPro
         {/* Step content */}
         <div className="bg-slate-900/60 border border-slate-800/60 rounded-2xl p-6">
 
-          {/* Step 0: Company */}
+          {/* Step 0: Company + Role (combined) */}
           {step === 0 && (
             <div>
               <div className="mb-5">
-                <div className="text-[16px] font-bold text-slate-100 mb-1">Tell us about your company</div>
-                <div className="text-[12px] text-slate-500">This helps us personalize your dashboard and benchmarks.</div>
+                <div className="text-[16px] font-bold text-slate-100 mb-1">Set up your workspace</div>
+                <div className="text-[12px] text-slate-500">Takes 30 seconds. Personalizes your dashboard and AI benchmarks.</div>
               </div>
 
               <div className="space-y-4">
@@ -165,19 +173,7 @@ export default function OnboardingFlow({ onComplete, onSkip }: OnboardingFlowPro
                     ))}
                   </div>
                 </div>
-              </div>
-            </div>
-          )}
 
-          {/* Step 1: Role + Industry */}
-          {step === 1 && (
-            <div>
-              <div className="mb-5">
-                <div className="text-[16px] font-bold text-slate-100 mb-1">Your role and industry</div>
-                <div className="text-[12px] text-slate-500">We'll tailor your KPIs and benchmarks to your context.</div>
-              </div>
-
-              <div className="space-y-4">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-[0.08em] mb-2">Your Role</label>
                   <div className="grid grid-cols-3 gap-2">
@@ -197,35 +193,16 @@ export default function OnboardingFlow({ onComplete, onSkip }: OnboardingFlowPro
                     ))}
                   </div>
                 </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-[0.08em] mb-2">Industry</label>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {INDUSTRIES.map(ind => (
-                      <button
-                        key={ind}
-                        onClick={() => setIndustry(ind)}
-                        className={`text-left px-3 py-2 rounded-lg border text-[12px] transition-all ${
-                          industry === ind
-                            ? 'border-indigo-500/60 bg-indigo-500/10 text-indigo-300 font-medium'
-                            : 'border-slate-800/60 hover:border-slate-700 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        {ind}
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </div>
             </div>
           )}
 
-          {/* Step 2: Goals */}
-          {step === 2 && (
+          {/* Step 1: Goals */}
+          {step === 1 && (
             <div>
               <div className="mb-5">
                 <div className="text-[16px] font-bold text-slate-100 mb-1">What are your top priorities?</div>
-                <div className="text-[12px] text-slate-500">Select up to 3 goals. We'll surface the most relevant insights for you.</div>
+                <div className="text-[12px] text-slate-500">Select up to 3. We'll surface the most relevant insights for you.</div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -257,38 +234,48 @@ export default function OnboardingFlow({ onComplete, onSkip }: OnboardingFlowPro
             </div>
           )}
 
-          {/* Step 3: Done */}
-          {step === 3 && (
+          {/* Step 2: Launch */}
+          {step === 2 && (
             <div>
-              <div className="text-center mb-6">
-                <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center mx-auto mb-4">
-                  <svg viewBox="0 0 20 20" fill="none" className="w-7 h-7">
+              <div className="text-center mb-5">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center mx-auto mb-3">
+                  <svg viewBox="0 0 20 20" fill="none" className="w-6 h-6">
                     <path d="M4 10l4 4 8-8" stroke="#34d399" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </div>
-                <div className="text-[18px] font-bold text-slate-100 mb-2">
-                  {companyName.trim() || 'Your company'} is ready
+                <div className="text-[16px] font-bold text-slate-100 mb-1">
+                  {companyName.trim() || 'Your workspace'} is ready
                 </div>
-                <div className="text-[12px] text-slate-400 leading-relaxed max-w-sm mx-auto">
-                  Your dashboard is personalized to your role and goals. Connect your data to unlock live AI analysis.
-                </div>
+                <div className="text-[12px] text-slate-400">Two ways to get started:</div>
               </div>
 
-              <div className="space-y-2.5 mb-5">
-                {[
-                  { icon: '📊', title: 'Financial dashboard', desc: 'P&L, margins, cash flow — live from your data' },
-                  { icon: '🤖', title: 'AI CFO assistant', desc: 'Ask anything about your numbers, anytime' },
-                  { icon: '⬡',  title: 'Deal pipeline (CRM)', desc: 'Track deals from lead to close' },
-                  { icon: '⚡', title: 'Smart automations', desc: 'Alerts when metrics cross thresholds' },
-                ].map((item, i) => (
-                  <div key={i} className="flex items-center gap-3 bg-slate-800/30 border border-slate-700/30 rounded-xl px-4 py-3">
-                    <span className="text-[18px] flex-shrink-0">{item.icon}</span>
-                    <div>
-                      <div className="text-[12px] font-semibold text-slate-200">{item.title}</div>
-                      <div className="text-[11px] text-slate-500">{item.desc}</div>
-                    </div>
+              <div className="space-y-2.5">
+                {/* Upload data */}
+                <div className="bg-slate-800/30 border border-slate-700/30 rounded-xl px-4 py-3.5 flex items-start gap-3">
+                  <div className="w-7 h-7 rounded-lg bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <svg viewBox="0 0 14 14" fill="none" stroke="#818cf8" strokeWidth="1.5" strokeLinecap="round" className="w-3.5 h-3.5">
+                      <path d="M7 9V2M4 5l3-3 3 3M2 11v1a1 1 0 001 1h8a1 1 0 001-1v-1"/>
+                    </svg>
                   </div>
-                ))}
+                  <div>
+                    <div className="text-[12px] font-semibold text-slate-200">Upload your data</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">Drop a CSV from QuickBooks, Xero, or any export. AI analysis runs instantly.</div>
+                  </div>
+                </div>
+
+                {/* First AI question */}
+                <div className="bg-slate-800/30 border border-slate-700/30 rounded-xl px-4 py-3.5 flex items-start gap-3">
+                  <div className="w-7 h-7 rounded-lg bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 text-indigo-400">
+                      <path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/>
+                    </svg>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[12px] font-semibold text-slate-200">Ask the AI CFO</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5 leading-snug">Suggested first question based on your goals:</div>
+                    <div className="text-[11px] text-indigo-300/80 italic mt-1.5 leading-snug">"{suggestedQuestion}"</div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
