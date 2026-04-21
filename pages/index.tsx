@@ -3270,6 +3270,12 @@ export default function BusinessOS() {
         <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
         <link rel="manifest" href="/manifest.json"/>
         <meta name="theme-color" content="#060a12"/>
+        <meta property="og:title" content="Business OS — AI-powered intelligence for LMM operators"/>
+        <meta property="og:description" content="Live P&L dashboard, AI CFO advisor, deal pipeline, and scenario modeling for lower middle market operators."/>
+        <meta property="og:image" content="/api/og"/>
+        <meta property="og:type" content="website"/>
+        <meta name="twitter:card" content="summary_large_image"/>
+        <meta name="twitter:image" content="/api/og"/>
       </Head>
 
       <div className="min-h-screen bg-[#060a12] text-slate-100 flex flex-col">
@@ -3461,6 +3467,17 @@ export default function BusinessOS() {
                   {badge ? <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ml-auto">{badge}</span> : null}
                 </button>
               ))}
+              {/* Sign out — mobile */}
+              <div className="border-t border-slate-800/50 mt-1 pt-1">
+                {authEmail && <div className="px-3 py-1.5 text-[11px] text-slate-600 truncate">{authEmail}</div>}
+                <button
+                  onClick={() => { setMobileNavOpen(false); handleSignOut(); }}
+                  className="flex items-center gap-2.5 px-3 py-3 rounded-xl text-[13px] font-medium text-slate-500 hover:text-red-400 hover:bg-red-500/5 transition-all min-h-[44px] w-full"
+                >
+                  <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-4 h-4 flex-shrink-0"><path d="M5 2H2v10h3M9 4l3 3-3 3M6 7h6"/></svg>
+                  Sign out
+                </button>
+              </div>
             </div>
           )}
         </header>

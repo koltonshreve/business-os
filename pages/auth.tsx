@@ -48,6 +48,11 @@ export default function AuthPage() {
         <title>Sign In — Business OS</title>
         <meta name="description" content="AI-powered business intelligence for LMM operators"/>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
+        <meta property="og:title" content="Business OS — AI intelligence for LMM operators"/>
+        <meta property="og:description" content="Live P&L dashboard, AI CFO advisor, and deal pipeline. Built for lower middle market operators."/>
+        <meta property="og:image" content="/api/og"/>
+        <meta name="twitter:card" content="summary_large_image"/>
+        <meta name="twitter:image" content="/api/og"/>
       </Head>
       <div className="min-h-screen bg-[#060a12] flex flex-col items-center justify-center px-4">
 

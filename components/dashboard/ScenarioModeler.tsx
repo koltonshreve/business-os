@@ -1,6 +1,6 @@
 import { useState, useCallback, useId, useEffect } from 'react';
 import type { UnifiedBusinessData } from '../../types';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine, AreaChart, Area, CartesianGrid, Legend } from 'recharts';
 
 interface Props {
   data: UnifiedBusinessData;
@@ -349,6 +349,9 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
       `EBITDA: ${fmt(proj.ebitda, true)} (${proj.ebitdaMargin.toFixed(1)}% margin)`,
       active.newHires ? `New Hires: ${active.newHires} @ $${active.avgCompK}k avg` : '',
       active.priceIncreasePct ? `Price increase: ${active.priceIncreasePct}%` : '',
+      active.newCustomers ? `New Customers: +${active.newCustomers} (${fmt(proj.newCustomerRevenue, true)} rev)` : '',
+      active.churnRatePct ? `Additional Churn: +${active.churnRatePct}% (${fmt(proj.churnRevLost, true)} lost)` : '',
+      active.oneTimeExpense ? `One-Time Expense: ${fmt(active.oneTimeExpense, true)}` : '',
     ].filter(Boolean).join('\n');
     try {
       await navigator.clipboard.writeText(lines);
@@ -705,6 +708,175 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
               );
             })()}
           </div>
+
+          {/* ── Valuation Estimator ── */}
+          {(() => {
+            const ebitda = proj.ebitda;
+            if (ebitda <= 0) return null;
+            const multiples = [3.5, 4.5, 5.5, 6.5, 7.5];
+            const baseEBITDA = data.revenue.total - data.costs.totalCOGS - data.costs.totalOpEx;
+            const sbaLTV = 0.80; // SBA 7(a) typical LTV
+            const ebitdaImprovement = ebitda - baseEBITDA;
+            const midMultiple = 5.5;
+            const valuationLift = ebitdaImprovement * midMultiple;
+
+            return (
+              <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between">
+                  <div>
+                    <div className="text-[12px] font-semibold text-slate-100">Valuation Estimator</div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">EV/EBITDA multiples · LMM services benchmark 4–7×</div>
+                  </div>
+                  {ebitdaImprovement !== 0 && (
+                    <div className={`text-right text-[11px] font-semibold ${ebitdaImprovement > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {ebitdaImprovement > 0 ? '+' : ''}{fmt(valuationLift)} valuation impact
+                      <div className="text-[10px] font-normal text-slate-500">at {midMultiple}× mid-market</div>
+                    </div>
+                  )}
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[480px]">
+                    <thead>
+                      <tr className="border-b border-slate-800/40">
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em]">Multiple</th>
+                        <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em]">Enterprise Value</th>
+                        <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em]">Equity (20% down)</th>
+                        <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em]">SBA Debt</th>
+                        <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em]">vs Base</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {multiples.map(m => {
+                        const ev        = ebitda * m;
+                        const equity    = ev * (1 - sbaLTV);
+                        const debt      = ev * sbaLTV;
+                        const baseEV    = baseEBITDA * m;
+                        const evDelta   = ev - baseEV;
+                        const isMid     = m === midMultiple;
+                        return (
+                          <tr key={m} className={`border-b border-slate-800/30 transition-colors ${isMid ? 'bg-indigo-500/5' : 'hover:bg-slate-800/20'}`}>
+                            <td className="px-4 py-3">
+                              <span className={`text-[13px] font-bold ${isMid ? 'text-indigo-300' : 'text-slate-300'}`}>{m}×</span>
+                              {isMid && <span className="ml-2 text-[9px] text-indigo-400/70 font-semibold uppercase tracking-wide">Mid-market</span>}
+                            </td>
+                            <td className={`px-4 py-3 text-right text-[13px] font-semibold ${isMid ? 'text-indigo-200' : 'text-slate-200'}`}>{fmt(ev)}</td>
+                            <td className="px-4 py-3 text-right text-[12px] text-slate-300">{fmt(equity)}</td>
+                            <td className="px-4 py-3 text-right text-[12px] text-slate-500">{fmt(debt)}</td>
+                            <td className={`px-4 py-3 text-right text-[12px] font-medium ${evDelta > 0 ? 'text-emerald-400' : evDelta < 0 ? 'text-red-400' : 'text-slate-600'}`}>
+                              {evDelta === 0 ? '—' : `${evDelta > 0 ? '+' : ''}${fmt(evDelta)}`}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="px-5 py-3 border-t border-slate-800/40 flex items-center gap-4 flex-wrap">
+                  <div className="text-[10px] text-slate-600">
+                    Assumes SBA 7(a) at 80% LTV · Equity = down payment required · Actual multiples vary by industry, growth, and deal structure
+                  </div>
+                  {onAskAI && (
+                    <button onClick={() => onAskAI(
+                      `My business shows projected EBITDA of ${fmt(ebitda)} (${proj.ebitdaMargin.toFixed(1)}% margin). ` +
+                      `At a 5.5× multiple that's a ${fmt(ebitda * 5.5)} enterprise value. ` +
+                      `What would I need to do to command a 7× or higher multiple? What factors compress multiples in LMM deals?`
+                    )} className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium flex-shrink-0 transition-colors">
+                      Ask AI about multiples →
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ── 12-Month Forward Projection ── */}
+          {(() => {
+            const monthlyBaseRev    = data.revenue.total / 12;
+            const monthlyBaseEBITDA = (data.revenue.total - data.costs.totalCOGS - data.costs.totalOpEx) / 12;
+            const monthlyProjRev    = proj.revenue / 12;
+            const monthlyProjEBITDA = proj.ebitda / 12;
+
+            // Monthly growth rate from annual growth pct
+            const annualRevGrowth  = proj.revenue / data.revenue.total - 1;
+            const monthlyRevGrowth = Math.pow(1 + annualRevGrowth, 1 / 12) - 1;
+
+            const months = ['M1','M2','M3','M4','M5','M6','M7','M8','M9','M10','M11','M12'];
+            const chartData = months.map((month, i) => {
+              const multiplier = Math.pow(1 + monthlyRevGrowth, i + 1);
+              const projRev    = monthlyProjRev * multiplier;
+              const baseRev    = monthlyBaseRev;
+              // EBITDA scales with revenue changes; opex is fixed cost base
+              const monthlyOpex     = proj.opex / 12;
+              const projEBITDA = projRev * (proj.gmPct / 100) - monthlyOpex;
+              return {
+                month,
+                baseRev:    Math.round(baseRev),
+                projRev:    Math.round(projRev),
+                baseEBITDA: Math.round(monthlyBaseEBITDA),
+                projEBITDA: Math.round(projEBITDA),
+              };
+            });
+
+            const hasScenario = proj.dRevenue !== 0 || proj.dEBITDA !== 0;
+            if (!hasScenario) return null;
+
+            return (
+              <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <div className="text-[12px] font-semibold text-slate-100">12-Month Forward Projection</div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">Monthly ramp assuming scenario growth compounds linearly</div>
+                  </div>
+                  <div className="flex items-center gap-3 text-[10px]">
+                    <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-slate-700"/><span className="text-slate-500">Base</span></div>
+                    <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-indigo-500"/><span className="text-slate-400">Projected Revenue</span></div>
+                    <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-emerald-500"/><span className="text-slate-400">Projected EBITDA</span></div>
+                  </div>
+                </div>
+                <div className="h-56">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="gradRev" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%"  stopColor="#6366f1" stopOpacity={0.25}/>
+                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0.03}/>
+                        </linearGradient>
+                        <linearGradient id="gradEBITDA" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%"  stopColor="#10b981" stopOpacity={0.25}/>
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0.03}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false}/>
+                      <XAxis dataKey="month" tick={{ fill: '#475569', fontSize: 10 }} tickLine={false} axisLine={false}/>
+                      <YAxis tick={{ fill: '#475569', fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={v => fmt(v)}/>
+                      <Tooltip
+                        contentStyle={{ background: '#0d1117', border: '1px solid #1e293b', borderRadius: 8, fontSize: 11 }}
+                        formatter={(v: number, name: string) => [fmt(v), name]}
+                      />
+                      <Area type="monotone" dataKey="baseRev"    name="Base Revenue"     stroke="#334155" strokeWidth={1.5} fill="none" strokeDasharray="4 3"/>
+                      <Area type="monotone" dataKey="projRev"    name="Proj. Revenue"    stroke="#6366f1" strokeWidth={2}   fill="url(#gradRev)"/>
+                      <Area type="monotone" dataKey="projEBITDA" name="Proj. EBITDA"     stroke="#10b981" strokeWidth={2}   fill="url(#gradEBITDA)"/>
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="grid grid-cols-3 gap-3 mt-4">
+                  {[
+                    { label: 'M3 Revenue',     val: chartData[2].projRev    },
+                    { label: 'M6 Revenue',     val: chartData[5].projRev    },
+                    { label: 'M12 Revenue',    val: chartData[11].projRev   },
+                    { label: 'M3 EBITDA',      val: chartData[2].projEBITDA },
+                    { label: 'M6 EBITDA',      val: chartData[5].projEBITDA },
+                    { label: 'M12 EBITDA',     val: chartData[11].projEBITDA },
+                  ].map(m => (
+                    <div key={m.label} className="bg-slate-800/30 rounded-lg p-3">
+                      <div className="text-[10px] text-slate-500 mb-1">{m.label}</div>
+                      <div className={`text-[14px] font-bold ${m.val >= 0 ? 'text-slate-200' : 'text-red-400'}`}>{fmt(m.val)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Waterfall */}
           <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
