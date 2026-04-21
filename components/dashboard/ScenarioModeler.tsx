@@ -6,7 +6,7 @@ interface Props {
   data: UnifiedBusinessData;
   onAskAI?: (msg: string) => void;
   /** Called whenever the active scenario changes so parent can propagate it to all modules */
-  onScenarioChange?: (s: { name: string; revenueGrowthPct: number; grossMarginPct: number; opexChangePct: number; newHires: number; avgCompK: number; priceIncreasePct: number } | null) => void;
+  onScenarioChange?: (s: { name: string; revenueGrowthPct: number; grossMarginPct: number; opexChangePct: number; newHires: number; avgCompK: number; priceIncreasePct: number; newCustomers: number; churnRatePct: number; oneTimeExpense: number } | null) => void;
 }
 
 interface Scenario {
@@ -20,6 +20,8 @@ interface Scenario {
   avgCompK: number;           // avg annual comp for new hires ($k)
   priceIncreasePct: number;   // price/rate increase %
   newCustomers: number;       // new customer count added
+  churnRatePct: number;       // additional churn % on top of base (0–50)
+  oneTimeExpense: number;     // one-time below-the-line cost ($)
 }
 
 const SCENARIO_COLORS = ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981'];
@@ -32,6 +34,8 @@ const DEFAULT_SCENARIO: Omit<Scenario, 'id' | 'name' | 'color'> = {
   avgCompK: 100,
   priceIncreasePct: 0,
   newCustomers: 0,
+  churnRatePct: 0,
+  oneTimeExpense: 0,
 };
 
 const fmt = (n: number, _compact = false) => {
@@ -50,9 +54,12 @@ function project(base: UnifiedBusinessData, s: Scenario) {
   const baseOpEx = base.costs.totalOpEx;
   const baseGP   = baseRev - baseCOGS;
   const baseGM   = baseRev > 0 ? (baseGP / baseRev) * 100 : 40;
+  const customerCount = base.customers.totalCount || 1;
+  const avgRevPerCustomer = baseRev / customerCount;
 
-  // Revenue: base × (1 + volume_growth%) × (1 + price_increase%)
-  const projRev = baseRev
+  // Revenue: base × (1 + volume_growth%) × (1 + price_increase%) + new customer revenue
+  const newCustomerRevenue = s.newCustomers * avgRevPerCustomer;
+  const projRev = (baseRev + newCustomerRevenue)
     * (1 + s.revenueGrowthPct / 100)
     * (1 + s.priceIncreasePct / 100);
 
@@ -65,26 +72,36 @@ function project(base: UnifiedBusinessData, s: Scenario) {
   const hireCost = s.newHires * s.avgCompK * 1000;
   const projOpEx = baseOpEx * (1 + s.opexChangePct / 100) + hireCost;
 
-  const projEBITDA     = projGP - projOpEx;
-  const projEBITDAMargin = projRev > 0 ? (projEBITDA / projRev) * 100 : 0;
+  // Churn: additional revenue lost from incremental churn rate
+  const churnRevLost = projRev * (s.churnRatePct / 100);
+  const projRevAfterChurn = projRev - churnRevLost;
+  const projGPAfterChurn  = projRevAfterChurn * (gmPct / 100);
+  const projCOGSAfterChurn = projRevAfterChurn - projGPAfterChurn;
+
+  // One-time expense hits EBITDA directly
+  const projEBITDA     = projGPAfterChurn - projOpEx - (s.oneTimeExpense ?? 0);
+  const projEBITDAMargin = projRevAfterChurn > 0 ? (projEBITDA / projRevAfterChurn) * 100 : 0;
 
   const baseEBITDA = baseGP - baseOpEx;
 
   return {
-    revenue:      projRev,
-    cogs:         projCOGS,
-    grossProfit:  projGP,
-    opex:         projOpEx,
-    ebitda:       projEBITDA,
-    ebitdaMargin: projEBITDAMargin,
+    revenue:           projRevAfterChurn,
+    cogs:              projCOGSAfterChurn,
+    grossProfit:       projGPAfterChurn,
+    opex:              projOpEx,
+    ebitda:            projEBITDA,
+    ebitdaMargin:      projEBITDAMargin,
     gmPct,
+    newCustomerRevenue,
+    churnRevLost,
+    oneTimeExpense:    s.oneTimeExpense ?? 0,
     // Deltas vs base
-    dRevenue:     projRev - baseRev,
-    dGP:          projGP - baseGP,
-    dOpEx:        projOpEx - baseOpEx,
-    dEBITDA:      projEBITDA - baseEBITDA,
+    dRevenue:          projRevAfterChurn - baseRev,
+    dGP:               projGPAfterChurn - baseGP,
+    dOpEx:             projOpEx - baseOpEx,
+    dEBITDA:           projEBITDA - baseEBITDA,
     // Break-even
-    breakEven:    projOpEx + projCOGS,
+    breakEven:         projOpEx + projCOGSAfterChurn,
   };
 }
 
@@ -289,6 +306,9 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
         newHires:         next.newHires,
         avgCompK:         next.avgCompK,
         priceIncreasePct: next.priceIncreasePct,
+        newCustomers:     next.newCustomers,
+        churnRatePct:     next.churnRatePct,
+        oneTimeExpense:   next.oneTimeExpense,
       });
       return next;
     });
@@ -339,6 +359,7 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
 
   const hasChanges = active.revenueGrowthPct !== 0 || active.opexChangePct !== 0 ||
     active.newHires !== 0 || active.priceIncreasePct !== 0 || active.newCustomers !== 0 ||
+    active.churnRatePct !== 0 || active.oneTimeExpense !== 0 ||
     Math.abs(active.grossMarginPct - baseGM) > 0.5;
 
   const ebitdaChange = proj.ebitda - baseEBITDA;
@@ -450,6 +471,15 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
                 accentColor="text-violet-400"
                 onChange={v => set('newCustomers', v)}
               />
+              <Lever
+                label="Additional Churn"
+                hint="extra % of customers lost vs baseline"
+                value={active.churnRatePct}
+                min={0} max={50} step={1}
+                format={v => `+${v}%`}
+                accentColor="text-red-400"
+                onChange={v => set('churnRatePct', v)}
+              />
             </div>
           </div>
 
@@ -474,6 +504,15 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
                 format={v => `${v >= 0 ? '+' : ''}${v}%`}
                 accentColor="text-amber-400"
                 onChange={v => set('opexChangePct', v)}
+              />
+              <Lever
+                label="One-Time Expense"
+                hint="below-the-line hit (legal, capex, etc.)"
+                value={active.oneTimeExpense}
+                min={0} max={500_000} step={5_000}
+                format={v => v === 0 ? '$0' : fmt(v)}
+                accentColor="text-orange-400"
+                onChange={v => set('oneTimeExpense', v)}
               />
             </div>
           </div>
@@ -671,6 +710,96 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
             <ImpactWaterfall base={data} projected={proj}/>
           </div>
 
+          {/* Sensitivity Analysis */}
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between">
+              <div className="text-[12px] font-semibold text-slate-100">Sensitivity Analysis</div>
+              <div className="text-[10px] text-slate-500">EBITDA impact if each lever moves ±10% / ±20%</div>
+            </div>
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[520px]">
+              <thead>
+                <tr className="border-b border-slate-800/40">
+                  {['Lever', '−20%', '−10%', 'Current', '+10%', '+20%'].map(h => (
+                    <th key={h} className="px-3 py-2.5 text-right first:text-left text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em]">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(() => {
+                  const baseEBITDA = baseRev - baseCOGS - baseOpEx;
+                  type SensRow = { label: string; field: keyof Scenario; delta20: number; delta10: number; delta0: number };
+                  const rows: SensRow[] = [
+                    { label: 'Revenue Volume',  field: 'revenueGrowthPct', delta20: -20, delta10: -10, delta0: active.revenueGrowthPct },
+                    { label: 'Price Increase',  field: 'priceIncreasePct', delta20: -20, delta10: -10, delta0: active.priceIncreasePct },
+                    { label: 'Gross Margin',    field: 'grossMarginPct',   delta20: -20, delta10: -10, delta0: active.grossMarginPct },
+                    { label: 'OpEx Change',     field: 'opexChangePct',    delta20: -20, delta10: -10, delta0: active.opexChangePct },
+                    { label: 'Add\'l Churn',    field: 'churnRatePct',     delta20: 20,  delta10: 10,  delta0: active.churnRatePct },
+                  ];
+
+                  function ebitdaAt(field: keyof Scenario, val: number): number {
+                    const s = { ...active, [field]: val };
+                    return project(data, s).ebitda;
+                  }
+
+                  return rows.map(row => {
+                    const base0 = ebitdaAt(row.field, row.delta0);
+                    const low10 = ebitdaAt(row.field, row.delta0 + row.delta10);
+                    const low20 = ebitdaAt(row.field, row.delta0 + row.delta20);
+                    const hi10  = ebitdaAt(row.field, row.delta0 - row.delta10);
+                    const hi20  = ebitdaAt(row.field, row.delta0 - row.delta20);
+                    const maxSwing = Math.max(Math.abs(hi20 - base0), Math.abs(low20 - base0));
+                    const isChurn = row.label.includes('Churn');
+
+                    function cell(val: number, isCurrent = false) {
+                      const d = val - baseEBITDA;
+                      const isPos = d >= 0;
+                      return (
+                        <td key={val} className={`px-3 py-2.5 text-right ${isCurrent ? 'font-semibold' : ''}`}>
+                          <div className={`text-[12px] ${isCurrent ? 'text-slate-200' : isPos ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {fmt(val)}
+                          </div>
+                          {!isCurrent && (
+                            <div className={`text-[10px] ${isPos ? 'text-emerald-400/60' : 'text-red-400/60'}`}>
+                              {d >= 0 ? '+' : ''}{fmt(d)}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    }
+
+                    return (
+                      <tr key={row.label} className="border-b border-slate-800/30 hover:bg-slate-800/20 transition-colors">
+                        <td className="px-3 py-2.5">
+                          <div className="text-[12px] text-slate-300 font-medium">{row.label}</div>
+                          <div className="text-[10px] text-slate-600 mt-0.5">±{fmt(maxSwing)} swing</div>
+                        </td>
+                        {isChurn ? (
+                          <>
+                            {cell(hi20)}
+                            {cell(hi10)}
+                            {cell(base0, true)}
+                            {cell(low10)}
+                            {cell(low20)}
+                          </>
+                        ) : (
+                          <>
+                            {cell(low20)}
+                            {cell(low10)}
+                            {cell(base0, true)}
+                            {cell(hi10)}
+                            {cell(hi20)}
+                          </>
+                        )}
+                      </tr>
+                    );
+                  });
+                })()}
+              </tbody>
+            </table>
+            </div>
+          </div>
+
           {/* Detailed assumptions table */}
           <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
             <div className="px-5 py-3.5 border-b border-slate-800/50">
@@ -688,6 +817,7 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
               <tbody>
                 {[
                   { label: 'Revenue',       base: baseRev,    p: proj.revenue,     d: proj.dRevenue },
+                  ...(active.newCustomers > 0 ? [{ label: '  New Customers', base: 0, p: proj.newCustomerRevenue, d: proj.newCustomerRevenue, hint: `${active.newCustomers} × ${fmt(baseRev / (data.customers.totalCount || 1), true)} avg` }] : []),
                   { label: '  COGS',        base: baseCOGS,   p: proj.cogs,        d: proj.cogs - baseCOGS },
                   { label: '  Gross Profit',base: baseGP,     p: proj.grossProfit, d: proj.dGP },
                   { label: '  GM %',        base: baseGM,     p: proj.gmPct,       d: proj.gmPct - baseGM, isPct: true },
@@ -701,9 +831,10 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
                     <tr key={row.label} className="border-b border-slate-800/30 hover:bg-slate-800/20 transition-colors">
                       <td className={`px-4 py-2.5 text-[12px] ${row.bold ? 'font-semibold text-slate-100' : 'text-slate-400'} ${row.label.startsWith(' ') ? 'pl-7' : ''}`}>
                         {row.label.trim()}
+                        {'hint' in row && row.hint && <span className="text-slate-600 text-[10px] ml-1.5">({row.hint})</span>}
                       </td>
                       <td className="px-4 py-2.5 text-[12px] text-right text-slate-400">
-                        {row.isPct ? `${row.base.toFixed(1)}%` : fmt(row.base, true)}
+                        {'hint' in row ? '—' : row.isPct ? `${row.base.toFixed(1)}%` : fmt(row.base, true)}
                       </td>
                       <td className={`px-4 py-2.5 text-[12px] text-right font-medium ${row.bold ? 'text-slate-100' : 'text-slate-300'}`}>
                         {row.isPct ? `${row.p.toFixed(1)}%` : fmt(row.p, true)}

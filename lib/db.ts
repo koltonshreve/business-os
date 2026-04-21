@@ -78,4 +78,15 @@ export async function ensureSchema(): Promise<void> {
       UNIQUE (rule_id, date)
     )
   `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS bos_user_plans (
+      id                 text PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      stripe_customer_id text NOT NULL UNIQUE,
+      plan_id            text NOT NULL DEFAULT 'starter',
+      subscription_id    text,
+      email              text,
+      created_at         timestamptz NOT NULL DEFAULT now(),
+      updated_at         timestamptz NOT NULL DEFAULT now()
+    )
+  `;
 }

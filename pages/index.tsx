@@ -1,9 +1,11 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import Head from 'next/head';
+import { useRouter } from 'next/router';
 import type { UnifiedBusinessData, KPIDashboard, WeeklyInsight, BoardDeck, Goals, Budget, CustomKPI, OnboardingData } from '../types';
 import { DEMO_CUSTOMERS } from '../lib/demo-customers';
 import { loadSession, saveSession, defaultSession } from '../lib/plan';
+import { loadAuthSession } from './auth';
 import KPIGrid from '../components/dashboard/KPIGrid';
 import AlertFeed from '../components/dashboard/AlertFeed';
 import AIChat from '../components/AIChat';
@@ -2580,6 +2582,16 @@ function SessionManagerPanel() {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function BusinessOS() {
+  const router = useRouter();
+
+  // ── Auth gate ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const session = loadAuthSession();
+    if (!session) {
+      void router.replace('/auth');
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const [activeView, setActiveView]             = useState<ActiveView>('deals');
   const [jumpDealId, setJumpDealId]             = useState<string | null>(null);
   const [snapshots, setSnapshots]               = useState<PeriodSnapshot[]>([DEMO_SNAPSHOT, PREV_SNAPSHOT]);
@@ -3235,6 +3247,9 @@ export default function BusinessOS() {
         <title>{companyName} · Business OS</title>
         <meta name="description" content="AI-powered executive intelligence for your business"/>
         <meta name="viewport" content="width=device-width, initial-scale=1"/>
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
+        <link rel="manifest" href="/manifest.json"/>
+        <meta name="theme-color" content="#060a12"/>
       </Head>
 
       <div className="min-h-screen bg-[#060a12] text-slate-100 flex flex-col">
@@ -3810,7 +3825,7 @@ export default function BusinessOS() {
               <ScenarioModeler
                 data={data}
                 onAskAI={openChat}
-                onScenarioChange={s => setScenarioAdj(s && (s.revenueGrowthPct !== 0 || s.grossMarginPct !== 0 || s.opexChangePct !== 0 || s.newHires !== 0 || s.priceIncreasePct !== 0) ? s : null)}
+                onScenarioChange={s => setScenarioAdj(s && (s.revenueGrowthPct !== 0 || s.grossMarginPct !== 0 || s.opexChangePct !== 0 || s.newHires !== 0 || s.priceIncreasePct !== 0 || (s.newCustomers ?? 0) !== 0 || (s.churnRatePct ?? 0) !== 0 || (s.oneTimeExpense ?? 0) !== 0) ? { ...s, newCustomers: s.newCustomers ?? 0, churnRatePct: s.churnRatePct ?? 0, oneTimeExpense: s.oneTimeExpense ?? 0 } : null)}
               />
             </div>
           )}

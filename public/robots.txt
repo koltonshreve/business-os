@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://business-os-three-sand.vercel.app/sitemap.xml

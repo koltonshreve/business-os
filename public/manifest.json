@@ -1,0 +1,17 @@
+{
+  "name": "Business OS",
+  "short_name": "BusinessOS",
+  "description": "AI-powered business intelligence dashboard for LMM operators",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#060a12",
+  "theme_color": "#060a12",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

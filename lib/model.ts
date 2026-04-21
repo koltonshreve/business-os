@@ -15,6 +15,9 @@ export interface ScenarioAdjustment {
   newHires:         number;
   avgCompK:         number;   // annual compensation per hire ($k)
   priceIncreasePct: number;
+  newCustomers:     number;   // incremental customers added (revenue = n × avg rev/customer)
+  churnRatePct:     number;   // additional % of revenue lost to churn above baseline
+  oneTimeExpense:   number;   // one-time below-the-line cost ($)
 }
 
 export const ZERO_SCENARIO: ScenarioAdjustment = {
@@ -25,6 +28,9 @@ export const ZERO_SCENARIO: ScenarioAdjustment = {
   newHires:         0,
   avgCompK:         100,
   priceIncreasePct: 0,
+  newCustomers:     0,
+  churnRatePct:     0,
+  oneTimeExpense:   0,
 };
 
 /**
@@ -42,19 +48,28 @@ export function applyScenario(
   const baseGP   = baseRev - baseCOGS;
   const baseGM   = baseRev > 0 ? (baseGP / baseRev) * 100 : 40;
 
-  const projRev  = baseRev
+  const customerCount     = base.customers.totalCount || 1;
+  const avgRevPerCustomer = baseRev / customerCount;
+  const newCustomerRev    = (s.newCustomers ?? 0) * avgRevPerCustomer;
+
+  const preChurnRev = (baseRev + newCustomerRev)
     * (1 + s.revenueGrowthPct / 100)
     * (1 + s.priceIncreasePct / 100);
 
+  // Additional churn beyond baseline (affects top-line revenue)
+  const churnRevLost = preChurnRev * ((s.churnRatePct ?? 0) / 100);
+  const projRev      = preChurnRev - churnRevLost;
+
   const gmPct    = s.grossMarginPct > 0 ? s.grossMarginPct : baseGM;
   const projCOGS = projRev * (1 - gmPct / 100);
-  const hireCost = s.newHires * s.avgCompK * 1_000;
-  const projOpEx = base.costs.totalOpEx * (1 + s.opexChangePct / 100) + hireCost;
+  const hireCost   = s.newHires * s.avgCompK * 1_000;
+  const projOpEx   = base.costs.totalOpEx * (1 + s.opexChangePct / 100) + hireCost;
+  const oneTimeCost = s.oneTimeExpense ?? 0;
 
   return {
     ...base,
     revenue: { ...base.revenue, total: projRev },
-    costs:   { ...base.costs,   totalCOGS: projCOGS, totalOpEx: projOpEx },
+    costs:   { ...base.costs,   totalCOGS: projCOGS, totalOpEx: projOpEx + oneTimeCost },
   };
 }
 
@@ -64,7 +79,10 @@ export function isZeroScenario(s: ScenarioAdjustment): boolean {
     s.grossMarginPct   === 0 &&
     s.opexChangePct    === 0 &&
     s.newHires         === 0 &&
-    s.priceIncreasePct === 0
+    s.priceIncreasePct === 0 &&
+    (s.newCustomers    ?? 0) === 0 &&
+    (s.churnRatePct    ?? 0) === 0 &&
+    (s.oneTimeExpense  ?? 0) === 0
   );
 }
 
