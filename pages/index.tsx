@@ -84,10 +84,11 @@ const DealList            = dynamic(() => import('../components/deals/DealList')
 const SupplierDashboard   = dynamic(() => import('../components/dashboard/SupplierDashboard'),              { ...SKELETON, ssr: false });
 const SKUAnalyzer         = dynamic(() => import('../components/dashboard/SKUAnalyzer'),                    { ...SKELETON, ssr: false });
 const CapacityAnalyzer    = dynamic(() => import('../components/dashboard/CapacityAnalyzer'),                { ...SKELETON, ssr: false });
+const CapitalImpactSummary= dynamic(() => import('../components/dashboard/CapitalImpactSummary'),             { ...SKELETON, ssr: false });
 const BenchmarkFeed       = dynamic(() => import('../components/dashboard/BenchmarkFeed'),                    { ssr: false });
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-type ActiveView = 'deals' | 'today' | 'overview' | 'financial' | 'customers' | 'operations' | 'intelligence' | 'scenarios' | 'data' | 'pipeline' | 'automations' | 'acquisitions' | 'goals' | 'team' | 'cash' | 'execute' | 'suppliers' | 'skus' | 'capacity';
+type ActiveView = 'deals' | 'today' | 'overview' | 'financial' | 'customers' | 'operations' | 'intelligence' | 'scenarios' | 'data' | 'pipeline' | 'automations' | 'acquisitions' | 'goals' | 'team' | 'cash' | 'execute' | 'suppliers' | 'skus' | 'capacity' | 'purchasing';
 type ToastType  = 'success' | 'error' | 'info';
 interface ToastItem { id: string; type: ToastType; message: string; }
 interface PeriodSnapshot { id: string; label: string; data: UnifiedBusinessData; createdAt: string; }
@@ -3178,6 +3179,7 @@ export default function BusinessOS() {
     { id: 'suppliers',     label: 'Suppliers',     Icon: Icons.Suppliers,     activeClass: 'bg-lime-500/15 text-lime-300 border border-lime-500/20' },
     { id: 'skus',          label: 'SKUs',          Icon: Icons.SKUs,          activeClass: 'bg-fuchsia-500/15 text-fuchsia-300 border border-fuchsia-500/20' },
     { id: 'capacity',      label: 'Capacity',      Icon: Icons.Capacity,      activeClass: 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/20' },
+    { id: 'purchasing',    label: 'Purchasing',    Icon: Icons.Suppliers,     activeClass: 'bg-orange-500/15 text-orange-300 border border-orange-500/20' },
     { id: 'data',          label: 'Data',          Icon: Icons.Data,          activeClass: 'bg-slate-800/80 text-slate-100' },
   ];
 
@@ -3201,6 +3203,7 @@ export default function BusinessOS() {
     suppliers:    'Supplier Spend',
     skus:         'SKU Analyzer',
     capacity:     'Capacity & Cost',
+    purchasing:   'Capital Impact Summary',
   };
 
   const pageAccent: Record<ActiveView, string> = {
@@ -3223,6 +3226,7 @@ export default function BusinessOS() {
     suppliers:    'text-lime-400',
     skus:         'text-fuchsia-400',
     capacity:     'text-cyan-400',
+    purchasing:   'text-orange-400',
   };
 
   return (
@@ -3969,6 +3973,9 @@ export default function BusinessOS() {
           )}
           {activeView === 'capacity' && (
             <CapacityAnalyzer data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/>
+          )}
+          {activeView === 'purchasing' && (
+            <CapitalImpactSummary data={data} onAskAI={openChat}/>
           )}
           {activeView === 'data' && (
             <div className="space-y-5">
