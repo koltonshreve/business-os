@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import Anthropic from '@anthropic-ai/sdk';
 import type { UnifiedBusinessData } from '../../types';
+import { getDb, isDbConfigured } from '../../lib/db';
 
 export const config = { api: { bodyParser: { sizeLimit: '1mb' } } };
 
@@ -104,12 +105,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const {
     message, data, history = [], companyName, activeView, companyProfile,
-    planId = 'starter', queriesUsed = 0, bypassKey = '',
+    planId: clientPlanId = 'starter', queriesUsed = 0, bypassKey = '',
+    stripeCustomerId = '',
   }: {
     message: string; data: UnifiedBusinessData; history: Message[];
     companyName?: string; activeView?: string;
     companyProfile?: { industry?: string; revenueModel?: string };
     planId?: string; queriesUsed?: number; bypassKey?: string;
+    stripeCustomerId?: string;
   } = req.body;
 
   if (!message?.trim()) return res.status(400).json({ error: 'Message required' });
@@ -117,8 +120,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // ── Demo bypass: operator key skips all limits ────────────────────────────
   const isDemoBypass = DEMO_BYPASS_KEY && bypassKey === DEMO_BYPASS_KEY;
 
+  // ── Server-side plan verification (when DB is available) ─────────────────
+  // Override client-reported planId with the authoritative DB value to prevent
+  // users from spoofing a higher plan tier.
+  let planId = clientPlanId;
+  if (!isDemoBypass && isDbConfigured() && stripeCustomerId) {
+    try {
+      const sql = getDb();
+      const rows = await sql`
+        SELECT plan_id FROM bos_user_plans WHERE stripe_customer_id = ${stripeCustomerId} LIMIT 1
+      ` as { plan_id: string }[];
+      if (rows.length > 0) planId = rows[0].plan_id;
+    } catch { /* non-fatal: fall back to client-reported plan */ }
+  }
+
   if (!isDemoBypass) {
-    // Plan-level monthly limit (client-reported, soft guard)
+    // Plan-level monthly limit (server-verified when possible, otherwise client-reported)
     const monthlyLimit = PLAN_MONTHLY_LIMITS[planId] ?? PLAN_MONTHLY_LIMITS.starter;
     if (monthlyLimit < 999 && queriesUsed >= monthlyLimit) {
       return res.status(402).json({

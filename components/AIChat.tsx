@@ -398,6 +398,7 @@ export default function AIChat({
           companyProfile,
           planId: session.planId,
           queriesUsed: session.aiQueriesUsed,
+          stripeCustomerId: session.stripeCustomerId ?? '',
           bypassKey,
         }),
       });

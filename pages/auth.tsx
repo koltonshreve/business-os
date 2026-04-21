@@ -5,26 +5,7 @@
 import { useState, type FormEvent } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-
-const AUTH_KEY = 'bos_auth_session';
-
-export function saveAuthSession(email: string, token: string) {
-  try {
-    localStorage.setItem(AUTH_KEY, JSON.stringify({ email, token, createdAt: new Date().toISOString() }));
-  } catch { /* ignore */ }
-}
-
-export function loadAuthSession(): { email: string; token: string } | null {
-  try {
-    const raw = localStorage.getItem(AUTH_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as { email: string; token: string };
-  } catch { return null; }
-}
-
-export function clearAuthSession() {
-  try { localStorage.removeItem(AUTH_KEY); } catch { /* ignore */ }
-}
+import { saveAuthSession } from '../lib/auth';
 
 export default function AuthPage() {
   const router = useRouter();
@@ -66,16 +47,14 @@ export default function AuthPage() {
       <Head>
         <title>Sign In — Business OS</title>
         <meta name="description" content="AI-powered business intelligence for LMM operators"/>
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
       </Head>
       <div className="min-h-screen bg-[#060a12] flex flex-col items-center justify-center px-4">
 
         {/* Logo / brand */}
         <div className="mb-8 text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-blue-600 mb-4">
-            <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6 text-white" stroke="currentColor" strokeWidth="2">
-              <path d="M3 13h4v8H3zM9 9h4v12H9zM15 5h4v16h-4z"/>
-              <path d="M4 17l5-4 5-5 5-3" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="2 0" fill="none"/>
-            </svg>
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-indigo-600 mb-4">
+            <svg viewBox="0 0 12 12" fill="white" className="w-6 h-6"><rect x="1" y="1" width="4" height="4" rx="0.5"/><rect x="7" y="1" width="4" height="4" rx="0.5"/><rect x="1" y="7" width="4" height="4" rx="0.5"/><rect x="7" y="7" width="4" height="4" rx="0.5"/></svg>
           </div>
           <h1 className="text-2xl font-bold text-slate-100">Business OS</h1>
           <p className="text-slate-500 text-sm mt-1">AI-powered intelligence for LMM operators</p>
@@ -100,7 +79,7 @@ export default function AuthPage() {
                   placeholder="you@company.com"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
-                  className="w-full bg-slate-800/60 border border-slate-700/60 rounded-xl px-3.5 py-2.5 text-[14px] text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-blue-500/60 focus:bg-slate-800/80 transition-colors"
+                  className="w-full bg-slate-800/60 border border-slate-700/60 rounded-xl px-3.5 py-2.5 text-[14px] text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/60 focus:bg-slate-800/80 transition-colors"
                 />
               </div>
 
@@ -113,7 +92,7 @@ export default function AuthPage() {
               <button
                 type="submit"
                 disabled={loading || !email}
-                className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-[14px] font-semibold transition-colors"
+                className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-[14px] font-semibold transition-colors"
               >
                 {loading ? 'Signing in…' : 'Continue →'}
               </button>

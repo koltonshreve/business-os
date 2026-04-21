@@ -366,13 +366,15 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
   const ebitdaChangePct = baseEBITDA !== 0 ? (ebitdaChange / Math.abs(baseEBITDA)) * 100 : 0;
 
   // Quick scenario presets
+  // Presets start from DEFAULT_SCENARIO so no stale lever values bleed through
+  const PRESET_BASE = { ...DEFAULT_SCENARIO, grossMarginPct: baseGM };
   const PRESETS = [
-    { label: '🚀 +20% Revenue',     apply: () => setActive(p => ({ ...p, revenueGrowthPct: 20, opexChangePct: 5 })) },
-    { label: '✂️ Cut OpEx 15%',     apply: () => setActive(p => ({ ...p, opexChangePct: -15 })) },
-    { label: '📈 Raise Prices 10%', apply: () => setActive(p => ({ ...p, priceIncreasePct: 10 })) },
-    { label: '👥 Hire 5 People',    apply: () => setActive(p => ({ ...p, newHires: 5, avgCompK: 100 })) },
-    { label: '💰 Expand Margins',   apply: () => setActive(p => ({ ...p, grossMarginPct: Math.min(baseGM + 5, 80) })) },
-    { label: '📉 Recession -25%',   apply: () => setActive(p => ({ ...p, revenueGrowthPct: -25, opexChangePct: -10 })) },
+    { label: '🚀 +20% Revenue',     apply: () => setActive(p => ({ ...p, ...PRESET_BASE, revenueGrowthPct: 20, opexChangePct: 5 })) },
+    { label: '✂️ Cut OpEx 15%',     apply: () => setActive(p => ({ ...p, ...PRESET_BASE, opexChangePct: -15 })) },
+    { label: '📈 Raise Prices 10%', apply: () => setActive(p => ({ ...p, ...PRESET_BASE, priceIncreasePct: 10 })) },
+    { label: '👥 Hire 5 People',    apply: () => setActive(p => ({ ...p, ...PRESET_BASE, newHires: 5, avgCompK: 100 })) },
+    { label: '💰 Expand Margins',   apply: () => setActive(p => ({ ...p, ...PRESET_BASE, grossMarginPct: Math.min(baseGM + 5, 80) })) },
+    { label: '📉 Recession -25%',   apply: () => setActive(p => ({ ...p, ...PRESET_BASE, revenueGrowthPct: -25, opexChangePct: -10, churnRatePct: 15 })) },
   ];
 
   return (

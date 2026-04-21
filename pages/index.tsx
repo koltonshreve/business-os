@@ -5,7 +5,7 @@ import { useRouter } from 'next/router';
 import type { UnifiedBusinessData, KPIDashboard, WeeklyInsight, BoardDeck, Goals, Budget, CustomKPI, OnboardingData } from '../types';
 import { DEMO_CUSTOMERS } from '../lib/demo-customers';
 import { loadSession, saveSession, defaultSession } from '../lib/plan';
-import { loadAuthSession } from './auth';
+import { loadAuthSession, clearAuthSession } from '../lib/auth';
 import KPIGrid from '../components/dashboard/KPIGrid';
 import AlertFeed from '../components/dashboard/AlertFeed';
 import AIChat from '../components/AIChat';
@@ -2585,12 +2585,32 @@ export default function BusinessOS() {
   const router = useRouter();
 
   // ── Auth gate ──────────────────────────────────────────────────────────────
+  const [authReady, setAuthReady] = useState(false);
+  const [authEmail, setAuthEmail] = useState('');
+
   useEffect(() => {
     const session = loadAuthSession();
     if (!session) {
       void router.replace('/auth');
+    } else {
+      setAuthEmail(session.email);
+      setAuthReady(true);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleSignOut() {
+    clearAuthSession();
+    void router.replace('/auth');
+  }
+
+  // Don't render the dashboard until auth is confirmed — prevents flash
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-[#060a12] flex items-center justify-center">
+        <div className="w-5 h-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin"/>
+      </div>
+    );
+  }
 
   const [activeView, setActiveView]             = useState<ActiveView>('deals');
   const [jumpDealId, setJumpDealId]             = useState<string | null>(null);
@@ -3385,6 +3405,33 @@ export default function BusinessOS() {
                 </svg>
                 <span className="hidden sm:inline">Ask AI</span>
               </button>
+
+              {/* User / sign-out */}
+              <div className="relative group hidden sm:block">
+                <button
+                  title={authEmail || 'Account'}
+                  className="w-7 h-7 rounded-full bg-indigo-700/60 border border-indigo-500/30 flex items-center justify-center text-[11px] font-bold text-indigo-200 hover:bg-indigo-600/60 transition-colors"
+                >
+                  {authEmail ? authEmail[0].toUpperCase() : '?'}
+                </button>
+                {/* Dropdown */}
+                <div className="absolute right-0 top-full mt-1.5 w-48 bg-[#0d1117] border border-slate-700/60 rounded-xl shadow-2xl py-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                  {authEmail && (
+                    <div className="px-3 py-2 border-b border-slate-800/60">
+                      <div className="text-[11px] text-slate-500 truncate">{authEmail}</div>
+                    </div>
+                  )}
+                  <button
+                    onClick={handleSignOut}
+                    className="w-full text-left px-3 py-2 text-[12px] text-slate-400 hover:text-red-400 hover:bg-red-500/5 transition-colors flex items-center gap-2"
+                  >
+                    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-3 h-3">
+                      <path d="M5 2H2v10h3M9 4l3 3-3 3M6 7h6"/>
+                    </svg>
+                    Sign out
+                  </button>
+                </div>
+              </div>
 
               {/* Mobile hamburger */}
               <button
