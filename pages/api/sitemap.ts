@@ -9,5 +9,6 @@ export default function handler(_req: NextApiRequest, res: NextApiResponse) {
 ${urls.map(u => `  <url><loc>${BASE}${u}</loc></url>`).join('\n')}
 </urlset>`;
   res.setHeader('Content-Type', 'application/xml');
+  res.setHeader('Cache-Control', 'public, s-maxage=3600');
   res.status(200).send(xml);
 }
