@@ -898,6 +898,119 @@ export default function CustomerDashboard({ data, previousData, onAskAI }: Props
 
         {/* Revenue Retention Dynamics */}
         <RevenueRetentionChart data={data} />
+
+        {/* Cohort Retention Grid */}
+        {(() => {
+          const periods = data.revenue.byPeriod;
+          if (periods.length < 3) return null;
+
+          // Build a simulated cohort grid from period-over-period data
+          // Each "cohort" = a starting period. We track what % of that cohort's revenue
+          // is still present in subsequent periods using the retention rate.
+          const retention = data.customers.retentionRate ?? 0.9;
+          const monthlyRetention = Math.pow(retention, 1); // already monthly if data is monthly
+
+          // Use the last 6 periods as cohort starting points
+          const cohortPeriods = periods.slice(-6);
+          const maxMonths = 6;
+
+          // For each cohort, compute estimated retention at each subsequent month
+          // M0 = 100% (starting), M1 = retentionRate%, M2 = retentionRate^2%, etc.
+          const cohorts = cohortPeriods.map((p, ci) => {
+            const monthsAvailable = cohortPeriods.length - ci; // how many subsequent periods exist
+            const months: (number | null)[] = Array.from({ length: maxMonths }, (_, m) => {
+              if (m === 0) return 100; // M0 always 100%
+              if (m >= monthsAvailable) return null; // future - no data
+              // Apply compounding retention drop
+              return Math.round(Math.pow(monthlyRetention, m) * 100 * 10) / 10;
+            });
+            return { label: p.period.replace(/^20\d\d-/, ''), months };
+          });
+
+          const avgByMonth = Array.from({ length: maxMonths }, (_, m) => {
+            const vals = cohorts.map(c => c.months[m]).filter((v): v is number => v !== null);
+            return vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+          });
+
+          const cellColor = (v: number | null) => {
+            if (v === null) return 'bg-slate-800/20 text-slate-700';
+            if (v >= 95) return 'bg-emerald-500/20 text-emerald-300';
+            if (v >= 85) return 'bg-emerald-500/10 text-emerald-400/80';
+            if (v >= 70) return 'bg-amber-500/10 text-amber-400';
+            if (v >= 50) return 'bg-orange-500/10 text-orange-400';
+            return 'bg-red-500/10 text-red-400';
+          };
+
+          return (
+            <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between">
+                <div>
+                  <div className="text-[12px] font-semibold text-slate-100">Cohort Retention Grid</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">% of cohort revenue retained each month · based on {(retention * 100).toFixed(1)}% period retention rate</div>
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  Avg M3: <span className={`font-semibold ${avgByMonth[3] !== null && avgByMonth[3] >= 85 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {avgByMonth[3] !== null ? `${avgByMonth[3].toFixed(0)}%` : '—'}
+                  </span>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[480px]">
+                  <thead>
+                    <tr className="border-b border-slate-800/40">
+                      <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em]">Cohort</th>
+                      {Array.from({ length: maxMonths }, (_, m) => (
+                        <th key={m} className="px-3 py-2.5 text-center text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em]">M{m}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cohorts.map((c, i) => (
+                      <tr key={i} className="border-b border-slate-800/30">
+                        <td className="px-4 py-2.5 text-[11px] font-medium text-slate-400 whitespace-nowrap">{c.label}</td>
+                        {c.months.map((v, m) => (
+                          <td key={m} className="px-3 py-2">
+                            <div className={`text-center text-[12px] font-semibold rounded-md py-1 ${cellColor(v)}`}>
+                              {v !== null ? `${v.toFixed(0)}%` : '·'}
+                            </div>
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                    {/* Average row */}
+                    <tr className="bg-slate-800/20">
+                      <td className="px-4 py-2.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide">Avg</td>
+                      {avgByMonth.map((v, m) => (
+                        <td key={m} className="px-3 py-2">
+                          <div className={`text-center text-[12px] font-bold rounded-md py-1 ${cellColor(v)}`}>
+                            {v !== null ? `${v.toFixed(0)}%` : '·'}
+                          </div>
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="px-5 py-3 border-t border-slate-800/40 flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-3 text-[10px]">
+                  {[
+                    { label: '≥95%', cls: 'bg-emerald-500/20 text-emerald-300' },
+                    { label: '85–94%', cls: 'bg-emerald-500/10 text-emerald-400/80' },
+                    { label: '70–84%', cls: 'bg-amber-500/10 text-amber-400' },
+                    { label: '50–69%', cls: 'bg-orange-500/10 text-orange-400' },
+                    { label: '<50%', cls: 'bg-red-500/10 text-red-400' },
+                  ].map(s => (
+                    <div key={s.label} className="flex items-center gap-1">
+                      <div className={`w-5 h-3.5 rounded text-[8px] flex items-center justify-center ${s.cls}`}/>
+                      <span className="text-slate-500">{s.label}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="text-[10px] text-slate-600 ml-auto">Estimated from period retention rate · upload customer-level data for true cohorts</div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Customer Economics: LTV / LTV:CAC */}
@@ -1011,6 +1124,70 @@ export default function CustomerDashboard({ data, previousData, onAskAI }: Props
                   <span className="text-[10px] text-slate-500">Each additional retention point saves ~{fmtMon(savedRevenue / 5)}/year</span>
                 </div>
               </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Customer Health Scores */}
+      {customers.topCustomers.length > 0 && (() => {
+        const retention = customers.retentionRate ?? 0.9;
+        const prevCustomers = previousData?.customers.topCustomers ?? [];
+
+        const scored = customers.topCustomers.slice(0, 10).map(c => {
+          // Score each dimension 0–100
+          const concentrationScore = c.percentOfTotal <= 5 ? 100 : c.percentOfTotal <= 10 ? 80 : c.percentOfTotal <= 20 ? 50 : 20;
+          const recurringScore = c.revenueType === 'recurring' ? 100 : c.revenueType === 'mixed' ? 60 : 30;
+          const retentionScore = retention >= 0.95 ? 100 : retention >= 0.9 ? 80 : retention >= 0.8 ? 50 : 20;
+          // YoY trend vs previous period
+          const prev = prevCustomers.find(p => p.name === c.name);
+          const trend = prev ? ((c.revenue - prev.revenue) / Math.max(prev.revenue, 1)) * 100 : 0;
+          const trendScore = prev ? (trend >= 10 ? 100 : trend >= 0 ? 70 : trend >= -10 ? 40 : 10) : 70;
+
+          const health = Math.round(concentrationScore * 0.25 + recurringScore * 0.3 + retentionScore * 0.2 + trendScore * 0.25);
+          const grade = health >= 80 ? 'A' : health >= 65 ? 'B' : health >= 50 ? 'C' : health >= 35 ? 'D' : 'F';
+          const gradeColor = health >= 80 ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
+            health >= 65 ? 'text-sky-400 bg-sky-500/10 border-sky-500/20' :
+            health >= 50 ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' :
+            health >= 35 ? 'text-orange-400 bg-orange-500/10 border-orange-500/20' : 'text-red-400 bg-red-500/10 border-red-500/20';
+          const barColor = health >= 80 ? 'bg-emerald-500/60' : health >= 65 ? 'bg-sky-500/60' : health >= 50 ? 'bg-amber-500/60' : health >= 35 ? 'bg-orange-500/60' : 'bg-red-500/60';
+
+          return { ...c, health, grade, gradeColor, barColor, trend, prev };
+        }).sort((a, b) => b.health - a.health);
+
+        return (
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <div className="text-[12px] font-semibold text-slate-100">Customer Health Scores</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">Composite: concentration · revenue type · retention · trend</div>
+              </div>
+              <div className="flex gap-2 text-[10px]">
+                {[['A', 'text-emerald-400'], ['B', 'text-sky-400'], ['C', 'text-amber-400'], ['D–F', 'text-red-400']].map(([g, cls]) => (
+                  <span key={g as string} className={cls as string}>{g as string}</span>
+                ))}
+              </div>
+            </div>
+            <div className="divide-y divide-slate-800/30">
+              {scored.map(c => (
+                <div key={c.name} className="px-5 py-3 flex items-center gap-3">
+                  <div className={`w-7 h-7 rounded-lg border flex items-center justify-center text-[11px] font-bold flex-shrink-0 ${c.gradeColor}`}>{c.grade}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[12px] font-semibold text-slate-200 truncate">{c.name}</span>
+                      {c.revenueType && <span className="text-[9px] text-slate-600 capitalize">{c.revenueType}</span>}
+                      {c.prev && <span className={`text-[9px] ${c.trend >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{c.trend >= 0 ? '▲' : '▼'} {Math.abs(c.trend).toFixed(0)}% YoY</span>}
+                    </div>
+                    <div className="mt-1 h-1.5 bg-slate-800/60 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full transition-all ${c.barColor}`} style={{ width: `${c.health}%` }}/>
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-[12px] font-semibold text-slate-300">{c.health}</div>
+                    <div className="text-[9px] text-slate-600">{c.percentOfTotal.toFixed(1)}% rev</div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         );

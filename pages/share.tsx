@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import Head from 'next/head';
 
-// ── Minimal share payload (encoded in URL hash) ───────────────────────────────
-interface SharePayload {
-  v: 1;                    // version
+// ── Share payload v1 (legacy) ─────────────────────────────────────────────────
+interface SharePayloadV1 {
+  v: 1;
   company: string;
   period: string;
   rev: number;
@@ -18,6 +18,32 @@ interface SharePayload {
   topCustomers: { name: string; pct: number }[];
   sharedAt: string;
 }
+
+// ── Share payload v2 ──────────────────────────────────────────────────────────
+interface SharePayloadV2 {
+  v: 2;
+  company: string;
+  period: string;
+  rev: number;
+  cogs: number;
+  opex: number;
+  ebitda: number;
+  gpMargin: number;
+  ebitdaMargin: number;
+  customers: number;
+  newCust: number;
+  churned: number;
+  retention: number;
+  headcount?: number;
+  runway?: number;
+  healthScore?: number;
+  pipelineValue?: number;
+  trend: { period: string; rev: number }[];
+  topCustomers: { name: string; pct: number }[];
+  sharedAt: string;
+}
+
+type SharePayload = SharePayloadV1 | SharePayloadV2;
 
 const fmt = (n: number) => {
   const abs = Math.abs(n);
@@ -47,7 +73,7 @@ export default function SharePage() {
       const hash = window.location.hash.replace('#', '');
       if (!hash) { setError('No snapshot data found in this link.'); return; }
       const decoded = JSON.parse(atob(hash)) as SharePayload;
-      if (decoded.v !== 1) { setError('Unrecognized snapshot format.'); return; }
+      if (decoded.v !== 1 && decoded.v !== 2) { setError('Unrecognized snapshot format.'); return; }
       setPayload(decoded);
     } catch {
       setError('This link appears to be invalid or corrupted.');
@@ -77,13 +103,20 @@ export default function SharePage() {
     );
   }
 
-  const gp     = payload.rev - payload.cogs;
-  const ebitda = gp - payload.opex;
-  const gpMargin    = parseFloat(pct(gp, payload.rev));
-  const ebitdaMargin = parseFloat(pct(ebitda, payload.rev));
+  const gp      = payload.rev - payload.cogs;
+  const ebitda  = payload.v === 2 ? payload.ebitda : gp - payload.opex;
+  const gpPct   = payload.v === 2 ? payload.gpMargin : parseFloat(pct(gp, payload.rev));
+  const ebitdaPct = payload.v === 2 ? payload.ebitdaMargin : parseFloat(pct(ebitda, payload.rev));
+  const healthScore = payload.v === 2 ? payload.healthScore : undefined;
+  const runway      = payload.v === 2 ? payload.runway : undefined;
+  const pipelineVal = payload.v === 2 ? payload.pipelineValue : undefined;
 
   const ogTitle       = `${payload.company} · ${payload.period} Performance`;
-  const ogDescription = `Revenue ${fmt(payload.rev)} · GP margin ${pct(gp, payload.rev)} · EBITDA ${pct(ebitda, payload.rev)} · ${payload.customers} customers`;
+  const ogDescription = `Revenue ${fmt(payload.rev)} · GP margin ${gpPct.toFixed(1)}% · EBITDA ${ebitdaPct.toFixed(1)}% · ${payload.customers} customers`;
+
+  const gradeColor = (healthScore ?? 0) >= 75 ? 'text-emerald-400' : (healthScore ?? 0) >= 55 ? 'text-amber-400' : 'text-red-400';
+  const gradeBg    = (healthScore ?? 0) >= 75 ? 'bg-emerald-500/10 border-emerald-500/20' : (healthScore ?? 0) >= 55 ? 'bg-amber-500/10 border-amber-500/20' : 'bg-red-500/10 border-red-500/20';
+  const grade      = (healthScore ?? 0) >= 85 ? 'A' : (healthScore ?? 0) >= 70 ? 'B' : (healthScore ?? 0) >= 55 ? 'C' : (healthScore ?? 0) >= 40 ? 'D' : 'F';
 
   return (
     <>
@@ -92,12 +125,10 @@ export default function SharePage() {
         <meta name="description" content={ogDescription}/>
         <meta name="robots" content="noindex, nofollow"/>
         <meta name="viewport" content="width=device-width, initial-scale=1"/>
-        {/* Open Graph */}
         <meta property="og:type"        content="website"/>
         <meta property="og:title"       content={ogTitle}/>
         <meta property="og:description" content={ogDescription}/>
         <meta property="og:site_name"   content="Business OS"/>
-        {/* Twitter Card */}
         <meta name="twitter:card"        content="summary"/>
         <meta name="twitter:title"       content={ogTitle}/>
         <meta name="twitter:description" content={ogDescription}/>
@@ -135,10 +166,18 @@ export default function SharePage() {
         {/* Content */}
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 space-y-5">
 
-          {/* Read-only badge */}
-          <div className="flex items-center gap-2 text-[11px] text-slate-600">
-            <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3"><rect x="4" y="1" width="6" height="5" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.2"/><rect x="1" y="6" width="12" height="7" rx="1.5"/><circle cx="7" cy="9.5" r="1"/></svg>
-            Read-only view · data as of {payload.period}
+          {/* Read-only badge + health score */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-[11px] text-slate-600">
+              <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3"><rect x="4" y="1" width="6" height="5" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.2"/><rect x="1" y="6" width="12" height="7" rx="1.5"/><circle cx="7" cy="9.5" r="1"/></svg>
+              Read-only view · data as of {payload.period}
+            </div>
+            {healthScore !== undefined && (
+              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-[11px] font-semibold ${gradeBg} ${gradeColor}`}>
+                <span className="text-[16px] font-bold tabular-nums">{healthScore}</span>
+                <span className="opacity-70">/ 100 · Grade {grade}</span>
+              </div>
+            )}
           </div>
 
           {/* Core financial metrics */}
@@ -146,11 +185,26 @@ export default function SharePage() {
             <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em] mb-3">Financial Overview</div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <MetricCard label="Revenue"      value={fmt(payload.rev)}   accent="text-slate-100"/>
-              <MetricCard label="Gross Profit" value={fmt(gp)}            sub={`${pct(gp, payload.rev)} margin`} accent={gpMargin >= 40 ? 'text-emerald-400' : gpMargin >= 25 ? 'text-amber-400' : 'text-red-400'}/>
-              <MetricCard label="EBITDA"       value={fmt(ebitda)}        sub={`${pct(ebitda, payload.rev)} margin`} accent={ebitdaMargin >= 14 ? 'text-emerald-400' : ebitdaMargin >= 5 ? 'text-amber-400' : 'text-red-400'}/>
+              <MetricCard label="Gross Profit" value={fmt(gp)}            sub={`${gpPct.toFixed(1)}% margin`} accent={gpPct >= 40 ? 'text-emerald-400' : gpPct >= 25 ? 'text-amber-400' : 'text-red-400'}/>
+              <MetricCard label="EBITDA"       value={fmt(ebitda)}        sub={`${ebitdaPct.toFixed(1)}% margin`} accent={ebitdaPct >= 14 ? 'text-emerald-400' : ebitdaPct >= 5 ? 'text-amber-400' : 'text-red-400'}/>
               <MetricCard label="OpEx"         value={fmt(payload.opex)}  sub={pct(payload.opex, payload.rev) + ' of revenue'}/>
             </div>
           </div>
+
+          {/* Supplemental KPIs (v2 only) */}
+          {payload.v === 2 && (runway !== undefined || pipelineVal !== undefined || payload.headcount !== undefined) && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {payload.headcount !== undefined && (
+                <MetricCard label="Headcount" value={String(payload.headcount)} sub="employees"/>
+              )}
+              {runway !== undefined && (
+                <MetricCard label="Cash Runway" value={`${runway}mo`} accent={runway >= 12 ? 'text-emerald-400' : runway >= 6 ? 'text-amber-400' : 'text-red-400'} sub="at current burn"/>
+              )}
+              {pipelineVal !== undefined && pipelineVal > 0 && (
+                <MetricCard label="Wtd Pipeline" value={fmt(pipelineVal)} sub="weighted by stage" accent="text-sky-400"/>
+              )}
+            </div>
+          )}
 
           {/* Customer metrics */}
           <div>
@@ -168,7 +222,7 @@ export default function SharePage() {
             <div>
               <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em] mb-3">Revenue Trend</div>
               <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
-                <div className="flex items-end gap-2 h-16">
+                <div className="flex items-end gap-2 h-20">
                   {payload.trend.map((p, i) => {
                     const maxRev = Math.max(...payload.trend.map(t => t.rev));
                     const h = maxRev > 0 ? Math.round((p.rev / maxRev) * 100) : 0;

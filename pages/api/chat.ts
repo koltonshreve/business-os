@@ -8,34 +8,28 @@ export const config = { api: { bodyParser: { sizeLimit: '1mb' } } };
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ── Server-side rate limiter ───────────────────────────────────────────────────
-// Keyed by IP. Resets each hour. Caps at HOURLY_HARD_LIMIT per IP regardless
-// of client-side session plan — prevents runaway costs during demos.
-
-const HOURLY_HARD_LIMIT = Number(process.env.AI_HOURLY_LIMIT ?? 30); // per IP per hour
-const DEMO_BYPASS_KEY   = process.env.DEMO_BYPASS_KEY ?? '';          // set in Vercel to skip limits
+const HOURLY_HARD_LIMIT = Number(process.env.AI_HOURLY_LIMIT ?? 30);
+const DEMO_BYPASS_KEY   = process.env.DEMO_BYPASS_KEY ?? '';
 
 const ipBuckets = new Map<string, { count: number; resetAt: number }>();
 
 function checkRateLimit(ip: string): { allowed: boolean; remaining: number; resetIn: number } {
-  const now     = Date.now();
-  const hourMs  = 60 * 60 * 1000;
-  const bucket  = ipBuckets.get(ip);
+  const now    = Date.now();
+  const hourMs = 60 * 60 * 1000;
+  const bucket = ipBuckets.get(ip);
 
   if (!bucket || now > bucket.resetAt) {
     ipBuckets.set(ip, { count: 1, resetAt: now + hourMs });
     return { allowed: true, remaining: HOURLY_HARD_LIMIT - 1, resetIn: 60 };
   }
-
   if (bucket.count >= HOURLY_HARD_LIMIT) {
     const resetIn = Math.ceil((bucket.resetAt - now) / 60_000);
     return { allowed: false, remaining: 0, resetIn };
   }
-
   bucket.count++;
   return { allowed: true, remaining: HOURLY_HARD_LIMIT - bucket.count, resetIn: 60 };
 }
 
-// Per-plan monthly limits (mirrors lib/plan.ts — kept in sync manually)
 const PLAN_MONTHLY_LIMITS: Record<string, number> = {
   starter: 5,
   growth:  50,
@@ -86,14 +80,27 @@ LMM/MM BENCHMARKS FOR CONTEXT:
 - Revenue retention: median 88%, strong >92%
 - Revenue per employee: median $85k, strong >$120k
 
-HOW TO RESPOND:
-- Be concise and direct — 2-5 sentences max unless asked to elaborate
-- Always use the actual numbers from the data above
-- Lead with the most important insight
-- End with one specific, actionable recommendation
-- If you spot a pattern in the trend data, mention it
-- Don't say "based on the data" — just say the answer
-- No disclaimers or caveats about being an AI`;
+RESPONSE FORMAT — follow this structure exactly:
+
+[status emoji] **[Bold headline: the single most important number or finding — max 12 words]**
+
+[1–2 short sentences of context. Max 18 words each. Use the actual numbers. No filler.]
+
+→ [One specific action. Start with a verb. Max 20 words.]
+
+FORMATTING RULES:
+- Open with exactly ONE status emoji that signals the finding's tone, followed by the bold headline:
+    📉 declining metric  📈 growing metric  ✅ healthy / on track  ⚠️ risk or warning
+    💡 insight or opportunity  🎯 target / goal  💰 money / profitability  👥 customers
+- Always wrap the headline text in **double asterisks** (after the emoji)
+- Always start the action line with "→ " (arrow + space)
+- Use blank lines between the headline, context, and action
+- Format numbers as: $26k, 12%, 3.2x, 94 days — never spell them out
+- For lists (when asked), number them: "1. " "2. " "3. " — put a single relevant emoji before each item
+- Never use "---" dividers
+- Never say "Based on the data" or "It appears that"
+- No disclaimers, caveats, or AI self-references
+- If asked to elaborate, add a second context paragraph — still end with "→ " action`;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -106,13 +113,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const {
     message, data, history = [], companyName, activeView, companyProfile,
     planId: clientPlanId = 'starter', queriesUsed = 0, bypassKey = '',
-    stripeCustomerId = '',
+    stripeCustomerId = '', maxTokens = 600, stream: wantStream = false,
   }: {
     message: string; data: UnifiedBusinessData; history: Message[];
     companyName?: string; activeView?: string;
     companyProfile?: { industry?: string; revenueModel?: string };
     planId?: string; queriesUsed?: number; bypassKey?: string;
-    stripeCustomerId?: string;
+    stripeCustomerId?: string; maxTokens?: number; stream?: boolean;
   } = req.body;
 
   if (!message?.trim()) return res.status(400).json({ error: 'Message required' });
@@ -120,9 +127,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // ── Demo bypass: operator key skips all limits ────────────────────────────
   const isDemoBypass = DEMO_BYPASS_KEY && bypassKey === DEMO_BYPASS_KEY;
 
-  // ── Server-side plan verification (when DB is available) ─────────────────
-  // Override client-reported planId with the authoritative DB value to prevent
-  // users from spoofing a higher plan tier.
+  // ── Server-side plan verification ────────────────────────────────────────
   let planId = clientPlanId;
   if (!isDemoBypass && isDbConfigured() && stripeCustomerId) {
     try {
@@ -135,7 +140,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (!isDemoBypass) {
-    // Plan-level monthly limit (server-verified when possible, otherwise client-reported)
     const monthlyLimit = PLAN_MONTHLY_LIMITS[planId] ?? PLAN_MONTHLY_LIMITS.starter;
     if (monthlyLimit < 999 && queriesUsed >= monthlyLimit) {
       return res.status(402).json({
@@ -145,7 +149,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    // IP-based hourly hard cap (prevents runaway demo/abuse costs)
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
       ?? req.socket?.remoteAddress
       ?? 'unknown';
@@ -159,32 +162,65 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    // Warn in header when getting close (last 5 remaining)
-    if (remaining <= 5) {
-      res.setHeader('X-RateLimit-Remaining', remaining);
+    if (remaining <= 5) res.setHeader('X-RateLimit-Remaining', remaining);
+  }
+
+  const profileLine = companyProfile?.industry || companyProfile?.revenueModel
+    ? `${companyProfile.industry ? `Industry: ${companyProfile.industry}` : ''}${companyProfile.revenueModel ? ` | Revenue model: ${companyProfile.revenueModel}` : ''}`.trim()
+    : undefined;
+  const systemContext = buildSystemContext(data, companyName, activeView, profileLine);
+  const msgList = [
+    ...history.slice(-6).map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+    { role: 'user' as const, content: message },
+  ];
+  const tokenLimit = Math.min(Math.max(maxTokens, 200), 4000);
+
+  // ── Non-streaming path (inline callers: P&L narrative, AR email, etc.) ────
+  if (!wantStream) {
+    try {
+      const msg = await client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: tokenLimit,
+        system: systemContext,
+        messages: msgList,
+      });
+      const reply = msg.content.filter(b => b.type === 'text').map(b => b.text).join('');
+      return res.json({ reply });
+    } catch (err) {
+      console.error('Chat error:', err);
+      return res.status(500).json({ error: err instanceof Error ? err.message : 'Chat failed' });
     }
   }
 
-  try {
-    const profileLine = companyProfile?.industry || companyProfile?.revenueModel
-      ? `${companyProfile.industry ? `Industry: ${companyProfile.industry}` : ''}${companyProfile.revenueModel ? ` | Revenue model: ${companyProfile.revenueModel}` : ''}`.trim()
-      : undefined;
-    const systemContext = buildSystemContext(data, companyName, activeView, profileLine);
+  // ── Streaming path (AIChat component) ─────────────────────────────────────
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
 
-    const response = await client.messages.create({
+  try {
+    const stream = client.messages.stream({
       model: 'claude-sonnet-4-6',
-      max_tokens: 600,
+      max_tokens: tokenLimit,
       system: systemContext,
-      messages: [
-        ...history.slice(-6).map(m => ({ role: m.role, content: m.content })),
-        { role: 'user', content: message },
-      ],
+      messages: msgList,
     });
 
-    const reply = response.content.filter(b => b.type === 'text').map(b => b.text).join('');
-    return res.json({ reply });
+    stream.on('text', (textDelta: string) => {
+      res.write(`data: ${JSON.stringify({ t: textDelta })}\n\n`);
+    });
+
+    await stream.finalMessage();
+    res.write('data: [DONE]\n\n');
+    res.end();
+
   } catch (err) {
-    console.error('Chat error:', err);
-    return res.status(500).json({ error: err instanceof Error ? err.message : 'Chat failed' });
+    console.error('Chat stream error:', err);
+    const errMsg = err instanceof Error ? err.message : 'Chat failed';
+    try {
+      res.write(`data: ${JSON.stringify({ error: errMsg })}\n\n`);
+      res.end();
+    } catch { /* response already ended */ }
   }
 }

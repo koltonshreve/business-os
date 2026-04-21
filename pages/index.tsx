@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
@@ -17,6 +17,13 @@ import DailyPriorities from '../components/deals/DailyPriorities';
 import ConnectedModel from '../components/dashboard/ConnectedModel';
 import type { CompanyProfile } from '../components/dashboard/DataSourcePanel';
 import type { Threshold } from '../components/dashboard/MetricThresholdsPanel';
+import AddBackTracker from '../components/dashboard/AddBackTracker';
+import EBITDABridge from '../components/dashboard/EBITDABridge';
+import RevenueBridge from '../components/dashboard/RevenueBridge';
+import WorkingCapitalDashboard from '../components/dashboard/WorkingCapitalDashboard';
+import CompanySwitcher from '../components/dashboard/CompanySwitcher';
+import ManualEntryModal from '../components/ManualEntryModal';
+import ErrorBoundary from '../components/ErrorBoundary';
 import { loadDeals } from '../lib/deals';
 import type { Deal } from '../lib/deals';
 import { computeModelChain, applyScenario, ZERO_SCENARIO } from '../lib/model';
@@ -88,9 +95,10 @@ const SKUAnalyzer         = dynamic(() => import('../components/dashboard/SKUAna
 const CapacityAnalyzer    = dynamic(() => import('../components/dashboard/CapacityAnalyzer'),                { ...SKELETON, ssr: false });
 const CapitalImpactSummary= dynamic(() => import('../components/dashboard/CapitalImpactSummary'),             { ...SKELETON, ssr: false });
 const BenchmarkFeed       = dynamic(() => import('../components/dashboard/BenchmarkFeed'),                    { ssr: false });
+const ValuationEstimator  = dynamic(() => import('../components/dashboard/ValuationEstimator'),               { ...SKELETON, ssr: false });
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-type ActiveView = 'deals' | 'today' | 'overview' | 'financial' | 'customers' | 'operations' | 'intelligence' | 'scenarios' | 'data' | 'pipeline' | 'automations' | 'acquisitions' | 'goals' | 'team' | 'cash' | 'execute' | 'suppliers' | 'skus' | 'capacity' | 'purchasing';
+type ActiveView = 'deals' | 'today' | 'overview' | 'financial' | 'customers' | 'operations' | 'intelligence' | 'scenarios' | 'data' | 'pipeline' | 'automations' | 'acquisitions' | 'goals' | 'team' | 'cash' | 'execute' | 'suppliers' | 'skus' | 'capacity' | 'purchasing' | 'valuation';
 type ToastType  = 'success' | 'error' | 'info';
 interface ToastItem { id: string; type: ToastType; message: string; }
 interface PeriodSnapshot { id: string; label: string; data: UnifiedBusinessData; createdAt: string; }
@@ -2060,18 +2068,29 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
 
 // ── Snapshot Share ────────────────────────────────────────────────────────────
 function generateShareURL(data: UnifiedBusinessData, label: string, companyName: string): string {
+  const rev    = data.revenue.total;
+  const cogs   = data.costs.totalCOGS;
+  const opex   = data.costs.totalOpEx;
+  const gp     = rev - cogs;
+  const ebitda = gp - opex;
+  const cf = data.cashFlow ?? [];
+  const cash = cf.length ? cf[cf.length - 1].closingBalance : null;
+  const avgBurn = cf.length ? cf.reduce((s, p) => s + (p.netCashFlow ?? 0), 0) / cf.length : null;
+  const runway = cash != null && avgBurn != null && avgBurn < 0 ? parseFloat(Math.abs(cash / avgBurn).toFixed(1)) : undefined;
   const payload = {
-    v: 1,
+    v: 2,
     company: companyName,
     period: label,
-    rev: data.revenue.total,
-    cogs: data.costs.totalCOGS,
-    opex: data.costs.totalOpEx,
+    rev, cogs, opex, ebitda,
+    gpMargin: rev > 0 ? parseFloat(((gp / rev) * 100).toFixed(1)) : 0,
+    ebitdaMargin: rev > 0 ? parseFloat(((ebitda / rev) * 100).toFixed(1)) : 0,
     customers: data.customers.totalCount,
     newCust: data.customers.newThisPeriod,
     churned: data.customers.churned,
     retention: data.customers.retentionRate ?? 0.88,
-    headcount: data.operations.headcount,
+    headcount: data.operations.headcount ?? undefined,
+    runway,
+    pipelineValue: data.pipeline?.reduce((s, p) => s + p.value * (p.probability / 100), 0),
     trend: data.revenue.byPeriod.slice(-8).map(p => ({ period: p.period, rev: p.revenue })),
     topCustomers: data.customers.topCustomers.slice(0, 5).map(c => ({ name: c.name, pct: c.percentOfTotal })),
     sharedAt: new Date().toISOString(),
@@ -2374,6 +2393,7 @@ const NAV_CARD_COLORS: Record<string, { label: string; text: string; link: strin
   operations:   { label: 'Operations',            text: 'Headcount, pipeline, utilization, OpEx ratios',   link: 'text-cyan-400 group-hover:text-cyan-300',       border: 'hover:border-cyan-500/30 group-hover:bg-cyan-500/5',       titleColor: 'group-hover:text-cyan-200'    },
   intelligence: { label: 'AI Intelligence',       text: 'Weekly narrative, board deck, risk scan',         link: 'text-emerald-400 group-hover:text-emerald-300', border: 'hover:border-emerald-500/30 group-hover:bg-emerald-500/5', titleColor: 'group-hover:text-emerald-200' },
   scenarios:    { label: 'Scenarios',             text: 'Model what-if outcomes with lever sliders',       link: 'text-amber-400 group-hover:text-amber-300',     border: 'hover:border-amber-500/30 group-hover:bg-amber-500/5',     titleColor: 'group-hover:text-amber-200'   },
+  valuation:    { label: 'Valuation',             text: 'EV range, quality-of-earnings, and exit roadmap', link: 'text-purple-400 group-hover:text-purple-300',   border: 'hover:border-purple-500/30 group-hover:bg-purple-500/5',   titleColor: 'group-hover:text-purple-200'  },
 };
 
 // ── Welcome modal (first visit, no real data) ─────────────────────────────────
@@ -2584,32 +2604,17 @@ function SessionManagerPanel() {
 export default function BusinessOS() {
   const router = useRouter();
 
-  // ── Auth gate ──────────────────────────────────────────────────────────────
-  const [authReady, setAuthReady] = useState(false);
+  // ── Auth gate (soft — loads session if present, never blocks access) ──────
   const [authEmail, setAuthEmail] = useState('');
 
   useEffect(() => {
     const session = loadAuthSession();
-    if (!session) {
-      void router.replace('/auth');
-    } else {
-      setAuthEmail(session.email);
-      setAuthReady(true);
-    }
+    if (session) setAuthEmail(session.email);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleSignOut() {
     clearAuthSession();
-    void router.replace('/auth');
-  }
-
-  // Don't render the dashboard until auth is confirmed — prevents flash
-  if (!authReady) {
-    return (
-      <div className="min-h-screen bg-[#060a12] flex items-center justify-center">
-        <div className="w-5 h-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin"/>
-      </div>
-    );
+    setAuthEmail('');
   }
 
   const [activeView, setActiveView]             = useState<ActiveView>('deals');
@@ -2646,6 +2651,10 @@ export default function BusinessOS() {
   const [pricingOpen, setPricingOpen]             = useState(false);
   const [showDeepAnalysis, setShowDeepAnalysis]   = useState(false);
   const [simpleMode, setSimpleModeState]          = useState(false);
+  const [showShareModal, setShowShareModal]        = useState(false);
+  const [shareUrl, setShareUrl]                    = useState('');
+  const [shareCopied, setShareCopied]              = useState(false);
+  const [showManualEntry, setShowManualEntry]      = useState(false);
 
   // Run Report progress modal
   type StepStatus = 'pending' | 'running' | 'done' | 'error';
@@ -2656,6 +2665,38 @@ export default function BusinessOS() {
   const [deals, setDeals]             = useState<Deal[]>([]);
   // Active scenario overlay — propagated to all modules
   const [scenarioAdj, setScenarioAdj] = useState<ScenarioAdjustment | null>(null);
+
+  // ── Lifted IIFE states (avoid hooks-in-conditional error #310) ──────────────
+  // Pricing Power Analyzer (Financial tab)
+  const [pricingAnswer, setPricingAnswer] = useState('');
+  const [pricingLoading, setPricingLoading] = useState(false);
+  const [pricingAnswers, setPricingAnswers] = useState<Record<string,string>>({});
+  // Churn Risk Predictor (Customers tab)
+  const [churnResult, setChurnResult] = useState('');
+  const [churnLoading, setChurnLoading] = useState(false);
+  // Investor Update Drafter (Intelligence tab)
+  const [investorDraft, setInvestorDraft] = useState('');
+  const [investorDraftLoading, setInvestorDraftLoading] = useState(false);
+  const [investorAudience, setInvestorAudience] = useState<'lp'|'board'|'pe'>('board');
+  // Deal Sourcing Brief (Acquisitions tab)
+  const [dealBrief, setDealBrief] = useState('');
+  const [dealBriefLoading, setDealBriefLoading] = useState(false);
+  const [dealStratType, setDealStratType] = useState<'bolt-on'|'platform'|'geographic'|'vertical'>('bolt-on');
+  // Market Sizing Calculator (Goals tab)
+  const [mktInputs, setMktInputs] = useState<{tamDesc:string;tamSize:string;samPct:string;somPct:string;growthRate:string}>({ tamDesc: '', tamSize: '', samPct: '20', somPct: '3', growthRate: '8' });
+  // Rolling 13-Week Cash Forecast (Cash tab)
+  const [cashRows, setCashRows] = useState<{week:number;inflow:number;outflow:number}[]>(Array.from({length:13},(_,i)=>({week:i+1,inflow:0,outflow:0})));
+  const [cashOpeningBal, setCashOpeningBal] = useState(0);
+  const [cashMinBuffer, setCashMinBuffer] = useState(0);
+  // Debt Service Tracker (Cash tab)
+  const [debtPdfStatus, setDebtPdfStatus] = useState<'idle'|'loading'|'done'|'error'>('idle');
+  const [debtPdfMsg, setDebtPdfMsg] = useState('');
+  const [debtLines, setDebtLines] = useState<{id:string;name:string;balance:number;rate:number;payment:number;type:'term'|'revolver'|'mezz'}[]>([
+    { id: 'd1', name: 'Senior Term Loan A', balance: 3_500_000, rate: 7.25, payment: 58_333, type: 'term' },
+    { id: 'd2', name: 'Revolving Credit Facility', balance: 750_000, rate: 6.50, payment: 0, type: 'revolver' },
+    { id: 'd3', name: 'Mezzanine Note', balance: 1_000_000, rate: 13.00, payment: 10_833, type: 'mezz' },
+  ]);
+  // ──────────────────────────────────────────────────────────────────────────
 
   // Load deals from localStorage
   useEffect(() => {
@@ -2711,6 +2752,12 @@ export default function BusinessOS() {
       const savedAlerts = localStorage.getItem('bos_alerts');
       if (savedAlerts) setAlerts(JSON.parse(savedAlerts));
     } catch { /* ignore */ }
+    // Lifted IIFE states
+    try { const s = localStorage.getItem('bos_market_sizing'); if (s) setMktInputs(JSON.parse(s)); } catch { /* ignore */ }
+    try { const s = localStorage.getItem('bos_cash_forecast'); if (s) setCashRows(JSON.parse(s)); } catch { /* ignore */ }
+    try { const s = localStorage.getItem('bos_cash_forecast_open'); if (s) setCashOpeningBal(parseFloat(s)); } catch { /* ignore */ }
+    try { const s = localStorage.getItem('bos_cash_forecast_min'); if (s) setCashMinBuffer(parseFloat(s)); } catch { /* ignore */ }
+    try { const s = localStorage.getItem('bos_debt_lines'); if (s) { const parsed = JSON.parse(s); if (Array.isArray(parsed) && parsed.length > 0) setDebtLines(parsed); } } catch { /* ignore */ }
     const savedCompare = localStorage.getItem('bos_compare_mode');
     if (savedCompare === 'true') setCompareMode(true);
     const savedUXMode = localStorage.getItem('bos_ux_mode');
@@ -3052,7 +3099,12 @@ export default function BusinessOS() {
       try {
         const toSave = [snap, ...userSnaps].slice(0, 8);
         localStorage.setItem('bos_snapshots', JSON.stringify(toSave));
-      } catch { /* storage quota exceeded — silently skip */ }
+      } catch (err) {
+        const isQuota = err instanceof DOMException && (err.name === 'QuotaExceededError' || err.code === 22);
+        addToast('error', isQuota
+          ? 'Storage full — delete an old period in the Data tab to free space, then try again.'
+          : 'Failed to save period data. Please try again.');
+      }
       return next;
     });
     localStorage.setItem('bos_active_id', snap.id);
@@ -3125,6 +3177,14 @@ export default function BusinessOS() {
     setShowOnboarding(false);
   }, []);
 
+  // ── Share snapshot ──────────────────────────────────────────────────────────
+  const handleShare = useCallback(() => {
+    const url = generateShareURL(effectiveData, activeSnapshot.label, companyName);
+    setShareUrl(url);
+    setShareCopied(false);
+    setShowShareModal(true);
+  }, [effectiveData, companyName, activeSnapshot]);
+
   // Keyboard shortcuts: 1–9 switch views, / or Cmd+K opens chat
   useEffect(() => {
     const viewOrder: ActiveView[] = ['deals', 'today', 'execute', 'overview', 'acquisitions', 'goals', 'team', 'cash', 'financial', 'customers', 'intelligence'];
@@ -3136,7 +3196,8 @@ export default function BusinessOS() {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === '/') { e.preventDefault(); setPaletteOpen(v => !v); return; }
       if (e.key === '?') { e.preventDefault(); setShortcutsOpen(v => !v); return; }
-      if (e.key === 'Escape') { setShortcutsOpen(false); setPaletteOpen(false); setMoreNavOpen(false); return; }
+      if (e.key === 'Escape') { setShortcutsOpen(false); setPaletteOpen(false); setMoreNavOpen(false); setShowShareModal(false); return; }
+      if (e.key === 's' || e.key === 'S') { e.preventDefault(); handleShare(); return; }
       const idx = parseInt(e.key, 10) - 1;
       if (idx >= 0 && idx < viewOrder.length) setActiveView(viewOrder[idx]);
     };
@@ -3212,6 +3273,7 @@ export default function BusinessOS() {
     { id: 'skus',          label: 'SKUs',          Icon: Icons.SKUs,          activeClass: 'bg-fuchsia-500/15 text-fuchsia-300 border border-fuchsia-500/20' },
     { id: 'capacity',      label: 'Capacity',      Icon: Icons.Capacity,      activeClass: 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/20' },
     { id: 'purchasing',    label: 'Purchasing',    Icon: Icons.Suppliers,     activeClass: 'bg-orange-500/15 text-orange-300 border border-orange-500/20' },
+    { id: 'valuation',     label: 'Valuation',     Icon: Icons.Acquisitions,  activeClass: 'bg-purple-500/15 text-purple-300 border border-purple-500/20' },
     { id: 'data',          label: 'Data',          Icon: Icons.Data,          activeClass: 'bg-slate-800/80 text-slate-100' },
   ];
 
@@ -3236,6 +3298,7 @@ export default function BusinessOS() {
     skus:         'SKU Analyzer',
     capacity:     'Capacity & Cost',
     purchasing:   'Capital Impact Summary',
+    valuation:    'Valuation Estimator',
   };
 
   const pageAccent: Record<ActiveView, string> = {
@@ -3259,6 +3322,7 @@ export default function BusinessOS() {
     skus:         'text-fuchsia-400',
     capacity:     'text-cyan-400',
     purchasing:   'text-orange-400',
+    valuation:    'text-purple-400',
   };
 
   return (
@@ -3401,6 +3465,16 @@ export default function BusinessOS() {
                 )}
               </button>
 
+              {/* Share snapshot */}
+              <button
+                onClick={handleShare}
+                title="Share a read-only snapshot"
+                className="hidden sm:flex items-center gap-1.5 px-2.5 py-[7px] rounded-lg border border-slate-700/50 hover:border-slate-600 bg-slate-800/30 hover:bg-slate-800/60 text-slate-400 hover:text-slate-200 transition-all text-[12px] font-medium"
+              >
+                <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 flex-shrink-0"><circle cx="11" cy="3" r="1.5"/><circle cx="3" cy="7" r="1.5"/><circle cx="11" cy="11" r="1.5"/><path d="M4.5 7.7l5 2.6M9.5 3.7l-5 2.6"/></svg>
+                <span className="hidden lg:inline">Share</span>
+              </button>
+
               {/* Ask AI CFO — primary action in header */}
               <button
                 onClick={() => openChat()}
@@ -3520,6 +3594,10 @@ export default function BusinessOS() {
               );
             })}
           </nav>
+          {/* Company switcher — pinned to bottom of sidebar */}
+          <div className="mt-auto border-t border-slate-800/50 pt-2">
+            <CompanySwitcher/>
+          </div>
         </aside>
 
         {/* Content column */}
@@ -3562,14 +3640,12 @@ export default function BusinessOS() {
               )}
               {/* Share */}
               <button
-                onClick={() => {
-                  const url = generateShareURL(data, activeSnapshot.label, companyName);
-                  navigator.clipboard.writeText(url).then(() => addToast('success', 'Share link copied'));
-                }}
-                title="Copy read-only share link"
+                onClick={handleShare}
+                title="Share a read-only snapshot"
                 className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 border border-slate-800/60 hover:border-slate-700 px-2.5 py-1 rounded-lg transition-all font-medium min-h-[30px]">
-                <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" className="w-3 h-3 flex-shrink-0">
-                  <path d="M5 7a2 2 0 003 0l3-3a2 2 0 00-3-3L6 3M9 7a2 2 0 00-3 0l-3 3a2 2 0 003 3l2-2"/>
+                <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 flex-shrink-0">
+                  <circle cx="11" cy="3" r="1.5"/><circle cx="3" cy="7" r="1.5"/><circle cx="11" cy="11" r="1.5"/>
+                  <path d="M4.5 7.7l5 2.6M9.5 3.7l-5 2.6"/>
                 </svg>
                 <span className="hidden sm:inline">Share</span>
               </button>
@@ -3646,6 +3722,36 @@ export default function BusinessOS() {
             />
           )}
 
+          {/* Data freshness warning — show if key data is stale (>30 days) */}
+          {(() => {
+            if (usingDemo) return null;
+            try {
+              const raw = localStorage.getItem('bos_import_meta');
+              if (!raw) return null;
+              const meta = JSON.parse(raw) as Record<string, { importedAt?: string; rows?: number }>;
+              const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+              const stale = Object.entries(meta)
+                .filter(([, v]) => v.importedAt && new Date(v.importedAt).getTime() < cutoff)
+                .map(([type]) => type.replace(/_/g, ' '));
+              if (stale.length === 0) return null;
+              return (
+                <div className="mb-5 bg-amber-500/5 border border-amber-500/15 rounded-xl px-4 sm:px-5 py-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="text-amber-400 flex-shrink-0">⏱</span>
+                    <div className="min-w-0">
+                      <span className="text-[12px] font-medium text-amber-300">Stale data: </span>
+                      <span className="text-[12px] text-amber-400/70">{stale.join(', ')} — last imported over 30 days ago</span>
+                    </div>
+                  </div>
+                  <button onClick={() => setActiveView('data')}
+                    className="flex-shrink-0 text-[11px] text-amber-400/80 hover:text-amber-300 border border-amber-500/20 hover:border-amber-500/40 px-2.5 py-1.5 rounded-lg transition-colors font-medium">
+                    Re-import →
+                  </button>
+                </div>
+              );
+            } catch { return null; }
+          })()}
+
           {/* High-priority alert banner (visible on all tabs except intelligence) */}
           {highAlerts.length > 0 && activeView !== 'intelligence' && (
             <div className="mb-5 bg-red-500/5 border border-red-500/20 rounded-xl px-4 sm:px-5 py-3.5 flex items-start gap-3">
@@ -3657,6 +3763,23 @@ export default function BusinessOS() {
               <button onClick={() => setActiveView('intelligence')}
                 className="flex-shrink-0 text-[11px] text-red-400/70 hover:text-red-300 border border-red-500/20 hover:border-red-500/40 px-2.5 py-1.5 rounded-lg transition-colors font-medium">
                 Review →
+              </button>
+            </div>
+          )}
+
+          {/* Threshold violations banner */}
+          {triggeredCount > 0 && activeView !== 'intelligence' && (
+            <div className="mb-5 bg-orange-500/5 border border-orange-500/15 rounded-xl px-4 sm:px-5 py-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <span className="text-orange-400 flex-shrink-0 font-bold text-sm">◉</span>
+                <div>
+                  <span className="text-[12px] font-semibold text-orange-300">{triggeredCount} metric threshold{triggeredCount > 1 ? 's' : ''} breached</span>
+                  <span className="text-[12px] text-orange-400/60 ml-2">— configured limits exceeded</span>
+                </div>
+              </div>
+              <button onClick={() => setActiveView('intelligence')}
+                className="flex-shrink-0 text-[11px] text-orange-400/80 hover:text-orange-300 border border-orange-500/20 hover:border-orange-500/40 px-2.5 py-1.5 rounded-lg transition-colors font-medium">
+                View →
               </button>
             </div>
           )}
@@ -3673,8 +3796,8 @@ export default function BusinessOS() {
           )}
 
           {/* ── Overview ── */}
-          {!simpleMode && activeView === 'overview' && (
-            <div className="space-y-5">
+          {!simpleMode && (
+            <div className={activeView === 'overview' ? 'space-y-5' : 'hidden'}>
 
               {/* Connected model chain — always at the top of the overview */}
               <ConnectedModel chain={modelChain} onNavigate={v => setActiveView(v as ActiveView)}/>
@@ -3743,6 +3866,173 @@ export default function BusinessOS() {
                 </button>
               </div>
               <KPIGrid dashboard={dashboard} data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} goals={goals} onNavigate={v => setActiveView(v as ActiveView)}/>
+
+              {/* ── Revenue Quality Score ── */}
+              {(() => {
+                const rev = data.revenue.total;
+                if (rev <= 0) return null;
+                const retention = data.customers.retentionRate ?? 0.88;
+                const topCust = data.customers.topCustomers[0]?.percentOfTotal ?? 0;
+                const recurringPct = data.customers.topCustomers.length > 0
+                  ? (data.customers.topCustomers.filter(c => c.revenueType === 'recurring').reduce((s,c) => s+c.revenue,0) / rev) * 100
+                  : 50;
+                const gm = rev > 0 ? ((rev - data.costs.totalCOGS) / rev) * 100 : 0;
+                const periods = (data.revenue.byPeriod ?? []).length;
+
+                // Score each dimension 0–100
+                const dims = [
+                  { label: 'Recurring Revenue', score: Math.min(100, recurringPct * 1.4), target: 70, fmt: `${recurringPct.toFixed(0)}%`, hint: '% of revenue that is contractual/subscription' },
+                  { label: 'Customer Retention', score: Math.min(100, (retention - 0.7) / 0.3 * 100), target: 92, fmt: `${(retention*100).toFixed(1)}%`, hint: 'Period-over-period customer retention rate' },
+                  { label: 'Concentration Risk', score: Math.max(0, 100 - topCust * 2.5), target: 80, fmt: `${topCust.toFixed(0)}% top`, hint: 'Inverse of top customer % — lower concentration = better' },
+                  { label: 'Gross Margin Quality', score: Math.min(100, Math.max(0, (gm - 20) / 40 * 100)), target: 75, fmt: `${gm.toFixed(1)}%`, hint: 'Higher margin = more pricing power' },
+                  { label: 'Revenue Predictability', score: Math.min(100, periods * 8), target: 80, fmt: `${periods} periods`, hint: 'Number of historical periods — more data = more predictable' },
+                  { label: 'Customer Diversification', score: Math.min(100, data.customers.totalCount * 5), target: 80, fmt: `${data.customers.totalCount} customers`, hint: 'Broader base = lower concentration risk' },
+                ];
+                const overall = Math.round(dims.reduce((s, d) => s + d.score, 0) / dims.length);
+                const grade = overall >= 80 ? 'A' : overall >= 65 ? 'B' : overall >= 50 ? 'C' : overall >= 35 ? 'D' : 'F';
+                const gradeColor = overall >= 80 ? 'text-emerald-400' : overall >= 65 ? 'text-sky-400' : overall >= 50 ? 'text-amber-400' : 'text-red-400';
+                const narrative = overall >= 80 ? 'Premium quality of earnings — supports a top-tier valuation multiple.' :
+                  overall >= 65 ? 'Good revenue quality with identifiable improvement areas. Addressable gaps could add 0.5–1× to exit multiple.' :
+                  overall >= 50 ? 'Moderate quality. Buyers will apply risk discounts. Focus on recurring revenue and retention.' :
+                  'Below-average quality — expect buyer scrutiny and multiple compression. Prioritize retention and contract conversion.';
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Revenue Quality Score</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">PE / QoE framework · directly impacts valuation multiple</div>
+                      </div>
+                      <div className="text-right">
+                        <div className={`text-[28px] font-bold ${gradeColor}`}>{grade}</div>
+                        <div className={`text-[10px] ${gradeColor}`}>{overall}/100</div>
+                      </div>
+                    </div>
+                    <div className="px-5 py-4 space-y-2.5">
+                      {dims.map(d => (
+                        <div key={d.label} className="flex items-center gap-3">
+                          <div className="w-36 text-[11px] text-slate-400 flex-shrink-0" title={d.hint}>{d.label}</div>
+                          <div className="flex-1 h-2 bg-slate-800/60 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full transition-all ${d.score >= 80 ? 'bg-emerald-500/60' : d.score >= 60 ? 'bg-sky-500/50' : d.score >= 40 ? 'bg-amber-500/50' : 'bg-red-500/50'}`} style={{ width: `${d.score}%` }}/>
+                          </div>
+                          <div className="w-20 text-right text-[11px] text-slate-400 flex-shrink-0">{d.fmt}</div>
+                          <div className={`w-6 text-right text-[11px] font-bold flex-shrink-0 ${d.score >= d.target ? 'text-emerald-400' : 'text-amber-400'}`}>{Math.round(d.score)}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="px-5 py-3 border-t border-slate-800/40 text-[11px] text-slate-400 leading-relaxed">{narrative}</div>
+                  </div>
+                );
+              })()}
+
+              {/* ── LMM Scorecard ──────────────────────────────────────── */}
+              {(() => {
+                const d = effectiveData;
+                const rev    = d.revenue.total;
+                const cogs   = d.costs.totalCOGS;
+                const opex   = d.costs.totalOpEx;
+                const gp     = rev - cogs;
+                const ebitda = gp - opex;
+                const gmPct  = rev > 0 ? (gp / rev) * 100 : 0;
+                const ebitdaMarginPct = rev > 0 ? (ebitda / rev) * 100 : 0;
+                const retentionRate = d.customers.retentionRate ?? null;
+                const churn = retentionRate !== null ? (1 - retentionRate) * 100 : null;
+                const utilization = d.operations.employeeUtilization ?? d.operations.utilizationRate ?? d.operations.capacityUtilization ?? null;
+                const pipelineDeals = d.pipeline ?? [];
+                const weightedPipeline = pipelineDeals.filter(p => p.stage !== 'Closed Won' && p.stage !== 'Closed Lost').reduce((s, p) => s + p.value * (p.probability / 100), 0);
+                const revenueMultipleSba = rev > 0 ? (ebitda * 5.5) / rev : 0; // EV/Rev at 5.5× EBITDA
+
+                type Grade = 'A' | 'B' | 'C' | 'D' | 'F';
+                const grade = (score: number): Grade => score >= 90 ? 'A' : score >= 75 ? 'B' : score >= 60 ? 'C' : score >= 40 ? 'D' : 'F';
+                const gradeColor = (g: Grade) => g === 'A' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : g === 'B' ? 'text-blue-400 bg-blue-500/10 border-blue-500/20' : g === 'C' ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' : 'text-red-400 bg-red-500/10 border-red-500/20';
+
+                const metrics: { label: string; value: string; score: number; benchmark: string }[] = [
+                  {
+                    label: 'Gross Margin',
+                    value: rev > 0 ? `${gmPct.toFixed(1)}%` : '—',
+                    score: gmPct >= 60 ? 95 : gmPct >= 45 ? 80 : gmPct >= 30 ? 65 : gmPct >= 15 ? 45 : 20,
+                    benchmark: '≥ 45% · LMM services benchmark',
+                  },
+                  {
+                    label: 'EBITDA Margin',
+                    value: rev > 0 ? `${ebitdaMarginPct.toFixed(1)}%` : '—',
+                    score: ebitdaMarginPct >= 20 ? 95 : ebitdaMarginPct >= 15 ? 85 : ebitdaMarginPct >= 10 ? 70 : ebitdaMarginPct >= 5 ? 50 : ebitdaMarginPct >= 0 ? 30 : 10,
+                    benchmark: '≥ 15% · SBA-financeable threshold',
+                  },
+                  {
+                    label: 'Customer Retention',
+                    value: churn !== null ? `${(100 - churn).toFixed(1)}%` : '—',
+                    score: churn === null ? 50 : churn <= 2 ? 95 : churn <= 5 ? 80 : churn <= 10 ? 60 : churn <= 20 ? 40 : 15,
+                    benchmark: '≥ 90% · Indicates recurring revenue quality',
+                  },
+                  {
+                    label: 'Pipeline Coverage',
+                    value: rev > 0 && weightedPipeline > 0 ? `${(weightedPipeline / (rev / 12)).toFixed(1)}×` : '—',
+                    score: rev > 0 && weightedPipeline > 0 ? Math.min(95, ((weightedPipeline / (rev / 12)) / 3) * 90) : 30,
+                    benchmark: '≥ 3× monthly rev · Weighted pipeline',
+                  },
+                  {
+                    label: 'Capacity Utilization',
+                    value: utilization !== null ? `${(utilization * 100).toFixed(0)}%` : '—',
+                    score: utilization === null ? 50 : utilization >= 0.75 && utilization <= 0.92 ? 90 : utilization >= 0.60 ? 70 : utilization >= 0.45 ? 55 : 30,
+                    benchmark: '75–90% · Sweet spot before burnout',
+                  },
+                  {
+                    label: 'Revenue Scale',
+                    value: rev >= 1_000_000 ? `$${(rev / 1_000_000).toFixed(1)}M` : `$${Math.round(rev).toLocaleString()}`,
+                    score: rev >= 10_000_000 ? 95 : rev >= 5_000_000 ? 80 : rev >= 2_000_000 ? 65 : rev >= 1_000_000 ? 50 : 25,
+                    benchmark: '≥ $2M · LMM entry threshold',
+                  },
+                ];
+
+                const overallScore = Math.round(metrics.reduce((s, m) => s + m.score, 0) / metrics.length);
+                const overallGrade = grade(overallScore);
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">LMM Scorecard</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Lower middle market benchmark grading</div>
+                      </div>
+                      <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[13px] font-bold ${gradeColor(overallGrade)}`}>
+                        {overallGrade}
+                        <span className="text-[10px] font-normal opacity-70">{overallScore}/100</span>
+                      </div>
+                    </div>
+                    <div className="divide-y divide-slate-800/40">
+                      {metrics.map(m => {
+                        const g = grade(m.score);
+                        const barWidth = `${m.score}%`;
+                        return (
+                          <div key={m.label} className="px-5 py-3 flex items-center gap-4">
+                            <div className="w-32 flex-shrink-0">
+                              <div className="text-[11px] font-medium text-slate-300">{m.label}</div>
+                              <div className="text-[10px] text-slate-600 mt-0.5 leading-relaxed">{m.benchmark}</div>
+                            </div>
+                            <div className="flex-1">
+                              <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full transition-all" style={{
+                                  width: barWidth,
+                                  background: g === 'A' ? '#10b981' : g === 'B' ? '#3b82f6' : g === 'C' ? '#f59e0b' : '#ef4444',
+                                }}/>
+                              </div>
+                            </div>
+                            <div className="w-16 text-right text-[12px] font-semibold text-slate-200">{m.value}</div>
+                            <div className={`w-7 h-7 flex items-center justify-center rounded-md border text-[11px] font-bold flex-shrink-0 ${gradeColor(g)}`}>{g}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="px-5 py-3 border-t border-slate-800/40 flex items-center justify-between flex-wrap gap-2">
+                      <div className="text-[10px] text-slate-600">Benchmarks based on SBA 7(a) standards and LMM M&A deal data</div>
+                      <button onClick={() => setActiveView('valuation')}
+                        className="text-[11px] text-purple-400 hover:text-purple-300 font-medium transition-colors">
+                        Full valuation analysis →
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* ── Section: Revenue ─────────────────────────────────── */}
               <div className="flex items-center gap-3 pt-1">
@@ -3824,16 +4114,521 @@ export default function BusinessOS() {
           )}
 
           {!simpleMode && (<>
-          {activeView === 'financial' && (
-            <div className="space-y-4">
+          <div className={activeView === 'financial' ? 'space-y-4' : 'hidden'}>
+              {usingDemo && (
+                <div className="flex items-center justify-between gap-4 bg-indigo-500/8 border border-indigo-500/20 rounded-xl px-4 py-3">
+                  <div className="text-[11px] text-indigo-300/80">
+                    <span className="font-semibold">Demo data</span> — these are sample numbers. Enter your real data to see your actual financials.
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button onClick={() => setShowManualEntry(true)} className="text-[11px] font-semibold text-indigo-300 hover:text-indigo-100 border border-indigo-500/30 hover:border-indigo-500/60 px-3 py-1.5 rounded-lg transition-colors">Enter manually</button>
+                    <button onClick={() => setActiveView('data')} className="text-[11px] font-semibold text-indigo-300 hover:text-indigo-100 border border-indigo-500/30 hover:border-indigo-500/60 px-3 py-1.5 rounded-lg transition-colors">Upload CSV</button>
+                  </div>
+                </div>
+              )}
+              <ErrorBoundary label="Financial tab">
               <div className="flex items-center gap-2">
                 <div className="h-px flex-1 bg-indigo-500/10"/>
                 <SectionNote noteKey="financial" notes={panelNotes} onSave={setPanelNote}/>
                 <div className="h-px flex-1 bg-indigo-500/10"/>
               </div>
+              {/* ── AI P&L Narrative Generator ── */}
+              {(() => {
+                const [narrative, setNarrative] = React.useState('');
+                const [narLoading, setNarLoading] = React.useState(false);
+                const rev = data.revenue.total; const cogs = data.costs.totalCOGS; const opex = data.costs.totalOpEx;
+                const gp = rev - cogs; const ebitda = gp - opex;
+                const fmtN = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : `$${Math.round(n).toLocaleString()}`;
+                const periods = data.revenue.byPeriod ?? [];
+                const prev = periods.length >= 2 ? periods[periods.length - 2] : null;
+                const cur  = periods.length >= 1 ? periods[periods.length - 1] : null;
+                const revChg = cur && prev && prev.revenue > 0 ? ((cur.revenue - prev.revenue) / prev.revenue * 100) : null;
+                const generate = async () => {
+                  setNarLoading(true);
+                  try {
+                    const prompt = `Write a concise, board-ready P&L narrative (3–4 sentences) for this period. Revenue: ${fmtN(rev)}${revChg !== null ? ` (${revChg >= 0 ? '+' : ''}${revChg.toFixed(1)}% vs prior period)` : ''}. Gross profit: ${fmtN(gp)} (${rev > 0 ? ((gp/rev)*100).toFixed(1) : 0}% margin). EBITDA: ${fmtN(ebitda)} (${rev > 0 ? ((ebitda/rev)*100).toFixed(1) : 0}% margin). OpEx: ${fmtN(opex)}. Top cost categories: ${data.costs.byCategory.slice(0,3).map(c => `${c.category} ${fmtN(c.amount)}`).join(', ')}. Write as if briefing the board: lead with the headline, explain the key drivers, and end with one forward-looking action item. No bullet points — flowing prose only.`;
+                    const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: prompt, data: effectiveData, history: [], companyName, planId: 'pro' }) });
+                    const json = await res.json() as { reply?: string; error?: string };
+                    setNarrative(json.reply ?? json.error ?? 'Failed to generate');
+                  } catch { setNarrative('Error connecting to AI'); } finally { setNarLoading(false); }
+                };
+                return (
+                  <div className="bg-gradient-to-br from-indigo-950/30 to-slate-900/50 border border-indigo-800/30 rounded-xl p-5">
+                    <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">AI P&L Narrative</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Board-ready commentary generated from your live financials</div>
+                      </div>
+                      <button onClick={generate} disabled={narLoading}
+                        className="flex items-center gap-2 px-4 py-2 text-[12px] font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl transition-colors flex-shrink-0">
+                        {narLoading ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block"/>Generating…</> : '✦ Generate Narrative'}
+                      </button>
+                    </div>
+                    {narrative ? (
+                      <div className="bg-slate-900/60 rounded-lg p-4">
+                        <p className="text-[13px] text-slate-200 leading-relaxed">{narrative}</p>
+                        <button onClick={() => { try { navigator.clipboard.writeText(narrative); } catch { /* ignore */ } }}
+                          className="mt-3 text-[10px] text-slate-600 hover:text-slate-400 transition-colors">Copy to clipboard →</button>
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-slate-600 italic">Click generate to create a board-ready P&L summary from your current numbers.</div>
+                    )}
+                  </div>
+                );
+              })()}
+
               <FinancialDashboard data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} dashboard={dashboard} budget={budget} onSetBudget={setBudgetLine} annotations={annotations} onAnnotate={setAnnotation} onAskAI={openChat}/>
               <PLStatement data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} showChange showPct/>
+
               <BudgetPanel data={data} budget={budget} onSetBudget={setBudgetLine} onAskAI={openChat}/>
+
+              {/* ── AR Follow-up Task Generator ── */}
+              {(() => {
+                const aging = data.arAging ?? [];
+                const overdue = aging.filter(b => b.days60 + b.days90 + b.over90 > 0);
+                const [generated, setGenerated] = React.useState(false);
+                const [taskCount, setTaskCount] = React.useState(0);
+
+                if (overdue.length === 0) return null;
+
+                const totalOverdue = overdue.reduce((s, b) => s + b.days60 + b.days90 + b.over90, 0);
+                const fmtD = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : `$${Math.round(n).toLocaleString()}`;
+
+                const generateTasks = () => {
+                  const tasks = overdue.map(b => {
+                    const worst = b.over90 > 0 ? '90+d overdue' : b.days90 > 0 ? '61–90d overdue' : '31–60d overdue';
+                    const amt = b.days60 + b.days90 + b.over90;
+                    return {
+                      id: `ar-${b.customer.replace(/\s+/g,'-').toLowerCase()}-${Date.now()}`,
+                      title: `Follow up: ${b.customer} — ${fmtD(amt)} ${worst}`,
+                      due: new Date(Date.now() + 2 * 86400_000).toISOString().slice(0, 10),
+                      priority: b.over90 > 0 ? 'high' : b.days90 > 0 ? 'high' : 'medium',
+                      category: 'AR Collections',
+                      done: false,
+                    };
+                  });
+                  try {
+                    const existing = JSON.parse(localStorage.getItem('bos_ar_tasks') ?? '[]');
+                    localStorage.setItem('bos_ar_tasks', JSON.stringify([...existing, ...tasks]));
+                  } catch { /* ignore */ }
+                  setTaskCount(tasks.length);
+                  setGenerated(true);
+                  setTimeout(() => setGenerated(false), 4000);
+                };
+
+                return (
+                  <div className="bg-slate-900/50 border border-amber-800/30 rounded-xl p-5">
+                    <div className="flex items-start justify-between gap-4 flex-wrap">
+                      <div>
+                        <div className="text-[12px] font-semibold text-amber-300 mb-0.5">AR Collections — {overdue.length} accounts overdue</div>
+                        <div className="text-[11px] text-slate-500">{fmtD(totalOverdue)} past 30 days · Create follow-up tasks to your Execute board</div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {overdue.map(b => {
+                            const worst = b.over90 > 0 ? { label: '90+d', cls: 'bg-red-900/40 text-red-300 border-red-800/40' } :
+                              b.days90 > 0 ? { label: '61–90d', cls: 'bg-orange-900/40 text-orange-300 border-orange-800/40' } :
+                              { label: '31–60d', cls: 'bg-amber-900/40 text-amber-300 border-amber-800/40' };
+                            return (
+                              <span key={b.customer} className={`text-[10px] px-2 py-0.5 rounded-full border ${worst.cls}`}>
+                                {b.customer} · {worst.label}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="flex-shrink-0">
+                        <div className="flex flex-col gap-2">
+                        {generated ? (
+                          <div className="flex items-center gap-2 text-emerald-400 text-[12px] font-medium">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>
+                            {taskCount} tasks created
+                          </div>
+                        ) : (
+                          <button onClick={generateTasks}
+                            className="px-4 py-2 text-[12px] font-semibold bg-amber-600/20 hover:bg-amber-600/30 border border-amber-600/40 text-amber-300 rounded-xl transition-colors">
+                            Generate Follow-up Tasks
+                          </button>
+                        )}
+                        {(() => {
+                          const [emailTarget, setEmailTarget] = React.useState(overdue[0]?.customer ?? '');
+                          const [emailText, setEmailText] = React.useState('');
+                          const [emailLoading, setEmailLoading] = React.useState(false);
+                          const selectedBucket = overdue.find(b => b.customer === emailTarget) ?? overdue[0];
+                          const draftEmail = async () => {
+                            if (!selectedBucket) return;
+                            setEmailLoading(true);
+                            const amt = selectedBucket.days60 + selectedBucket.days90 + selectedBucket.over90;
+                            const age = selectedBucket.over90 > 0 ? '90+ days' : selectedBucket.days90 > 0 ? '61–90 days' : '31–60 days';
+                            const tone = selectedBucket.over90 > 0 ? 'firm and urgent' : selectedBucket.days90 > 0 ? 'assertive but professional' : 'friendly and informative';
+                            const prompt = `Write a ${tone} AR collections email to ${selectedBucket.customer} for $${Math.round(amt).toLocaleString()} that is ${age} past due. Keep it under 120 words. Include: subject line, greeting, the amount owed and age, a clear call to action with a payment deadline, and a professional sign-off. Format as: SUBJECT: [subject]\n\n[body]`;
+                            try {
+                              const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: prompt, data: effectiveData, history: [], companyName, planId: 'pro' }) });
+                              const json = await res.json() as { reply?: string };
+                              setEmailText(json.reply ?? 'Failed to generate');
+                            } catch { setEmailText('Error'); } finally { setEmailLoading(false); }
+                          };
+                          return (
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <select value={emailTarget} onChange={e => { setEmailTarget(e.target.value); setEmailText(''); }}
+                                  className="flex-1 bg-slate-800/60 border border-amber-700/40 rounded-lg px-2 py-1.5 text-[11px] text-slate-300 focus:outline-none">
+                                  {overdue.map(b => <option key={b.customer} value={b.customer}>{b.customer}</option>)}
+                                </select>
+                                <button onClick={draftEmail} disabled={emailLoading}
+                                  className="px-3 py-1.5 text-[11px] font-semibold bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-600/40 text-indigo-300 rounded-lg transition-colors flex-shrink-0">
+                                  {emailLoading ? '…' : '✦ Draft Email'}
+                                </button>
+                              </div>
+                              {emailText && (
+                                <div className="bg-slate-900/80 border border-slate-700/40 rounded-lg p-3">
+                                  <pre className="text-[10px] text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">{emailText}</pre>
+                                  <button onClick={() => { try { navigator.clipboard.writeText(emailText); } catch { /* ignore */ } }}
+                                    className="mt-2 text-[9px] text-slate-600 hover:text-slate-400">Copy →</button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── AP Aging & Cash Conversion Cycle ── */}
+              {(() => {
+                const rev   = data.revenue.total;
+                const cogs  = data.costs.totalCOGS;
+                const periods = data.revenue.byPeriod ?? [];
+
+                // DSO from AR aging
+                const totalAR  = data.arAging ? data.arAging.reduce((s,b) => s+b.total, 0) : null;
+                const dso = totalAR !== null && rev > 0 ? (totalAR / (rev / 30)) : null;
+
+                // AP aging — load from localStorage (operator-entered) or estimate from COGS
+                const AP_KEY = 'bos_ap_aging';
+                type APBucket = { vendor: string; current: number; days30: number; days60: number; days90: number; over90: number };
+                let apBuckets: APBucket[] = [];
+                try { const s = localStorage.getItem(AP_KEY); if (s) apBuckets = JSON.parse(s); } catch { /* ignore */ }
+
+                const totalAP   = apBuckets.reduce((s,b) => s + b.current + b.days30 + b.days60 + b.days90 + b.over90, 0);
+                const dpo = totalAP > 0 && cogs > 0 ? (totalAP / (cogs / 30)) : (cogs > 0 ? 30 : null); // estimate 30-day DPO if no AP data
+                const hasRealAP = apBuckets.length > 0;
+
+                // DIO — estimate from COGS if no inventory data
+                const dio = 0; // most service businesses have no inventory
+
+                // CCC = DSO + DIO - DPO
+                const ccc = dso !== null && dpo !== null ? dso + dio - dpo : null;
+
+                const fmtV = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(2)}M` : `$${Math.round(abs).toLocaleString()}`; return n < 0 ? `(${s})` : s; };
+
+                // MRR Movement from byPeriod recurring
+                const hasMRR = periods.length >= 2 && periods.some(p => (p as {recurring?: number}).recurring != null);
+                const mrrPeriods = periods.slice(-6).map((p, i, arr) => {
+                  const rec = (p as {recurring?: number}).recurring ?? 0;
+                  const prevRec = i > 0 ? ((arr[i-1] as {recurring?: number}).recurring ?? 0) : rec;
+                  const newMRR  = Math.max(0, rec - prevRec);
+                  const churnMRR = Math.max(0, prevRec - rec);
+                  const netMRR  = rec - prevRec;
+                  return { period: p.period.replace(/^20\d\d-/,''), mrr: rec, newMRR, churnMRR: -churnMRR, netMRR };
+                });
+
+                return (
+                  <div className="space-y-4">
+                    {/* Cash Conversion Cycle */}
+                    {(dso !== null || dpo !== null) && (
+                      <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+                        <div className="flex items-center justify-between mb-4">
+                          <div>
+                            <div className="text-[12px] font-semibold text-slate-100">Cash Conversion Cycle</div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">DSO + DIO − DPO · how long cash is tied up in operations</div>
+                          </div>
+                          {ccc !== null && (
+                            <div className={`text-right`}>
+                              <div className={`text-[22px] font-bold tabular-nums ${ccc <= 30 ? 'text-emerald-400' : ccc <= 60 ? 'text-amber-400' : 'text-red-400'}`}>{ccc.toFixed(0)}d</div>
+                              <div className="text-[10px] text-slate-600">{ccc <= 30 ? 'Healthy' : ccc <= 60 ? 'Watch' : 'Slow — cash at risk'}</div>
+                            </div>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
+                          {[
+                            { label: 'DSO', sublabel: 'Days Sales Outstanding', value: dso, color: dso !== null && dso <= 30 ? 'text-emerald-400' : 'text-amber-400', hint: 'How long to collect from customers' },
+                            { label: 'DIO', sublabel: 'Days Inventory Outstanding', value: dio, color: 'text-slate-400', hint: 'Days inventory sits before sold (0 = services)' },
+                            { label: 'DPO', sublabel: 'Days Payable Outstanding', value: dpo, color: dpo !== null && dpo >= 30 ? 'text-emerald-400' : 'text-amber-400', hint: 'How long before you pay vendors' },
+                          ].map(m => (
+                            <div key={m.label} className="bg-slate-800/30 rounded-lg p-3 text-center">
+                              <div className={`text-[22px] font-bold tabular-nums ${m.color}`}>{m.value !== null ? `${m.value.toFixed(0)}d` : '—'}</div>
+                              <div className="text-[11px] font-semibold text-slate-300 mt-1">{m.label}</div>
+                              <div className="text-[10px] text-slate-600 mt-0.5 leading-relaxed">{m.sublabel}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-3 text-[10px] text-slate-600">
+                          {!hasRealAP && 'DPO estimated at 30 days — add AP aging data below for accurate CCC · '}
+                          Lower CCC = faster cash cycle. Target: DSO &lt; 30d, DPO ≥ 30d for positive working capital
+                        </div>
+                      </div>
+                    )}
+
+                    {/* AP Aging */}
+                    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                      <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                        <div>
+                          <div className="text-[12px] font-semibold text-slate-100">Accounts Payable Aging</div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">What you owe vendors · DPO and payment risk</div>
+                        </div>
+                        {hasRealAP && (
+                          <div className="text-right">
+                            <div className="text-[16px] font-bold text-slate-200">{fmtV(totalAP)}</div>
+                            <div className="text-[10px] text-slate-600">total payables</div>
+                          </div>
+                        )}
+                      </div>
+                      {hasRealAP ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full min-w-[480px]">
+                            <thead>
+                              <tr className="border-b border-slate-800/40">
+                                {['Vendor','Current','1–30d','31–60d','61–90d','90+d','Total'].map(h => (
+                                  <th key={h} className="px-4 py-2.5 text-right first:text-left text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em]">{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {apBuckets.map((b, i) => {
+                                const total = b.current + b.days30 + b.days60 + b.days90 + b.over90;
+                                const late  = b.days60 + b.days90 + b.over90;
+                                return (
+                                  <tr key={i} className="border-b border-slate-800/30 hover:bg-slate-800/20">
+                                    <td className="px-4 py-2.5 text-[12px] font-medium text-slate-300">{b.vendor}</td>
+                                    <td className="px-4 py-2.5 text-right text-[12px] text-emerald-400/80">{fmtV(b.current)}</td>
+                                    <td className="px-4 py-2.5 text-right text-[12px] text-amber-400/80">{fmtV(b.days30)}</td>
+                                    <td className="px-4 py-2.5 text-right text-[12px] text-orange-400/80">{fmtV(b.days60)}</td>
+                                    <td className="px-4 py-2.5 text-right text-[12px] text-red-400/80">{fmtV(b.days90)}</td>
+                                    <td className="px-4 py-2.5 text-right text-[12px] text-red-500/80">{fmtV(b.over90)}</td>
+                                    <td className={`px-4 py-2.5 text-right text-[12px] font-semibold ${late > 0 ? 'text-red-300' : 'text-slate-200'}`}>{fmtV(total)}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="px-5 py-5 flex items-start gap-4">
+                          <div className="flex-1">
+                            <div className="text-[12px] text-slate-400 mb-3">Upload your AP aging report (CSV) or add vendors manually to track payables.</div>
+                            <div className="text-[11px] text-slate-600">Columns needed: vendor, current, 1-30 days, 31-60 days, 61-90 days, 90+ days</div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* MRR Movement */}
+                    {hasMRR && (
+                      <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+                        <div className="text-[12px] font-semibold text-slate-100 mb-0.5">MRR Movement</div>
+                        <div className="text-[10px] text-slate-500 mb-4">Monthly recurring revenue — new, churned, and net change</div>
+                        <div className="space-y-2">
+                          {mrrPeriods.slice(1).map((p, i) => {
+                            const prev = mrrPeriods[i];
+                            const netPositive = p.netMRR >= 0;
+                            return (
+                              <div key={p.period} className="flex items-center gap-3">
+                                <div className="w-10 text-[10px] text-slate-600 flex-shrink-0">{p.period}</div>
+                                <div className="flex-1 flex items-center h-6 gap-0.5">
+                                  {p.newMRR > 0 && (
+                                    <div className="h-full bg-emerald-500/50 rounded-l flex items-center justify-center"
+                                      style={{ width: `${Math.min((p.newMRR / Math.max(prev.mrr, 1)) * 100 * 3, 40)}%`, minWidth: 4 }}>
+                                    </div>
+                                  )}
+                                  <div className="h-full bg-slate-700/60 flex-1 rounded flex items-center px-2">
+                                    <span className="text-[9px] text-slate-400">{fmtV(p.mrr)}</span>
+                                  </div>
+                                  {p.churnMRR < 0 && (
+                                    <div className="h-full bg-red-500/40 rounded-r"
+                                      style={{ width: `${Math.min((Math.abs(p.churnMRR) / Math.max(prev.mrr, 1)) * 100 * 3, 40)}%`, minWidth: 4 }}>
+                                    </div>
+                                  )}
+                                </div>
+                                <div className={`w-20 text-right text-[11px] font-semibold flex-shrink-0 ${netPositive ? 'text-emerald-400' : 'text-red-400'}`}>
+                                  {p.netMRR >= 0 ? '+' : ''}{fmtV(p.netMRR)}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="flex items-center gap-4 mt-3 text-[10px]">
+                          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-emerald-500/50"/><span className="text-slate-500">New MRR</span></div>
+                          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-slate-700/60"/><span className="text-slate-500">Retained</span></div>
+                          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-red-500/40"/><span className="text-slate-500">Churned</span></div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ── Year-over-Year Same-Period Comparison ── */}
+              {(() => {
+                const periods = data.revenue.byPeriod ?? [];
+                if (periods.length < 2) return null;
+
+                // Split periods into halves — current "year" vs prior "year"
+                const half = Math.floor(periods.length / 2);
+                const recent  = periods.slice(-half);
+                const priorYr = periods.slice(-half * 2, -half);
+                if (recent.length === 0 || priorYr.length === 0) return null;
+
+                const sumRev  = (arr: typeof periods) => arr.reduce((s, p) => s + (p.revenue ?? 0), 0);
+                const sumGP   = (arr: typeof periods) => arr.reduce((s, p) => s + (p.grossProfit ?? ((p.revenue ?? 0) - (p.cogs ?? 0))), 0);
+                const sumEB   = (arr: typeof periods) => arr.reduce((s, p) => s + (p.ebitda ?? 0), 0);
+
+                const curRev  = sumRev(recent);  const priRev  = sumRev(priorYr);
+                const curGP   = sumGP(recent);   const priGP   = sumGP(priorYr);
+                const curEB   = sumEB(recent);   const priEB   = sumEB(priorYr);
+                const curGM   = curRev > 0 ? (curGP / curRev) * 100 : 0;
+                const priGM   = priRev > 0 ? (priGP / priRev) * 100 : 0;
+                const curEM   = curRev > 0 ? (curEB / curRev) * 100 : 0;
+                const priEM   = priRev > 0 ? (priEB / priRev) * 100 : 0;
+
+                const fmtV = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(2)}M` : `$${Math.round(abs).toLocaleString()}`; return n < 0 ? `(${s})` : s; };
+                const chg  = (cur: number, pri: number) => pri !== 0 ? ((cur - pri) / Math.abs(pri)) * 100 : 0;
+                const arrow = (pct: number, posGood = true) => {
+                  const up = pct >= 0;
+                  const good = posGood ? up : !up;
+                  return <span className={`text-[11px] font-semibold ml-1 ${good ? 'text-emerald-400' : 'text-red-400'}`}>{up ? '▲' : '▼'} {Math.abs(pct).toFixed(1)}%</span>;
+                };
+
+                const rows = [
+                  { label: 'Revenue',    cur: curRev, pri: priRev, isCurrency: true, posGood: true },
+                  { label: 'Gross Profit',cur: curGP,  pri: priGP,  isCurrency: true, posGood: true },
+                  { label: 'GM %',       cur: curGM,  pri: priGM,  isCurrency: false, posGood: true },
+                  { label: 'EBITDA',     cur: curEB,  pri: priEB,  isCurrency: true, posGood: true },
+                  { label: 'EBITDA %',   cur: curEM,  pri: priEM,  isCurrency: false, posGood: true },
+                ];
+
+                const curLabel = `${recent[0].period.slice(0,7)} – ${recent[recent.length-1].period.slice(0,7)}`;
+                const priLabel = `${priorYr[0].period.slice(0,7)} – ${priorYr[priorYr.length-1].period.slice(0,7)}`;
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Year-over-Year Comparison</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Same-period analysis from your imported data</div>
+                      </div>
+                      <div className="flex items-center gap-3 text-[10px]">
+                        <span className="text-slate-600">{priLabel}</span>
+                        <span className="text-slate-700">→</span>
+                        <span className="text-slate-400 font-medium">{curLabel}</span>
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-slate-800/40">
+                            <th className="px-5 py-2.5 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em]">Metric</th>
+                            <th className="px-5 py-2.5 text-right text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em]">Prior</th>
+                            <th className="px-5 py-2.5 text-right text-[10px] font-semibold text-slate-400 uppercase tracking-[0.08em]">Current</th>
+                            <th className="px-5 py-2.5 text-right text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em]">YoY Δ</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map(row => {
+                            const delta = chg(row.cur, row.pri);
+                            return (
+                              <tr key={row.label} className="border-b border-slate-800/30">
+                                <td className="px-5 py-2.5 text-[12px] text-slate-400">{row.label}</td>
+                                <td className="px-5 py-2.5 text-right text-[12px] text-slate-600">
+                                  {row.isCurrency ? fmtV(row.pri) : `${row.pri.toFixed(1)}%`}
+                                </td>
+                                <td className="px-5 py-2.5 text-right text-[12px] font-semibold text-slate-200">
+                                  {row.isCurrency ? fmtV(row.cur) : `${row.cur.toFixed(1)}%`}
+                                </td>
+                                <td className="px-5 py-2.5 text-right">
+                                  {row.pri !== 0 && arrow(delta, row.posGood)}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Pricing Power Analyzer (uses component-level state) ── */}
+              {(() => {
+                // pricingAnswer, setPricingAnswer, pricingLoading, setPricingLoading, pricingAnswers, setPricingAnswers — lifted to component level
+                const questions = [
+                  { id: 'q1', label: 'What is your primary offering?', placeholder: 'e.g. B2B SaaS analytics platform' },
+                  { id: 'q2', label: 'Current avg price per client/unit', placeholder: 'e.g. $2,500/month' },
+                  { id: 'q3', label: 'Last time you raised prices?', placeholder: 'e.g. 18 months ago, never' },
+                  { id: 'q4', label: 'Do clients complain about price?', placeholder: 'e.g. Rarely, sometimes, often' },
+                  { id: 'q5', label: 'Top 2 competitors and their pricing', placeholder: 'e.g. Acme $1,800/mo, Rival $3,200/mo' },
+                ];
+
+                const allAnswered = questions.every(q => (pricingAnswers[q.id] ?? '').trim().length > 0);
+
+                const analyze = async () => {
+                  setPricingLoading(true); setPricingAnswer('');
+                  const rev = effectiveData.revenue.total;
+                  const gm = rev > 0 ? ((rev - effectiveData.costs.totalCOGS) / rev * 100).toFixed(1) : 'N/A';
+                  const prompt = `You are a pricing strategist. Based on the inputs below, give a specific pricing power recommendation.
+
+Business data: Revenue $${(rev/1e6).toFixed(2)}M, Gross Margin ${gm}%, ${effectiveData.customers.totalCount} customers, ${((effectiveData.customers.retentionRate ?? 0.88)*100).toFixed(1)}% retention.
+
+Pricing inputs:
+- Offering: ${pricingAnswers.q1}
+- Current price: ${pricingAnswers.q2}
+- Last price increase: ${pricingAnswers.q3}
+- Client price sensitivity: ${pricingAnswers.q4}
+- Competitors: ${pricingAnswers.q5}
+
+Respond with: (1) Recommended price increase % and rationale, (2) How to frame it to clients, (3) Expected revenue impact, (4) Risk to watch. Be specific and direct. 150 words max.`;
+                  try {
+                    const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ message: prompt, data: effectiveData, planId: 'pro', maxTokens: 500 }) });
+                    const j = await r.json() as { reply?: string };
+                    setPricingAnswer(j.reply ?? 'No response');
+                  } catch { setPricingAnswer('Error — check your API key.'); }
+                  setPricingLoading(false);
+                };
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50">
+                      <div className="text-[12px] font-semibold text-slate-100">Pricing Power Analyzer</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">Answer 5 questions · AI recommends your optimal price increase</div>
+                    </div>
+                    <div className="p-5 space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {questions.map(q => (
+                          <div key={q.id}>
+                            <div className="text-[10px] font-semibold text-slate-500 mb-1">{q.label}</div>
+                            <input value={pricingAnswers[q.id] ?? ''} onChange={e => setPricingAnswers(prev => ({ ...prev, [q.id]: e.target.value }))}
+                              placeholder={q.placeholder}
+                              className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50"/>
+                          </div>
+                        ))}
+                      </div>
+                      <button onClick={analyze} disabled={!allAnswered || pricingLoading}
+                        className="w-full py-2 rounded-lg text-[12px] font-semibold bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-600/40 text-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                        {pricingLoading ? 'Analyzing pricing power…' : 'Analyze Pricing Power →'}
+                      </button>
+                      {pricingAnswer && (
+                        <div className="bg-indigo-950/20 border border-indigo-500/20 rounded-lg p-4 text-[12px] text-slate-300 leading-relaxed whitespace-pre-wrap">{pricingAnswer}</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <EBITDABridge data={effectiveData}/>
+              <RevenueBridge data={effectiveData}/>
+              <AddBackTracker data={effectiveData} onAskAI={openChat}/>
               <BenchmarkFeed data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onNavigate={v => setActiveView(v as ActiveView)} onAskAI={openChat}/>
               <IndustryBenchmarksPanel data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
               <MetricThresholdsPanel data={data} thresholds={thresholds} onChange={saveThresholds}/>
@@ -3846,31 +4641,1325 @@ export default function BusinessOS() {
                   <TransactionLedger transactions={data.transactions} onAskAI={openChat}/>
                 </div>
               )}
+              </ErrorBoundary>
             </div>
-          )}
-          {activeView === 'customers' && (
-            <div className="space-y-4">
+          <div className={activeView === 'customers' ? 'space-y-4' : 'hidden'}>
+              {usingDemo && (
+                <div className="flex items-center justify-between gap-4 bg-violet-500/8 border border-violet-500/20 rounded-xl px-4 py-3">
+                  <div className="text-[11px] text-violet-300/80">
+                    <span className="font-semibold">Demo data</span> — customer metrics below are sample values. Enter your real data to track actual retention and concentration.
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button onClick={() => setShowManualEntry(true)} className="text-[11px] font-semibold text-violet-300 hover:text-violet-100 border border-violet-500/30 hover:border-violet-500/60 px-3 py-1.5 rounded-lg transition-colors">Enter manually</button>
+                    <button onClick={() => setActiveView('data')} className="text-[11px] font-semibold text-violet-300 hover:text-violet-100 border border-violet-500/30 hover:border-violet-500/60 px-3 py-1.5 rounded-lg transition-colors">Upload CSV</button>
+                  </div>
+                </div>
+              )}
+              <ErrorBoundary label="Customers tab">
               <div className="flex items-center gap-2">
                 <div className="h-px flex-1 bg-violet-500/10"/>
                 <SectionNote noteKey="customers" notes={panelNotes} onSave={setPanelNote}/>
                 <div className="h-px flex-1 bg-violet-500/10"/>
               </div>
               <CustomerDashboard data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
+
+              {/* ── Contract Renewal Tracker ── */}
+              {(() => {
+                const CONTRACTS_KEY = 'bos_contracts';
+                type Contract = { id: string; customer: string; value: number; renewalDate: string; status: 'active' | 'at-risk' | 'renewed'; notes?: string };
+                const [contracts, setContracts] = React.useState<Contract[]>(() => {
+                  try { const s = localStorage.getItem(CONTRACTS_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
+                });
+                const [showAdd, setShowAdd] = React.useState(false);
+                const [newContract, setNewContract] = React.useState<Omit<Contract,'id'>>({ customer: '', value: 0, renewalDate: '', status: 'active' });
+
+                const save = (updated: Contract[]) => {
+                  setContracts(updated);
+                  try { localStorage.setItem(CONTRACTS_KEY, JSON.stringify(updated)); } catch { /* ignore */ }
+                };
+
+                const addContract = () => {
+                  if (!newContract.customer || !newContract.renewalDate) return;
+                  const next = [...contracts, { ...newContract, id: `c${Date.now()}` }];
+                  save(next);
+                  setNewContract({ customer: '', value: 0, renewalDate: '', status: 'active' });
+                  setShowAdd(false);
+                };
+
+                const removeContract = (id: string) => save(contracts.filter(c => c.id !== id));
+                const toggleStatus = (id: string) => save(contracts.map(c => c.id === id ? { ...c, status: c.status === 'active' ? 'at-risk' : c.status === 'at-risk' ? 'renewed' : 'active' } : c));
+
+                const now = new Date(); now.setHours(0,0,0,0);
+                const sorted = [...contracts].sort((a,b) => new Date(a.renewalDate).getTime() - new Date(b.renewalDate).getTime());
+                const upcoming30  = sorted.filter(c => { const d = new Date(c.renewalDate); const diff = Math.ceil((d.getTime()-now.getTime())/86400000); return diff >= 0 && diff <= 30; });
+                const upcoming90  = sorted.filter(c => { const d = new Date(c.renewalDate); const diff = Math.ceil((d.getTime()-now.getTime())/86400000); return diff > 30 && diff <= 90; });
+                const overdue     = sorted.filter(c => new Date(c.renewalDate) < now && c.status !== 'renewed');
+                const totalAtRisk = sorted.filter(c => c.status !== 'renewed').reduce((s,c) => s+c.value, 0);
+                const fmtV = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n}`;
+
+                const statusColor = (s: Contract['status']) =>
+                  s === 'renewed' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
+                  s === 'at-risk' ? 'text-red-400 bg-red-500/10 border-red-500/20' :
+                                    'text-sky-400 bg-sky-500/10 border-sky-500/20';
+
+                const urgencyBg = (c: Contract) => {
+                  if (c.status === 'renewed') return 'opacity-50';
+                  const diff = Math.ceil((new Date(c.renewalDate).getTime()-now.getTime())/86400000);
+                  if (diff < 0) return 'border-red-500/30 bg-red-500/5';
+                  if (diff <= 30) return 'border-amber-500/25 bg-amber-500/5';
+                  return '';
+                };
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Contract Renewal Tracker</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Upcoming expirations · stay ahead of renewals</div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {contracts.length > 0 && (
+                          <div className="flex items-center gap-3 text-[11px]">
+                            {overdue.length > 0 && <span className="text-red-400 font-semibold">{overdue.length} overdue</span>}
+                            {upcoming30.length > 0 && <span className="text-amber-400">{upcoming30.length} due in 30d</span>}
+                            {totalAtRisk > 0 && <span className="text-slate-500">{fmtV(totalAtRisk)} at risk</span>}
+                          </div>
+                        )}
+                        <button onClick={() => setShowAdd(v => !v)}
+                          className="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 border border-indigo-500/30 hover:border-indigo-500/50 px-3 py-1.5 rounded-lg transition-colors">
+                          + Add Contract
+                        </button>
+                      </div>
+                    </div>
+
+                    {showAdd && (
+                      <div className="px-5 py-4 border-b border-slate-800/40 bg-slate-800/20">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+                          <input placeholder="Customer name" value={newContract.customer}
+                            onChange={e => setNewContract(p => ({...p, customer: e.target.value}))}
+                            className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-3 py-2 text-[12px] text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 col-span-2"/>
+                          <input type="number" placeholder="Annual value ($)" value={newContract.value || ''}
+                            onChange={e => setNewContract(p => ({...p, value: Number(e.target.value)}))}
+                            className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-3 py-2 text-[12px] text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50"/>
+                          <input type="date" value={newContract.renewalDate}
+                            onChange={e => setNewContract(p => ({...p, renewalDate: e.target.value}))}
+                            className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-3 py-2 text-[12px] text-slate-100 focus:outline-none focus:border-indigo-500/50"/>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={addContract} disabled={!newContract.customer || !newContract.renewalDate}
+                            className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-[12px] font-semibold rounded-lg transition-colors">
+                            Save
+                          </button>
+                          <button onClick={() => setShowAdd(false)}
+                            className="px-4 py-1.5 text-[12px] text-slate-400 border border-slate-700/50 rounded-lg hover:border-slate-600 transition-colors">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {contracts.length === 0 ? (
+                      <div className="px-5 py-6 text-center">
+                        <div className="text-[12px] text-slate-500 mb-1">No contracts tracked yet</div>
+                        <div className="text-[11px] text-slate-600">Add customer contracts to get renewal alerts and track at-risk revenue</div>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-slate-800/40">
+                        {sorted.map(c => {
+                          const days = Math.ceil((new Date(c.renewalDate).getTime()-now.getTime())/86400000);
+                          return (
+                            <div key={c.id} className={`px-5 py-3.5 flex items-center gap-4 border ${urgencyBg(c)}`}>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-[12px] font-semibold text-slate-200">{c.customer}</span>
+                                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${statusColor(c.status)} capitalize`}>{c.status}</span>
+                                </div>
+                                <div className="text-[11px] text-slate-500 mt-0.5">
+                                  {c.value > 0 && <span className="text-slate-400 font-medium">{fmtV(c.value)}/yr · </span>}
+                                  Renews {new Date(c.renewalDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  {c.status !== 'renewed' && (
+                                    <span className={` · ${days < 0 ? 'text-red-400 font-semibold' : days <= 30 ? 'text-amber-400' : 'text-slate-600'}`}>
+                                      {days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? 'Due today' : `${days}d`}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <button onClick={() => toggleStatus(c.id)}
+                                  className="text-[10px] text-slate-500 hover:text-slate-300 border border-slate-700/50 px-2 py-1 rounded transition-colors">
+                                  {c.status === 'renewed' ? 'Mark active' : c.status === 'at-risk' ? 'Mark renewed' : 'Mark at-risk'}
+                                </button>
+                                <button onClick={() => removeContract(c.id)}
+                                  className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-1">✕</button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ── NPS Tracker ── */}
+              {(() => {
+                const NPS_KEY = 'bos_nps_history';
+                type NPSEntry = { date: string; score: number; note?: string };
+                const [npsHistory, setNpsHistory] = React.useState<NPSEntry[]>(() => {
+                  try { const s = localStorage.getItem(NPS_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
+                });
+                const [npsInput, setNpsInput] = React.useState('');
+                const [npsNote, setNpsNote] = React.useState('');
+                const [npsAdded, setNpsAdded] = React.useState(false);
+
+                const latestNPS = data.customers.nps ?? null;
+                const allScores = latestNPS !== undefined && latestNPS !== null
+                  ? [...npsHistory, { date: 'Current', score: latestNPS }]
+                  : npsHistory;
+
+                const addNPS = () => {
+                  const score = parseInt(npsInput, 10);
+                  if (isNaN(score) || score < -100 || score > 100) return;
+                  const entry: NPSEntry = { date: new Date().toISOString().slice(0,7), score, note: npsNote || undefined };
+                  const updated = [...npsHistory, entry].slice(-12);
+                  setNpsHistory(updated);
+                  try { localStorage.setItem(NPS_KEY, JSON.stringify(updated)); } catch { /* ignore */ }
+                  setNpsInput(''); setNpsNote('');
+                  setNpsAdded(true); setTimeout(() => setNpsAdded(false), 2500);
+                };
+
+                const currentScore = allScores.length > 0 ? allScores[allScores.length-1].score : null;
+                const npsColor = currentScore === null ? 'text-slate-400' : currentScore >= 50 ? 'text-emerald-400' : currentScore >= 0 ? 'text-amber-400' : 'text-red-400';
+                const npsLabel = currentScore === null ? '—' : currentScore >= 50 ? 'Excellent' : currentScore >= 20 ? 'Good' : currentScore >= 0 ? 'Neutral' : 'At Risk';
+                const maxAbs = allScores.length > 0 ? Math.max(100, ...allScores.map(s => Math.abs(s.score))) : 100;
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Net Promoter Score (NPS)</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Track customer satisfaction over time · &lt;0 poor · 0–49 good · 50+ excellent</div>
+                      </div>
+                      {currentScore !== null && (
+                        <div className="text-right">
+                          <div className={`text-[22px] font-bold tabular-nums ${npsColor}`}>{currentScore > 0 ? '+' : ''}{currentScore}</div>
+                          <div className={`text-[10px] ${npsColor}`}>{npsLabel}</div>
+                        </div>
+                      )}
+                    </div>
+
+                    {allScores.length > 0 && (
+                      <div className="px-5 py-4 border-b border-slate-800/40">
+                        <div className="space-y-2">
+                          {allScores.map((entry, i) => {
+                            const pct = (entry.score / maxAbs) * 50; // center-based
+                            const positive = entry.score >= 0;
+                            return (
+                              <div key={i} className="flex items-center gap-3">
+                                <div className="w-14 text-[10px] text-slate-600 flex-shrink-0 text-right">{entry.date}</div>
+                                <div className="flex-1 h-5 flex items-center">
+                                  <div className="flex-1 flex items-center justify-center relative">
+                                    <div className="absolute inset-y-0 left-1/2 w-px bg-slate-700/60"/>
+                                    {positive ? (
+                                      <div className="absolute left-1/2 top-1 bottom-1 bg-emerald-500/40 rounded-r" style={{ width: `${pct}%` }}/>
+                                    ) : (
+                                      <div className="absolute right-1/2 top-1 bottom-1 bg-red-500/40 rounded-l" style={{ width: `${Math.abs(pct)}%` }}/>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className={`w-10 text-right text-[11px] font-semibold flex-shrink-0 ${positive ? 'text-emerald-400' : 'text-red-400'}`}>
+                                  {entry.score > 0 ? '+' : ''}{entry.score}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="flex items-center mt-2 text-[10px] text-slate-600">
+                          <div className="flex-1 text-left">← Detractors</div>
+                          <div className="flex-1 text-center">NPS Scale (–100 to +100)</div>
+                          <div className="flex-1 text-right">Promoters →</div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="px-5 py-4">
+                      <div className="text-[11px] font-semibold text-slate-400 mb-2">Log NPS Score</div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <input type="number" min={-100} max={100} value={npsInput} onChange={e => setNpsInput(e.target.value)}
+                          placeholder="Score (−100 to +100)"
+                          className="w-40 bg-slate-800/60 border border-slate-700/60 rounded-lg px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-violet-500/60"/>
+                        <input type="text" value={npsNote} onChange={e => setNpsNote(e.target.value)}
+                          placeholder="Optional note (survey, Q2 2025…)"
+                          className="flex-1 min-w-[160px] bg-slate-800/60 border border-slate-700/60 rounded-lg px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-violet-500/60"/>
+                        <button onClick={addNPS}
+                          className="px-4 py-2 text-[12px] font-semibold bg-violet-600/20 hover:bg-violet-600/30 border border-violet-600/40 text-violet-300 rounded-lg transition-colors flex-shrink-0">
+                          {npsAdded ? '✓ Saved' : 'Add Score'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── CAC / LTV Dashboard ── */}
+              {(() => {
+                const rev = effectiveData.revenue.total;
+                const customers = effectiveData.customers.totalCount || 1;
+                const retention = effectiveData.customers.retentionRate ?? 0.88;
+                const avgRev = rev / customers;
+                const gm = rev > 0 ? (rev - effectiveData.costs.totalCOGS) / rev : 0.5;
+                const churnRate = 1 - retention;
+                // LTV = (avg revenue × gross margin) / churn rate
+                const ltv = churnRate > 0 ? (avgRev * gm) / churnRate : avgRev * gm * 5;
+                const opex = effectiveData.costs.totalOpEx;
+                // CAC estimate — sales & marketing portion of opex (assume ~30% without breakdown)
+                const newCustomers = effectiveData.customers.newThisPeriod || 1;
+                const smCategories = effectiveData.costs.byCategory.filter(c => /sales|market|growth|bd|business dev/i.test(c.category));
+                const smSpend = smCategories.length > 0 ? smCategories.reduce((s,c) => s+c.amount, 0) : opex * 0.3;
+                const cac = smSpend / Math.max(newCustomers, 1);
+                const ltvCac = cac > 0 ? ltv / cac : null;
+                const paybackMonths = cac > 0 && avgRev > 0 ? Math.round(cac / (avgRev / 12 * gm)) : null;
+                const fmtV = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n).toLocaleString()}`;
+
+                const ltvCacColor = ltvCac === null ? 'text-slate-400' : ltvCac >= 3 ? 'text-emerald-400' : ltvCac >= 1.5 ? 'text-amber-400' : 'text-red-400';
+                const ltvCacLabel = ltvCac === null ? '—' : ltvCac >= 3 ? 'Healthy' : ltvCac >= 1.5 ? 'Borderline' : 'Unsustainable';
+                const paybackColor = paybackMonths === null ? 'text-slate-400' : paybackMonths <= 12 ? 'text-emerald-400' : paybackMonths <= 24 ? 'text-amber-400' : 'text-red-400';
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50">
+                      <div className="text-[12px] font-semibold text-slate-100">CAC / LTV Economics</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">Customer acquisition cost, lifetime value, and payback — core unit economics</div>
+                    </div>
+                    <div className="p-5">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
+                        {[
+                          { label: 'CAC', value: fmtV(cac), sub: `${newCustomers} new customers`, color: 'text-slate-200', hint: 'S&M spend ÷ new customers' },
+                          { label: 'LTV', value: fmtV(ltv), sub: `${(churnRate*100).toFixed(1)}% churn rate`, color: 'text-violet-400', hint: 'Avg rev × GM ÷ churn' },
+                          { label: 'LTV:CAC', value: ltvCac !== null ? `${ltvCac.toFixed(1)}×` : '—', sub: ltvCacLabel, color: ltvCacColor, hint: 'Target ≥ 3×' },
+                          { label: 'Payback', value: paybackMonths !== null ? `${paybackMonths}mo` : '—', sub: paybackMonths !== null ? (paybackMonths <= 12 ? 'Excellent' : paybackMonths <= 24 ? 'Acceptable' : 'Too long') : 'N/A', color: paybackColor, hint: 'Months to recover CAC' },
+                        ].map(m => (
+                          <div key={m.label} className="bg-slate-800/30 border border-slate-700/30 rounded-lg p-3 text-center">
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">{m.label}</div>
+                            <div className={`text-[20px] font-bold ${m.color}`}>{m.value}</div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">{m.sub}</div>
+                            <div className="text-[9px] text-slate-700 mt-1">{m.hint}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="space-y-2">
+                        {smCategories.length === 0 && (
+                          <div className="text-[10px] text-amber-500/80 bg-amber-500/5 border border-amber-500/10 rounded-lg px-3 py-2">
+                            S&M spend estimated at 30% of OpEx — add a Sales or Marketing cost category for accurate CAC
+                          </div>
+                        )}
+                        <div className="text-[10px] text-slate-600">
+                          LMM benchmarks: LTV:CAC ≥ 3× healthy | payback ≤ 18 months | avg revenue per customer {fmtV(avgRev)}/yr
+                        </div>
+                        {ltvCac !== null && ltvCac < 2 && (
+                          <div className="text-[11px] text-red-400/80">CAC recovery risk: LTV:CAC below 2× means you may be acquiring unprofitable customers — audit S&M spend and average deal size.</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── AI Churn Risk Predictor (uses component-level state) ── */}
+              {(() => {
+                // churnResult, setChurnResult, churnLoading, setChurnLoading — lifted to component level
+                const customers = effectiveData.customers.topCustomers;
+                const retention = effectiveData.customers.retentionRate ?? 0.88;
+                const churned = effectiveData.customers.churned;
+
+                const runChurnPredict = async () => {
+                  setChurnLoading(true); setChurnResult('');
+                  const contracts = (() => { try { const s = localStorage.getItem('bos_contracts'); return s ? JSON.parse(s) as {customer:string;value:number;renewalDate:string;status:string}[] : []; } catch { return []; } })();
+                  const npsHist = (() => { try { const s = localStorage.getItem('bos_nps_history'); return s ? JSON.parse(s) as {date:string;score:number}[] : []; } catch { return []; } })();
+                  const npsLatest = npsHist.length > 0 ? npsHist[npsHist.length-1].score : null;
+                  const expiring90 = contracts.filter(c => { const d = new Date(c.renewalDate); const diff = (d.getTime()-Date.now())/86400000; return diff >= 0 && diff <= 90; });
+                  const atRisk = contracts.filter(c => c.status === 'at-risk');
+
+                  const f = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n)}`;
+                  const topList = customers.slice(0,8).map(c => `${c.name}: ${c.percentOfTotal.toFixed(1)}% of rev, ${c.revenueType ?? 'unknown'}, ${f(c.revenue)}`).join('\n');
+                  const expiringList = expiring90.map(c => `${c.customer}: ${f(c.value)} renews ${c.renewalDate}`).join(', ') || 'none tracked';
+
+                  const prompt = `You are a customer success strategist. Analyze churn risk for this business and rank customers by risk.
+
+Company data:
+- Retention rate: ${(retention*100).toFixed(1)}% | Churned this period: ${churned}
+- NPS: ${npsLatest ?? 'unknown'}
+- Contracts expiring in 90 days: ${expiringList}
+- At-risk contracts: ${atRisk.map(c=>c.customer).join(', ') || 'none'}
+
+Top customers:
+${topList}
+
+Respond with:
+🔴 HIGH CHURN RISK — name 1-3 specific customers and why
+🟡 WATCH — 2-3 customers showing early warning signs
+✅ STABLE — brief note on healthiest accounts
+⚡ TOP ACTIONS — 3 specific retention moves to do this week
+
+Be specific, use the actual names. 200 words max.`;
+                  try {
+                    const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ message: prompt, data: effectiveData, planId: 'pro', maxTokens: 600 }) });
+                    const j = await r.json() as { reply?: string };
+                    setChurnResult(j.reply ?? 'No response');
+                  } catch { setChurnResult('Error — check API key.'); }
+                  setChurnLoading(false);
+                };
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">AI Churn Risk Predictor</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Scores each customer by churn risk using contracts, NPS, concentration, and revenue type</div>
+                      </div>
+                      <button onClick={runChurnPredict} disabled={churnLoading}
+                        className="text-[11px] px-4 py-2 bg-rose-600/20 hover:bg-rose-600/30 border border-rose-600/40 text-rose-300 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                        {churnLoading ? 'Analyzing…' : 'Run Churn Analysis →'}
+                      </button>
+                    </div>
+                    <div className="p-5">
+                      {/* Quick risk grid from data */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mb-4">
+                        {customers.slice(0,6).map(c => {
+                          const contracts = (() => { try { const s = localStorage.getItem('bos_contracts'); return s ? JSON.parse(s) as {customer:string;status:string;renewalDate:string}[] : []; } catch { return []; } })();
+                          const contract = contracts.find(ct => ct.customer.toLowerCase().includes(c.name.toLowerCase().split(' ')[0]));
+                          const isAtRisk = contract?.status === 'at-risk';
+                          const isExpiring = contract ? (new Date(contract.renewalDate).getTime()-Date.now())/86400000 < 60 : false;
+                          const highConc = c.percentOfTotal > 20;
+                          const isOneTime = c.revenueType === 'project';
+                          const riskCount = [isAtRisk, isExpiring, highConc, isOneTime].filter(Boolean).length;
+                          const riskColor = riskCount >= 2 ? 'border-red-500/30 bg-red-500/5' : riskCount === 1 ? 'border-amber-500/20 bg-amber-500/5' : 'border-slate-700/30 bg-slate-800/20';
+                          const riskLabel = riskCount >= 2 ? 'High' : riskCount === 1 ? 'Watch' : 'Stable';
+                          const riskCls = riskCount >= 2 ? 'text-red-400' : riskCount === 1 ? 'text-amber-400' : 'text-emerald-400';
+                          return (
+                            <div key={c.name} className={`border rounded-lg p-3 ${riskColor}`}>
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="text-[11px] font-semibold text-slate-300 truncate">{c.name}</div>
+                                <div className={`text-[10px] font-bold ${riskCls}`}>{riskLabel}</div>
+                              </div>
+                              <div className="text-[10px] text-slate-500">{c.percentOfTotal.toFixed(1)}% of rev · {c.revenueType ?? 'unknown'}</div>
+                              {(isAtRisk || isExpiring || highConc) && (
+                                <div className="text-[9px] text-amber-500/80 mt-1">
+                                  {[isAtRisk && 'contract at-risk', isExpiring && 'expiring <60d', highConc && 'high concentration'].filter(Boolean).join(' · ')}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {churnResult ? (
+                        <div className="bg-rose-950/20 border border-rose-500/20 rounded-lg p-4 text-[12px] text-slate-300 leading-relaxed whitespace-pre-wrap">{churnResult}</div>
+                      ) : (
+                        <div className="text-[10px] text-slate-600 text-center py-2">Run the AI analysis for a detailed per-customer risk assessment and action plan</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+              </ErrorBoundary>
             </div>
-          )}
-          {activeView === 'operations' && (
-            <div className="space-y-4">
+          <div className={activeView === 'operations' ? 'space-y-4' : 'hidden'}>
               <div className="flex items-center gap-2">
                 <div className="h-px flex-1 bg-cyan-500/10"/>
                 <SectionNote noteKey="operations" notes={panelNotes} onSave={setPanelNote}/>
                 <div className="h-px flex-1 bg-cyan-500/10"/>
               </div>
               <OperationsDashboard data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
+
+              {/* ── Key Person Risk ── */}
+              {(() => {
+                const depts = effectiveData.payrollByDept ?? [];
+                const rev   = effectiveData.revenue.total;
+                if (depts.length < 2) return null;
+                const totalComp = depts.reduce((s,d) => s + d.totalCompensation, 0);
+                const sorted = [...depts].sort((a,b) => b.totalCompensation - a.totalCompensation);
+                const top1Pct  = totalComp > 0 ? (sorted[0].totalCompensation / totalComp) * 100 : 0;
+                const top2Pct  = totalComp > 0 && sorted[1] ? ((sorted[0].totalCompensation + sorted[1].totalCompensation) / totalComp) * 100 : top1Pct;
+                const fmtV = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n}`;
+                const risk = top1Pct > 40 ? 'high' : top1Pct > 25 ? 'medium' : 'low';
+                const riskColor = risk === 'high' ? 'text-red-400' : risk === 'medium' ? 'text-amber-400' : 'text-emerald-400';
+                const riskBg = risk === 'high' ? 'bg-red-500/5 border-red-500/15' : risk === 'medium' ? 'bg-amber-500/5 border-amber-500/15' : 'bg-slate-900/50 border-slate-800/50';
+                return (
+                  <div className={`rounded-xl border p-5 ${riskBg}`}>
+                    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Key Person Risk</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Department compensation concentration · M&A discount factor</div>
+                      </div>
+                      <div className={`text-[11px] font-bold px-3 py-1.5 rounded-lg border capitalize ${riskColor} ${risk === 'high' ? 'bg-red-500/10 border-red-500/20' : risk === 'medium' ? 'bg-amber-500/10 border-amber-500/20' : 'bg-emerald-500/10 border-emerald-500/20'}`}>
+                        {risk} key-person risk
+                      </div>
+                    </div>
+                    <div className="space-y-2.5">
+                      {sorted.map((d, i) => {
+                        const pct = totalComp > 0 ? (d.totalCompensation / totalComp) * 100 : 0;
+                        const revPct = rev > 0 ? (d.totalCompensation / rev) * 100 : 0;
+                        return (
+                          <div key={d.department}>
+                            <div className="flex items-center justify-between mb-1 text-[11px]">
+                              <div className="flex items-center gap-2">
+                                <span className={`font-medium ${i < 2 ? 'text-slate-200' : 'text-slate-400'}`}>{d.department}</span>
+                                <span className="text-slate-600">{d.headcount} person{d.headcount !== 1 ? 's' : ''}</span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-slate-500">{revPct.toFixed(1)}% of rev</span>
+                                <span className={`font-semibold ${pct > 35 ? 'text-red-400' : pct > 20 ? 'text-amber-400' : 'text-slate-300'}`}>{pct.toFixed(0)}% of payroll</span>
+                              </div>
+                            </div>
+                            <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full ${pct > 35 ? 'bg-red-500/60' : pct > 20 ? 'bg-amber-500/50' : 'bg-cyan-500/50'}`}
+                                style={{ width: `${pct}%` }}/>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {risk !== 'low' && (
+                      <div className={`mt-4 text-[11px] leading-relaxed ${riskColor}/80`}>
+                        {risk === 'high'
+                          ? `⚠ Top department = ${top1Pct.toFixed(0)}% of total payroll. Buyers will typically discount 10–20% for key-person dependency. Document processes and cross-train to de-risk.`
+                          : `▲ Top 2 departments = ${top2Pct.toFixed(0)}% of payroll. Moderate concentration — acceptable but worth building redundancy.`}
+                      </div>
+                    )}
+                    {openChat && (
+                      <button onClick={() => openChat(`My top department is ${sorted[0].department} at ${top1Pct.toFixed(0)}% of total payroll (${fmtV(sorted[0].totalCompensation)}). Key person risk is rated ${risk}. What are the best ways to reduce key-person dependency and how does this affect my business valuation?`)}
+                        className="mt-3 text-[11px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors">
+                        Ask AI how to reduce key-person risk →
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ── Payroll % of Revenue Trend ── */}
+              {(() => {
+                const periods = effectiveData.revenue.byPeriod ?? [];
+                const depts   = effectiveData.payrollByDept ?? [];
+                const rev     = effectiveData.revenue.total;
+                if (periods.length < 2 || depts.length === 0) return null;
+                const totalPayroll = depts.reduce((s,d) => s+d.totalCompensation, 0);
+                if (totalPayroll === 0) return null;
+                // Distribute payroll evenly across periods for trend (best estimate without per-period payroll)
+                const payrollPerPeriod = totalPayroll / periods.length;
+                const chartData = periods.slice(-8).map(p => ({
+                  period: p.period.replace(/^20\d\d-/,''),
+                  payrollPct: p.revenue > 0 ? (payrollPerPeriod / p.revenue) * 100 : 0,
+                  rev: p.revenue,
+                }));
+                const latestPct = rev > 0 ? (totalPayroll / rev) * 100 : 0;
+                const pctColor = latestPct < 40 ? 'text-emerald-400' : latestPct < 60 ? 'text-amber-400' : 'text-red-400';
+                const fmtV = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n}`;
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Payroll as % of Revenue</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Labor cost efficiency · LMM benchmark 35–55%</div>
+                      </div>
+                      <div className={`text-[22px] font-bold tabular-nums ${pctColor}`}>{latestPct.toFixed(1)}%</div>
+                    </div>
+                    <div className="space-y-1.5">
+                      {chartData.map((d, i) => (
+                        <div key={d.period} className="flex items-center gap-3">
+                          <div className="w-10 text-[10px] text-slate-600 flex-shrink-0">{d.period}</div>
+                          <div className="flex-1 h-4 bg-slate-800/60 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full transition-all ${d.payrollPct < 40 ? 'bg-emerald-500/50' : d.payrollPct < 60 ? 'bg-amber-500/50' : 'bg-red-500/50'}`}
+                              style={{ width: `${Math.min(d.payrollPct, 100)}%` }}/>
+                          </div>
+                          <div className="w-12 text-right text-[11px] font-semibold text-slate-400 flex-shrink-0">{d.payrollPct.toFixed(1)}%</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-slate-800/40 text-center text-[10px] text-slate-600">
+                      <div><div className="w-full h-1 bg-emerald-500/40 rounded mb-1"/>&lt;40% efficient</div>
+                      <div><div className="w-full h-1 bg-amber-500/40 rounded mb-1"/>40–60% typical</div>
+                      <div><div className="w-full h-1 bg-red-500/40 rounded mb-1"/>&gt;60% at risk</div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Operating Leverage Analysis ── */}
+              {(() => {
+                const rev = data.revenue.total; const cogs = data.costs.totalCOGS; const opex = data.costs.totalOpEx;
+                if (rev <= 0) return null;
+                const gp = rev - cogs; const gm = gp / rev;
+                const fixedEst = opex * 0.65; const varEst = opex * 0.35;
+                const contribMargin = gp - varEst; const cmPct = rev > 0 ? contribMargin / rev : 0;
+                const breakEven = cmPct > 0 ? fixedEst / cmPct : null;
+                const incrEBITDA10 = rev * 0.1 * cmPct; // incremental EBITDA from +10% revenue
+                const fmtN = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : `$${Math.round(n).toLocaleString()}`;
+                const metrics = [
+                  { label: 'Gross Margin', value: `${(gm*100).toFixed(1)}%`, sub: 'Revenue after COGS', color: gm >= 0.45 ? 'text-emerald-400' : gm >= 0.3 ? 'text-amber-400' : 'text-red-400' },
+                  { label: 'Contribution Margin', value: `${(cmPct*100).toFixed(1)}%`, sub: 'After variable costs', color: cmPct >= 0.35 ? 'text-emerald-400' : cmPct >= 0.2 ? 'text-amber-400' : 'text-red-400' },
+                  { label: 'Fixed Cost Est.', value: fmtN(fixedEst), sub: '~65% of OpEx', color: 'text-slate-400' },
+                  { label: 'Break-even Revenue', value: breakEven !== null ? fmtN(breakEven) : '—', sub: 'Min to cover fixed costs', color: breakEven !== null && rev > breakEven ? 'text-emerald-400' : 'text-amber-400' },
+                  { label: '+10% Revenue → EBITDA', value: fmtN(incrEBITDA10), sub: 'Incremental flow-through', color: 'text-indigo-400' },
+                ];
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+                    <div className="text-[12px] font-semibold text-slate-100 mb-0.5">Operating Leverage</div>
+                    <div className="text-[10px] text-slate-500 mb-4">How much revenue growth flows to the bottom line · fixed vs variable cost split</div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                      {metrics.map(m => (
+                        <div key={m.label} className="bg-slate-800/30 rounded-lg p-3 text-center">
+                          <div className={`text-[18px] font-bold tabular-nums leading-none ${m.color}`}>{m.value}</div>
+                          <div className="text-[11px] font-semibold text-slate-300 mt-1.5">{m.label}</div>
+                          <div className="text-[10px] text-slate-600 mt-0.5">{m.sub}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-4 p-3 bg-indigo-500/5 border border-indigo-500/15 rounded-lg text-[11px] text-indigo-300/80 leading-relaxed">
+                      At current cost structure, each additional $1 of revenue generates <strong className="text-indigo-300">${(cmPct).toFixed(2)} in contribution margin</strong> and approximately <strong className="text-indigo-300">${(cmPct * (1 - fixedEst/Math.max(gp,1))).toFixed(2)} of incremental EBITDA</strong> (after absorbing fixed overhead). {cmPct >= 0.3 ? 'Healthy operating leverage — growth will accelerate profitability.' : 'Low contribution margin — focus on pricing or variable cost reduction before scaling.'}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Cost Reduction Initiative Tracker ── */}
+              {(() => {
+                const COST_KEY = 'bos_cost_initiatives';
+                type Initiative = { id: string; name: string; category: string; targetSavings: number; owner: string; status: 'planned' | 'in-progress' | 'completed' | 'stalled'; actualSavings?: number };
+                const [initiatives, setInitiatives] = React.useState<Initiative[]>(() => {
+                  try { const s = localStorage.getItem(COST_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
+                });
+                const [showAdd, setShowAdd] = React.useState(false);
+                const [newInit, setNewInit] = React.useState<Omit<Initiative,'id'>>({ name: '', category: 'SG&A', targetSavings: 0, owner: '', status: 'planned' });
+
+                const save = (updated: Initiative[]) => { setInitiatives(updated); try { localStorage.setItem(COST_KEY, JSON.stringify(updated)); } catch { /* ignore */ } };
+                const addInit = () => { if (!newInit.name.trim()) return; save([...initiatives, { ...newInit, id: `ci${Date.now()}` }]); setNewInit({ name: '', category: 'SG&A', targetSavings: 0, owner: '', status: 'planned' }); setShowAdd(false); };
+                const cycleStatus = (id: string) => { const c: Initiative['status'][] = ['planned','in-progress','completed','stalled']; save(initiatives.map(i => i.id === id ? { ...i, status: c[(c.indexOf(i.status)+1)%4] } : i)); };
+
+                const totalTarget = initiatives.reduce((s, i) => s + i.targetSavings, 0);
+                const totalActual = initiatives.reduce((s, i) => s + (i.actualSavings ?? 0), 0);
+                const fmtN = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(1)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${n}`;
+                const statusCfg: Record<Initiative['status'], { label: string; cls: string }> = {
+                  'planned':     { label: 'Planned',     cls: 'bg-slate-700/40 text-slate-500 border-slate-700/40' },
+                  'in-progress': { label: 'In Progress', cls: 'bg-sky-500/10 text-sky-400 border-sky-500/20' },
+                  'completed':   { label: 'Completed',   cls: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
+                  'stalled':     { label: 'Stalled',     cls: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
+                };
+                const cats = ['SG&A','COGS','Headcount','Technology','Facilities','Vendor','Other'];
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Cost Reduction Initiatives</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">{initiatives.length} initiatives · {fmtN(totalTarget)} target savings{totalActual > 0 ? ` · ${fmtN(totalActual)} realized` : ''}</div>
+                      </div>
+                      <button onClick={() => setShowAdd(v => !v)} className="text-[11px] px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-600/40 text-emerald-300 rounded-lg transition-colors">+ Add Initiative</button>
+                    </div>
+                    {showAdd && (
+                      <div className="px-5 py-3 border-b border-slate-800/40 bg-slate-800/20 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <input value={newInit.name} onChange={e => setNewInit(p => ({...p, name: e.target.value}))} placeholder="Initiative name"
+                          className="col-span-2 sm:col-span-2 bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50"/>
+                        <select value={newInit.category} onChange={e => setNewInit(p => ({...p, category: e.target.value}))}
+                          className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-300 focus:outline-none">
+                          {cats.map(c => <option key={c}>{c}</option>)}
+                        </select>
+                        <input type="number" value={newInit.targetSavings || ''} onChange={e => setNewInit(p => ({...p, targetSavings: +e.target.value}))} placeholder="Target savings $"
+                          className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50"/>
+                        <input value={newInit.owner} onChange={e => setNewInit(p => ({...p, owner: e.target.value}))} placeholder="Owner"
+                          className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50"/>
+                        <div className="flex gap-2">
+                          <button onClick={addInit} className="flex-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[12px] font-semibold rounded-lg">Add</button>
+                          <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-slate-500 hover:text-slate-300 text-[12px]">✕</button>
+                        </div>
+                      </div>
+                    )}
+                    {initiatives.length === 0 ? (
+                      <div className="px-5 py-6 text-center text-[12px] text-slate-500">No initiatives yet — add cost reduction projects to track savings</div>
+                    ) : (
+                      <div className="divide-y divide-slate-800/30">
+                        {initiatives.map(i => (
+                          <div key={i.id} className="px-5 py-3 flex items-center gap-3 flex-wrap">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[12px] font-semibold text-slate-200">{i.name}</span>
+                                <span className="text-[10px] text-slate-600 bg-slate-800/40 px-1.5 py-0.5 rounded">{i.category}</span>
+                                {i.owner && <span className="text-[10px] text-slate-600">@{i.owner}</span>}
+                              </div>
+                              <div className="text-[11px] text-slate-500 mt-0.5">Target: <span className="text-emerald-400 font-semibold">{fmtN(i.targetSavings)}</span>{i.actualSavings ? <> · Realized: <span className="text-emerald-300">{fmtN(i.actualSavings)}</span></> : null}</div>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <button onClick={() => cycleStatus(i.id)} className={`text-[9px] font-bold px-2 py-1 rounded border cursor-pointer transition-all ${statusCfg[i.status].cls}`}>{statusCfg[i.status].label}</button>
+                              <button onClick={() => save(initiatives.filter(x => x.id !== i.id))} className="text-[10px] text-slate-700 hover:text-red-400">✕</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {initiatives.length > 0 && totalTarget > 0 && (
+                      <div className="px-5 py-3 border-t border-slate-800/40 grid grid-cols-3 gap-3 text-center text-[10px]">
+                        <div><div className="text-[14px] font-bold text-slate-300">{fmtN(totalTarget)}</div><div className="text-slate-600">Total Target</div></div>
+                        <div><div className="text-[14px] font-bold text-emerald-400">{fmtN(totalActual)}</div><div className="text-slate-600">Realized</div></div>
+                        <div><div className="text-[14px] font-bold text-amber-400">{totalTarget > 0 ? ((totalActual/totalTarget)*100).toFixed(0) : 0}%</div><div className="text-slate-600">Captured</div></div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ── AI Workflow Automation Tools ── */}
+              {(() => {
+                type ToolId = 'vendor'|'hire'|'automation'|'contract'|'subscription'|'expense';
+                const [activeAI, setActiveAI] = React.useState<ToolId|null>(null);
+                const [aiInput, setAiInput] = React.useState('');
+                const [aiResult, setAiResult] = React.useState('');
+                const [aiLoading, setAiLoading] = React.useState(false);
+
+                const fmtN = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : `$${Math.round(n).toLocaleString()}`;
+                const rev = data.revenue.total; const headcount = data.operations.headcount ?? 0;
+                const payroll = (data.payrollByDept ?? []).reduce((s, d) => s + d.totalCompensation, 0);
+
+                const tools: { id: ToolId; label: string; icon: string; desc: string; inputPlaceholder: string }[] = [
+                  { id: 'vendor',       label: 'Vendor Negotiation Brief',    icon: '🤝', desc: 'Enter a vendor + spend → one-page negotiation brief with benchmarks, leverage, and opening ask',                 inputPlaceholder: '"Salesforce — CRM software, $24k/yr"' },
+                  { id: 'hire',         label: 'Hire vs. Contractor',          icon: '👥', desc: 'Compare fully-loaded FTE cost vs contractor — break-even hours, 3-year NPV, clear recommendation',             inputPlaceholder: '"Sales development rep, 40hrs/wk, ~$65k salary range"' },
+                  { id: 'contract',     label: 'Contract Risk Analyzer',       icon: '📋', desc: 'Paste any vendor/customer contract clause → AI flags risk terms, auto-renewal traps, and redline suggestions', inputPlaceholder: 'Paste the contract text or specific clauses here…' },
+                  { id: 'subscription', label: 'SaaS Subscription Audit',      icon: '💳', desc: 'List your software tools and costs → AI identifies redundant tools, consolidation plays, and estimated savings', inputPlaceholder: '"Salesforce $2k, HubSpot $800, Pipedrive $400, Monday $600, Notion $300…"' },
+                  { id: 'expense',      label: 'Expense Benchmark & Cuts',     icon: '📉', desc: 'AI compares your cost categories to LMM benchmarks and identifies the top 3 above-market spending areas',      inputPlaceholder: 'Optional: add any context about recent spend changes or budget pressure' },
+                  { id: 'automation',   label: 'AI Automation Roadmap',        icon: '⚡', desc: 'Scan your labor costs → specific AI tools and workflows that can cut 20–60% in each area with ROI estimates',   inputPlaceholder: 'Optional: describe your biggest time-consuming manual tasks' },
+                ];
+
+                const runAI = async (toolId: ToolId) => {
+                  setAiLoading(true); setAiResult('');
+                  let prompt = '';
+                  if (toolId === 'vendor') {
+                    prompt = `Vendor: ${aiInput || 'a major vendor'}. Write a concise negotiation brief (under 200 words). Include: 1) Market rate benchmark for this category, 2) Three specific leverage points, 3) Suggested opening ask (% or $), 4) Walk-away position, 5) One risk to flag. Bullet points under bold headers.`;
+                  } else if (toolId === 'hire') {
+                    const salaryGuess = headcount > 0 ? Math.round(payroll / Math.max(headcount, 1)) : 75000;
+                    prompt = `Role: ${aiInput || 'a general business role'}. Context: ${headcount} employees, avg salary ~${fmtN(salaryGuess)}/yr, company revenue ${fmtN(rev)}. Compare: fully-loaded FTE (salary + 30% benefits/taxes + 10% overhead) vs contractor at market rates. Show break-even hours/year, 3-year total cost comparison, and a clear hire/contract recommendation with reasoning.`;
+                  } else if (toolId === 'contract') {
+                    prompt = `Review this contract language for an LMM business and flag: 1) Auto-renewal or lock-in traps, 2) Unfavorable liability or indemnification clauses, 3) Pricing escalation provisions, 4) IP ownership risks, 5) Exit/termination terms. For each issue found, write a specific redline suggestion. Contract text:\n\n${aiInput || '(paste contract text)'}`;
+                  } else if (toolId === 'subscription') {
+                    prompt = `SaaS stack: ${aiInput || '(no tools listed)'}. Company revenue: ${fmtN(rev)}, headcount: ${headcount}. Analyze for: 1) Redundant tools doing the same job, 2) Tools likely underutilized at this company size, 3) Consolidation plays (e.g. "replace X + Y with Z"), 4) Estimated annual savings. Format as a prioritized list with dollar estimates. Be specific about which tools to cut first and why.`;
+                  } else if (toolId === 'expense') {
+                    const cats = data.costs.byCategory.slice(0, 6).map(c => `${c.category}: ${fmtN(c.amount)} (${rev > 0 ? ((c.amount/rev)*100).toFixed(1) : 0}% of rev)`).join(', ');
+                    prompt = `Expense benchmark analysis for an LMM business. Revenue: ${fmtN(rev)}, EBITDA margin: ${rev > 0 ? (((rev-data.costs.totalCOGS-data.costs.totalOpEx)/rev)*100).toFixed(1) : 0}%, headcount: ${headcount}. Cost categories: ${cats}. ${aiInput ? `Context: ${aiInput}.` : ''} Compare each category to typical LMM benchmarks (% of revenue). Identify the top 3 categories that appear above market. For each: state the benchmark, the gap in dollars, and one specific action to close it. End with the total potential EBITDA improvement if gaps are closed.`;
+                  } else if (toolId === 'automation') {
+                    prompt = `AI automation roadmap for an LMM business. Revenue: ${fmtN(rev)}, headcount: ${headcount}, payroll: ${fmtN(payroll)} (${rev > 0 ? ((payroll/rev)*100).toFixed(0) : 0}% of revenue). Cost breakdown: ${data.costs.byCategory.slice(0,5).map(c => `${c.category}: ${fmtN(c.amount)}`).join(', ')}. ${aiInput ? `Manual tasks: ${aiInput}.` : ''} Identify top 5 automation plays. For each: specific workflow to automate, exact AI tool or platform to use, realistic time/cost savings (hours/month + $ value), and implementation difficulty (Easy/Medium/Hard). Order by ROI. Include one "quick win" completable in under a week.`;
+                  }
+                  try {
+                    const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: prompt, data: effectiveData, history: [], companyName, planId: 'pro' }) });
+                    const json = await res.json() as { reply?: string; error?: string };
+                    setAiResult(json.reply ?? json.error ?? 'Failed');
+                  } catch { setAiResult('Error connecting to AI'); } finally { setAiLoading(false); }
+                };
+
+                return (
+                  <div className="bg-gradient-to-br from-violet-950/20 to-slate-900/50 border border-violet-800/30 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-violet-800/20">
+                      <div className="text-[12px] font-semibold text-slate-100">AI Workflow Automation</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">Cut costs and increase output with AI — practical tools for your operations</div>
+                    </div>
+                    <div className="p-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {tools.map(t => (
+                        <button key={t.id} onClick={() => { setActiveAI(activeAI === t.id ? null : t.id); setAiResult(''); setAiInput(''); }}
+                          className={`text-left p-3.5 rounded-xl border transition-all ${activeAI === t.id ? 'border-violet-500/50 bg-violet-500/10' : 'border-slate-700/50 bg-slate-800/30 hover:border-slate-600/50'}`}>
+                          <div className="text-base mb-1.5">{t.icon}</div>
+                          <div className="text-[11px] font-semibold text-slate-200 mb-1">{t.label}</div>
+                          <div className="text-[10px] text-slate-500 leading-relaxed">{t.desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                    {activeAI && (
+                      <div className="px-4 pb-4 space-y-3">
+                        <div className="flex items-center gap-2">
+                          {activeAI === 'contract' ? (
+                            <textarea value={aiInput} onChange={e => setAiInput(e.target.value)} rows={4}
+                              placeholder={tools.find(t => t.id === activeAI)?.inputPlaceholder ?? ''}
+                              className="flex-1 bg-slate-800/60 border border-slate-700/60 rounded-xl px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-violet-500/60 resize-none"/>
+                          ) : (
+                            <input value={aiInput} onChange={e => setAiInput(e.target.value)}
+                              placeholder={tools.find(t => t.id === activeAI)?.inputPlaceholder ?? ''}
+                              className="flex-1 bg-slate-800/60 border border-slate-700/60 rounded-xl px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-violet-500/60"/>
+                          )}
+                          <button onClick={() => runAI(activeAI)} disabled={aiLoading}
+                            className="px-4 py-2 text-[12px] font-semibold bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white rounded-xl transition-colors flex-shrink-0 self-start">
+                            {aiLoading ? <span className="flex items-center gap-1.5"><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block"/>Working…</span> : '✦ Run AI'}
+                          </button>
+                        </div>
+                        {aiResult && (
+                          <div className="bg-slate-900/60 border border-slate-700/40 rounded-xl p-4">
+                            <pre className="text-[12px] text-slate-200 whitespace-pre-wrap leading-relaxed font-sans">{aiResult}</pre>
+                            <button onClick={() => { try { navigator.clipboard.writeText(aiResult); } catch { /* ignore */ } }}
+                              className="mt-3 text-[10px] text-slate-600 hover:text-slate-400">Copy →</button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
-          )}
-          {activeView === 'intelligence' && (
-            <div className="space-y-6">
+          <div className={activeView === 'intelligence' ? 'space-y-6' : 'hidden'}>
               <IntelligenceDashboard weeklyInsight={weeklyInsight} boardDeck={boardDeck} alerts={alerts} loading={loading} onGenerate={runAction} reportTimestamps={reportTimestamps}/>
+
+              {/* ── AI Cross-Module Diagnostics ── */}
+              {(() => {
+                const [diagnosis, setDiagnosis] = React.useState('');
+                const [diagLoading, setDiagLoading] = React.useState(false);
+                const [lastRun, setLastRun] = React.useState('');
+
+                const runDiagnosis = async () => {
+                  setDiagLoading(true); setDiagnosis('');
+                  const f = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n).toLocaleString()}`;
+                  const pct = (n: number, d: number) => d > 0 ? `${((n/d)*100).toFixed(1)}%` : '—';
+
+                  // ── FINANCIALS ──────────────────────────────────────────────
+                  const rev = effectiveData.revenue.total;
+                  const cogs = effectiveData.costs.totalCOGS;
+                  const opex = effectiveData.costs.totalOpEx;
+                  const gp = rev - cogs; const ebitda = gp - opex;
+                  const periods = effectiveData.revenue.byPeriod ?? [];
+                  const revTrend = periods.length >= 2
+                    ? ((periods[periods.length-1].revenue - periods[periods.length-2].revenue) / Math.max(periods[periods.length-2].revenue, 1) * 100) : null;
+                  const revTrend3 = periods.length >= 4
+                    ? ((periods.slice(-3).reduce((s,p)=>s+p.revenue,0)/3) - (periods.slice(-6,-3).reduce((s,p)=>s+p.revenue,0)/3)) / Math.max(periods.slice(-6,-3).reduce((s,p)=>s+p.revenue,0)/3, 1) * 100 : null;
+                  const gmTrend = periods.length >= 2
+                    ? ((periods[periods.length-1].grossProfit ?? 0) / Math.max(periods[periods.length-1].revenue,1)*100) - ((periods[periods.length-2].grossProfit ?? 0) / Math.max(periods[periods.length-2].revenue,1)*100) : null;
+                  const costCats = effectiveData.costs.byCategory.map(c => `${c.category}: ${f(c.amount)} (${pct(c.amount,rev)} rev)`).join(' | ');
+                  const budgetRevTarget = budget.revenue;
+                  const budgetVar = budgetRevTarget ? ((rev - budgetRevTarget) / budgetRevTarget * 100) : null;
+                  const budgetedGP = (budget.revenue != null && budget.cogs != null) ? budget.revenue - budget.cogs : null;
+                  const budgetedEB = (budgetedGP != null && budget.opex != null) ? budgetedGP - budget.opex : null;
+                  const ebitdaVar = budgetedEB ? ((ebitda - budgetedEB) / Math.abs(budgetedEB) * 100) : null;
+
+                  // ── PAYROLL ─────────────────────────────────────────────────
+                  const depts = effectiveData.payrollByDept ?? [];
+                  const totalPayroll = depts.reduce((s,d)=>s+d.totalCompensation,0);
+                  const headcount = effectiveData.operations.headcount ?? depts.reduce((s,d)=>s+d.headcount,0);
+                  const topDept = [...depts].sort((a,b)=>b.totalCompensation-a.totalCompensation)[0];
+                  const topDeptPct = totalPayroll > 0 && topDept ? ((topDept.totalCompensation/totalPayroll)*100).toFixed(0) : null;
+                  const revPerHead = headcount > 0 ? rev / headcount : null;
+
+                  // ── AR & CASH ────────────────────────────────────────────────
+                  const arAging = effectiveData.arAging ?? [];
+                  const totalAR = arAging.reduce((s,b)=>s+b.total,0);
+                  const ar60plus = arAging.reduce((s,b)=>s+b.days60+b.days90+b.over90,0);
+                  const ar90plus = arAging.reduce((s,b)=>s+b.days90+b.over90,0);
+                  const dso = totalAR > 0 && rev > 0 ? (totalAR/(rev/30)).toFixed(0) : null;
+                  const overdueAccounts = arAging.filter(b=>b.days60+b.days90+b.over90>0).map(b=>`${b.customer}: ${f(b.days60+b.days90+b.over90)}`);
+                  const apBuckets = (() => { try { const s = localStorage.getItem('bos_ap_aging'); return s ? JSON.parse(s) as {vendor:string;current:number;days30:number;days60:number;days90:number;over90:number}[] : []; } catch { return []; } })();
+                  const totalAP = apBuckets.reduce((s,b)=>s+b.current+b.days30+b.days60+b.days90+b.over90,0);
+                  const dpo = totalAP > 0 && cogs > 0 ? (totalAP/(cogs/30)).toFixed(0) : null;
+                  const ccc = dso && dpo ? (parseFloat(dso) - parseFloat(dpo)).toFixed(0) : null;
+                  const cashFlow = effectiveData.cashFlow ?? [];
+                  const latestCash = cashFlow.length > 0 ? cashFlow[cashFlow.length-1].closingBalance : null;
+                  const cashTrend = cashFlow.length >= 2 ? cashFlow[cashFlow.length-1].closingBalance - cashFlow[cashFlow.length-2].closingBalance : null;
+
+                  // ── CUSTOMERS ────────────────────────────────────────────────
+                  const custs = effectiveData.customers;
+                  const retention = (custs.retentionRate ?? 0.88) * 100;
+                  const churnRate = (1 - (custs.retentionRate ?? 0.88)) * 100;
+                  const topCustomers = custs.topCustomers.slice(0, 8).map(c =>
+                    `${c.name}: ${pct(c.percentOfTotal,100)} rev (${c.revenueType ?? 'unknown'})${c.industry ? ` [${c.industry}]` : ''}`
+                  ).join(' | ');
+                  const top3Pct = custs.topCustomers.slice(0,3).reduce((s,c)=>s+c.percentOfTotal,0);
+                  const recurringCusts = custs.topCustomers.filter(c=>c.revenueType==='recurring').length;
+                  const npsHist = (() => { try { const s = localStorage.getItem('bos_nps_history'); return s ? JSON.parse(s) as {date:string;score:number;note?:string}[] : []; } catch { return []; } })();
+                  const latestNPS = custs.nps ?? (npsHist.length > 0 ? npsHist[npsHist.length-1].score : null);
+                  const npsTrend = npsHist.length >= 2 ? npsHist[npsHist.length-1].score - npsHist[npsHist.length-2].score : null;
+
+                  // ── CONTRACTS ────────────────────────────────────────────────
+                  const contracts = (() => { try { const s = localStorage.getItem('bos_contracts'); return s ? JSON.parse(s) as {customer:string;value:number;renewalDate:string;status:string}[] : []; } catch { return []; } })();
+                  const today = new Date();
+                  const expiring90 = contracts.filter(c => { const d = new Date(c.renewalDate); return c.status !== 'renewed' && (d.getTime()-today.getTime())/86400000 <= 90; });
+                  const atRiskContracts = contracts.filter(c=>c.status==='at-risk');
+                  const atRiskVal = atRiskContracts.reduce((s,c)=>s+c.value,0);
+                  const expiring90Val = expiring90.reduce((s,c)=>s+c.value,0);
+
+                  // ── CRM PIPELINE ─────────────────────────────────────────────
+                  const deals = (() => { try { return JSON.parse(localStorage.getItem('bos_deals') ?? '[]') as {name?:string;stage:string;value:number;probability:number;daysInStage?:number;owner?:string;closeDate?:string}[]; } catch { return []; } })();
+                  const activeDls = deals.filter(d=>d.stage!=='Closed Won'&&d.stage!=='Closed Lost');
+                  const weighted = activeDls.reduce((s,d)=>s+(d.value*(d.probability/100)),0);
+                  const staleDls = activeDls.filter(d=>(d.daysInStage??0)>30);
+                  const stageBreakdown = ['Prospect','Qualified','Proposal','Negotiation'].map(st => {
+                    const inStage = activeDls.filter(d=>d.stage===st);
+                    return inStage.length > 0 ? `${st}: ${inStage.length} (${f(inStage.reduce((s,d)=>s+d.value,0))})` : null;
+                  }).filter(Boolean).join(' | ');
+                  const closingThisMonth = activeDls.filter(d => d.closeDate && new Date(d.closeDate).getMonth() === today.getMonth() && new Date(d.closeDate).getFullYear() === today.getFullYear());
+
+                  // ── OPERATIONS ───────────────────────────────────────────────
+                  const utilization = effectiveData.operations.employeeUtilization ?? effectiveData.operations.utilizationRate ?? effectiveData.operations.capacityUtilization ?? null;
+                  const satisfaction: number | null = null;
+                  const onTimeDelivery: number | null = null;
+
+                  // ── STRATEGIC / STORED ────────────────────────────────────────
+                  const moatScores = (() => { try { const s = localStorage.getItem('bos_moat_scores'); return s ? JSON.parse(s) as Record<string,number> : {}; } catch { return {}; } })();
+                  const moatEntries = Object.entries(moatScores);
+                  const moatAvg = moatEntries.length > 0 ? moatEntries.reduce((s,[,v])=>s+v,0)/moatEntries.length : null;
+                  const moatWeak = moatEntries.filter(([,v])=>v<=4).map(([k])=>k);
+                  const moatStrong = moatEntries.filter(([,v])=>v>=8).map(([k])=>k);
+
+                  const exitChecked = (() => { try { const s = localStorage.getItem('bos_exit_readiness'); return s ? JSON.parse(s) as Record<string,boolean> : {}; } catch { return {}; } })();
+                  const exitScore = Object.values(exitChecked).filter(Boolean).length;
+                  const totalExitItems = 15;
+
+                  const plan100 = (() => { try { const s = localStorage.getItem('bos_100day_plan'); return s ? JSON.parse(s) as {stream:string;done:boolean;day:number}[] : []; } catch { return []; } })();
+                  const plan100Done = plan100.filter(t=>t.done).length;
+                  const plan100Overdue = plan100.filter(t=>!t.done && t.day < 100).length;
+
+                  const sprint = (() => { try { const s = localStorage.getItem('bos_sprint_board'); return s ? JSON.parse(s) as {quarter:string;initiatives:{title:string;status:string;milestones:{done:boolean}[]}[]} : null; } catch { return null; } })();
+                  const sprintAtRisk = sprint?.initiatives.filter(i=>i.status==='at-risk') ?? [];
+                  const sprintDone = sprint?.initiatives.filter(i=>i.status==='done') ?? [];
+
+                  const costInits = (() => { try { const s = localStorage.getItem('bos_cost_initiatives'); return s ? JSON.parse(s) as {name:string;status:string;targetSavings:number;actualSavings?:number}[] : []; } catch { return []; } })();
+                  const initTarget = costInits.reduce((s,i)=>s+i.targetSavings,0);
+                  const initActual = costInits.reduce((s,i)=>s+(i.actualSavings??0),0);
+                  const stalledInits = costInits.filter(i=>i.status==='stalled');
+
+                  const execTasks = (() => { try { const s = localStorage.getItem('bos_tasks'); return s ? JSON.parse(s) as {title:string;status?:string;done?:boolean}[] : []; } catch { return []; } })();
+                  const openTasks = execTasks.filter(t=>!t.done && t.status !== 'done');
+
+                  const ceoNotes = (() => {
+                    try {
+                      const s = localStorage.getItem('bos_ceo_notes');
+                      if (!s) return null;
+                      const parsed = JSON.parse(s) as {date:string;text:string}[];
+                      return parsed.slice(-3).map(n=>`[${n.date}] ${n.text}`).join(' | ');
+                    } catch { return null; }
+                  })();
+
+                  const dataroom = (() => { try { const s = localStorage.getItem('bos_dataroom_checklist'); return s ? JSON.parse(s) as Record<string,boolean> : {}; } catch { return {}; } })();
+                  const dataroomDone = Object.values(dataroom).filter(Boolean).length;
+
+                  // ── BUILD FULL CONTEXT ────────────────────────────────────────
+                  const ctx = `
+COMPLETE BUSINESS DIAGNOSTIC — ${companyName || 'This Business'} — ${new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}
+
+═══ FINANCIALS ═══
+P&L: Revenue ${f(rev)} | COGS ${f(cogs)} (${pct(cogs,rev)}) | Gross Profit ${f(gp)} (${pct(gp,rev)} GM) | OpEx ${f(opex)} | EBITDA ${f(ebitda)} (${pct(ebitda,rev)})
+Cost breakdown: ${costCats}
+Revenue trend: ${revTrend !== null ? `${revTrend>=0?'+':''}${revTrend.toFixed(1)}% last period` : 'no trend data'} | 3-period avg trend: ${revTrend3 !== null ? `${revTrend3>=0?'+':''}${revTrend3.toFixed(1)}%` : 'N/A'}
+Gross margin trend: ${gmTrend !== null ? `${gmTrend>=0?'+':''}${gmTrend.toFixed(1)}pp` : 'N/A'}
+${periods.length > 0 ? `Period history: ${periods.slice(-6).map(p=>`${p.period}: ${f(p.revenue)}`).join(' → ')}` : ''}
+${budgetVar !== null ? `Budget vs Actual: Revenue ${budgetVar>=0?'+':''}${budgetVar.toFixed(1)}%${ebitdaVar !== null ? ` | EBITDA ${ebitdaVar>=0?'+':''}${ebitdaVar.toFixed(1)}%` : ''}` : 'No budget set'}
+Payroll: ${f(totalPayroll)} (${pct(totalPayroll,rev)} revenue) | ${headcount} headcount | Rev/employee: ${revPerHead ? f(revPerHead) : 'N/A'}
+${topDept && topDeptPct ? `Top dept: ${topDept.department} = ${topDeptPct}% of payroll (${topDept.headcount} people, ${f(topDept.totalCompensation)})` : ''}
+${depts.length > 0 ? `Dept breakdown: ${depts.map(d=>`${d.department}: ${f(d.totalCompensation)} (${d.headcount} hc)`).join(' | ')}` : ''}
+
+═══ CASH & WORKING CAPITAL ═══
+AR: ${f(totalAR)} total | 60+ days overdue: ${f(ar60plus)} | 90+ days: ${f(ar90plus)} | DSO: ${dso ?? 'N/A'} days
+${overdueAccounts.length > 0 ? `Overdue accounts: ${overdueAccounts.join(' | ')}` : ''}
+AP: ${f(totalAP)} | DPO: ${dpo ?? 'N/A'} days
+Cash Conversion Cycle: ${ccc ?? 'N/A'} days
+${latestCash !== null ? `Cash balance: ${f(latestCash)} | Trend: ${cashTrend !== null ? (cashTrend>=0?'+':'')+f(cashTrend)+' period-over-period' : 'N/A'}` : ''}
+
+═══ CUSTOMERS ═══
+${custs.totalCount} total | +${custs.newThisPeriod} new | -${custs.churned} churned | ${retention.toFixed(1)}% retention (${churnRate.toFixed(1)}% churn)
+Top 3 concentration: ${top3Pct.toFixed(1)}% of revenue | Recurring customers: ${recurringCusts}/${custs.topCustomers.length}
+Customer breakdown: ${topCustomers}
+${latestNPS !== null ? `NPS: ${latestNPS>0?'+':''}${latestNPS}${npsTrend !== null ? ` (${npsTrend>=0?'+':''}${npsTrend} trend)` : ''}` : ''}
+${satisfaction !== null ? `Customer satisfaction: ${satisfaction}` : ''}
+Contracts: ${contracts.length} tracked | At-risk: ${atRiskContracts.length} (${f(atRiskVal)}/yr) | Expiring in 90 days: ${expiring90.length} (${f(expiring90Val)}/yr)
+${expiring90.length > 0 ? `Expiring: ${expiring90.map(c=>`${c.customer} ${c.renewalDate}`).join(' | ')}` : ''}
+
+═══ CRM PIPELINE ═══
+${activeDls.length} active deals | Weighted pipeline: ${f(weighted)}
+Stage breakdown: ${stageBreakdown || 'no stage data'}
+Stale (30+ days): ${staleDls.length} deals${staleDls.length > 0 ? ` — ${staleDls.slice(0,3).map(d=>d.name||'unnamed').join(', ')}` : ''}
+Closing this month: ${closingThisMonth.length} deals (${f(closingThisMonth.reduce((s,d)=>s+d.value,0))})
+
+═══ OPERATIONS ═══
+${utilization !== null ? `Utilization: ${(utilization*100).toFixed(0)}%` : ''}
+${onTimeDelivery !== null ? `On-time delivery: ${(onTimeDelivery*100).toFixed(0)}%` : ''}
+
+═══ STRATEGIC ═══
+Competitive moat: ${moatAvg !== null ? `${moatAvg.toFixed(1)}/10 avg (${moatEntries.length} dimensions)${moatWeak.length>0?` | Weak: ${moatWeak.join(', ')}`:''} ${moatStrong.length>0?`| Strong: ${moatStrong.join(', ')}` : ''}` : 'not assessed'}
+Exit readiness: ${exitScore}/${totalExitItems} items complete (${Math.round(exitScore/totalExitItems*100)}%)
+100-day plan: ${plan100Done}/${plan100.length} complete | ${plan100Overdue} overdue
+Sprint board: ${sprint ? `${sprint.quarter} — ${sprint.initiatives.length} initiatives, ${sprintAtRisk.length} at-risk, ${sprintDone.length} done` : 'not set up'}
+${sprintAtRisk.length > 0 ? `At-risk initiatives: ${sprintAtRisk.map(i=>i.title).join(' | ')}` : ''}
+Cost reduction initiatives: ${costInits.length} total | ${f(initTarget)} targeted | ${f(initActual)} realized${stalledInits.length>0?` | ${stalledInits.length} stalled: ${stalledInits.map(i=>i.name).join(', ')}`:''}
+Data room: ${dataroomDone}/19 items ready
+Open execute tasks: ${openTasks.length}
+${ceoNotes ? `CEO Notes (recent): ${ceoNotes}` : ''}
+`.trim();
+
+                  const prompt = `${ctx}
+
+You are the best operating partner in the world. You have just received a COMPLETE data dump from every module of this business's intelligence dashboard. Your job is to find the non-obvious connections — patterns that only appear when you look across Financial + Customers + CRM + Operations + Strategic data simultaneously.
+
+Produce a structured diagnostic in EXACTLY this format. Be brutally specific. Every bullet must cite data from at least 2 different modules. Use actual numbers from the data above:
+
+🔴 CRITICAL RISKS — 3 bullets max. Each must connect multiple modules. Format: "[Module A] shows X AND [Module B] shows Y → combined risk is Z with estimated $ impact"
+
+🟡 HIDDEN OPPORTUNITIES — 3 bullets max. Cross-module signals pointing to upside the operator may be missing.
+
+⚡ QUICK WINS THIS MONTH — 3 specific actions, each with an estimated $ impact or time saved. Name the exact action, not a category.
+
+📊 WATCH LIST — 3 leading indicators that aren't problems yet but could become one in 60–90 days.
+
+🔗 CONNECT THE DOTS — 2 non-obvious correlations between data streams that a human looking at individual tabs would never see. This is your most important section.`;
+
+                  try {
+                    const res = await fetch('/api/chat', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ message: prompt, data: effectiveData, history: [], companyName, planId: 'pro', activeView: 'intelligence', maxTokens: 2000 })
+                    });
+                    const json = await res.json() as { reply?: string; error?: string };
+                    setDiagnosis(json.reply ?? json.error ?? 'Failed');
+                    setLastRun(new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
+                  } catch { setDiagnosis('Error connecting to AI'); } finally { setDiagLoading(false); }
+                };
+
+                return (
+                  <div className="bg-gradient-to-br from-indigo-950/40 via-slate-900/60 to-violet-950/30 border border-indigo-700/30 rounded-xl overflow-hidden">
+                    <div className="px-5 py-4 border-b border-indigo-700/20 flex items-center justify-between flex-wrap gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"/>
+                          <div className="text-[13px] font-semibold text-slate-100">AI Cross-Module Diagnostics</div>
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-1">Reads every module simultaneously — surfaces risks and opportunities that only appear when you connect the dots across Financial, CRM, Customers, Operations, and Strategic data</div>
+                      </div>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        {lastRun && <div className="text-[10px] text-slate-600">Last run: {lastRun}</div>}
+                        <button onClick={runDiagnosis} disabled={diagLoading}
+                          className="flex items-center gap-2 px-5 py-2.5 text-[12px] font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl transition-colors">
+                          {diagLoading
+                            ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block"/>Analyzing all modules…</>
+                            : '✦ Run Full Diagnostic'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {!diagnosis && !diagLoading && (
+                      <div className="px-5 py-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {[
+                          { label: 'Financial', items: ['P&L', 'EBITDA Bridge', 'AR Aging', 'Budget vs Actual'] },
+                          { label: 'Customers', items: ['Health Scores', 'Retention', 'NPS', 'Contracts at Risk'] },
+                          { label: 'CRM', items: ['Pipeline', 'Stale Deals', 'Win Rate', 'Weighted Value'] },
+                          { label: 'Strategic', items: ['Moat Score', 'Cost Initiatives', 'Payroll %', 'Trends'] },
+                        ].map(m => (
+                          <div key={m.label} className="bg-slate-800/30 rounded-xl p-3">
+                            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.1em] mb-2">{m.label}</div>
+                            {m.items.map(item => (
+                              <div key={item} className="flex items-center gap-1.5 mb-1">
+                                <div className="w-1.5 h-1.5 rounded-full bg-indigo-500/60 flex-shrink-0"/>
+                                <div className="text-[10px] text-slate-500">{item}</div>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {diagLoading && (
+                      <div className="px-5 py-8 flex flex-col items-center gap-3">
+                        <div className="flex gap-1.5">
+                          {['Financial', 'Customers', 'CRM', 'Operations', 'Strategic'].map((m, i) => (
+                            <div key={m} className="text-[10px] text-indigo-400/60 animate-pulse" style={{ animationDelay: `${i * 0.15}s` }}>{m}</div>
+                          ))}
+                        </div>
+                        <div className="text-[11px] text-slate-500">Cross-referencing all modules…</div>
+                      </div>
+                    )}
+
+                    {diagnosis && (
+                      <div className="px-5 py-5">
+                        <div className="bg-slate-900/60 rounded-xl p-5">
+                          <pre className="text-[13px] text-slate-200 whitespace-pre-wrap leading-relaxed font-sans">{diagnosis}</pre>
+                        </div>
+                        <div className="flex items-center justify-between mt-3">
+                          <button onClick={runDiagnosis} disabled={diagLoading}
+                            className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors">↺ Re-run diagnostic</button>
+                          <button onClick={() => { try { navigator.clipboard.writeText(diagnosis); } catch { /* ignore */ } }}
+                            className="text-[10px] text-slate-600 hover:text-slate-400">Copy to clipboard →</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ── Weekly Digest Email Subscription ── */}
+              {(() => {
+                const [digestEmail, setDigestEmail] = React.useState(() => {
+                  try { return localStorage.getItem('bos_digest_email') ?? ''; } catch { return ''; }
+                });
+                const [digestFreq, setDigestFreq] = React.useState<'daily'|'weekly'>(() => {
+                  try { return (localStorage.getItem('bos_digest_freq') as 'daily'|'weekly') ?? 'weekly'; } catch { return 'weekly'; }
+                });
+                const [digestSaved, setDigestSaved] = React.useState(false);
+
+                const saveDigest = () => {
+                  try {
+                    localStorage.setItem('bos_digest_email', digestEmail);
+                    localStorage.setItem('bos_digest_freq', digestFreq);
+                  } catch { /* ignore */ }
+                  setDigestSaved(true);
+                  setTimeout(() => setDigestSaved(false), 2500);
+                };
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+                    <div className="flex items-start gap-4 flex-wrap">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12px] font-semibold text-slate-100 mb-0.5">Weekly AI Digest</div>
+                        <div className="text-[11px] text-slate-500 leading-relaxed">
+                          Get your AI-generated business brief delivered by email — P&L summary, top risks, deals to action, and the week ahead.
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {['daily','weekly'].map(f => (
+                          <button key={f} onClick={() => setDigestFreq(f as 'daily'|'weekly')}
+                            className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors capitalize ${digestFreq === f ? 'bg-indigo-600/20 border-indigo-500/40 text-indigo-300' : 'border-slate-700/50 text-slate-500 hover:text-slate-300'}`}>
+                            {f}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 mt-4">
+                      <input
+                        type="email"
+                        placeholder={authEmail || 'your@email.com'}
+                        value={digestEmail}
+                        onChange={e => setDigestEmail(e.target.value)}
+                        className="flex-1 bg-slate-800/60 border border-slate-700/60 rounded-xl px-3.5 py-2 text-[13px] text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/60 transition-colors"
+                      />
+                      <button
+                        onClick={saveDigest}
+                        disabled={!digestEmail && !authEmail}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-[12px] font-semibold rounded-xl transition-colors flex-shrink-0">
+                        {digestSaved ? '✓ Saved' : 'Subscribe'}
+                      </button>
+                    </div>
+                    {digestEmail && (
+                      <div className="mt-2 text-[10px] text-slate-600">
+                        Digest will be sent to <span className="text-slate-400">{digestEmail}</span> · {digestFreq === 'daily' ? 'Every morning at 7am' : 'Every Monday at 7am'}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ── Competitive Moat Self-Assessment ── */}
+              {(() => {
+                const MOAT_KEY = 'bos_moat_scores';
+                type MoatQ = { id: string; label: string; hint: string; weight: number };
+                const questions: MoatQ[] = [
+                  { id: 'switching',  label: 'Switching Costs',        hint: 'How hard is it for customers to leave? (contracts, integrations, data lock-in)', weight: 1.5 },
+                  { id: 'pricing',    label: 'Pricing Power',          hint: 'Can you raise prices without losing customers?', weight: 1.2 },
+                  { id: 'recurring',  label: 'Recurring Revenue',      hint: 'What % of revenue is contractual / subscription-based?', weight: 1.3 },
+                  { id: 'lockin',     label: 'Customer Lock-in',       hint: 'Do customers rely on you as a core workflow?', weight: 1.2 },
+                  { id: 'regulatory', label: 'Regulatory / Scale Moat',hint: 'Are there licenses, scale advantages, or regulatory barriers to entry?', weight: 1.0 },
+                  { id: 'brand',      label: 'Brand & Reputation',     hint: 'Would customers choose you at a premium over a cheaper alternative?', weight: 1.0 },
+                  { id: 'ip',         label: 'IP / Proprietary Process',hint: 'Do you have unique processes, tools, or knowledge competitors can\'t replicate?', weight: 1.1 },
+                ];
+
+                const [scores, setScores] = React.useState<Record<string, number>>(() => {
+                  try { const s = localStorage.getItem(MOAT_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
+                });
+                const [saved, setMoatSaved] = React.useState(false);
+
+                const setScore = (id: string, val: number) => setScores(prev => ({ ...prev, [id]: val }));
+                const saveScores = () => {
+                  try { localStorage.setItem(MOAT_KEY, JSON.stringify(scores)); } catch { /* ignore */ }
+                  setMoatSaved(true); setTimeout(() => setMoatSaved(false), 2500);
+                };
+
+                const answeredCount = Object.keys(scores).length;
+                const totalWeight = questions.reduce((s, q) => s + q.weight, 0);
+                const weightedScore = answeredCount >= 3
+                  ? questions.reduce((s, q) => s + (scores[q.id] ?? 0) * q.weight, 0) / totalWeight * 10
+                  : null;
+                const moatLabel = weightedScore === null ? null :
+                  weightedScore >= 8 ? 'Wide Moat' : weightedScore >= 6 ? 'Narrow Moat' : weightedScore >= 4 ? 'Emerging Moat' : 'Weak Moat';
+                const moatColor = weightedScore === null ? 'text-slate-400' :
+                  weightedScore >= 8 ? 'text-emerald-400' : weightedScore >= 6 ? 'text-sky-400' : weightedScore >= 4 ? 'text-amber-400' : 'text-red-400';
+                const narrative = weightedScore === null ? null :
+                  weightedScore >= 8 ? 'Your business has strong structural advantages that protect margins and create durable cash flows — a premium M&A multiple is well-supported.' :
+                  weightedScore >= 6 ? 'Solid moat with a few vulnerabilities. Focus on reinforcing switching costs and recurring revenue to widen it.' :
+                  weightedScore >= 4 ? 'Some defensive characteristics exist but the business is still exposed to competitive pressure. Prioritize lock-in and pricing power.' :
+                  'Limited structural moat — the business competes primarily on price or relationships. Consider how to add stickier revenue or proprietary value.';
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Competitive Moat Self-Assessment</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Rate 1–10 · Weighted moat score · M&A valuation context</div>
+                      </div>
+                      {weightedScore !== null && (
+                        <div className="text-right">
+                          <div className={`text-[22px] font-bold tabular-nums ${moatColor}`}>{weightedScore.toFixed(1)}</div>
+                          <div className={`text-[10px] font-semibold ${moatColor}`}>{moatLabel}</div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="px-5 py-4 space-y-3">
+                      {questions.map(q => (
+                        <div key={q.id}>
+                          <div className="flex items-center justify-between mb-1">
+                            <div>
+                              <span className="text-[12px] font-medium text-slate-300">{q.label}</span>
+                              <span className="text-[10px] text-slate-600 ml-2">{q.hint}</span>
+                            </div>
+                            <span className={`text-[13px] font-bold w-6 text-right ${scores[q.id] >= 8 ? 'text-emerald-400' : scores[q.id] >= 5 ? 'text-amber-400' : scores[q.id] ? 'text-red-400' : 'text-slate-700'}`}>
+                              {scores[q.id] ?? '—'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {[1,2,3,4,5,6,7,8,9,10].map(n => (
+                              <button key={n} onClick={() => setScore(q.id, n)}
+                                className={`flex-1 h-5 rounded text-[9px] font-bold transition-all ${scores[q.id] === n ? 'bg-indigo-500 text-white' : scores[q.id] >= n ? 'bg-indigo-500/30 text-indigo-400' : 'bg-slate-800/60 text-slate-700 hover:bg-slate-700/60'}`}>
+                                {n}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      {narrative && (
+                        <div className={`mt-2 p-3 rounded-lg border text-[11px] leading-relaxed ${moatColor === 'text-emerald-400' ? 'bg-emerald-500/5 border-emerald-500/15 text-emerald-300/80' : moatColor === 'text-sky-400' ? 'bg-sky-500/5 border-sky-500/15 text-sky-300/80' : moatColor === 'text-amber-400' ? 'bg-amber-500/5 border-amber-500/15 text-amber-300/80' : 'bg-red-500/5 border-red-500/15 text-red-300/80'}`}>
+                          {narrative}
+                        </div>
+                      )}
+                      <div className="flex justify-end pt-1">
+                        <button onClick={saveScores}
+                          className="px-4 py-2 text-[12px] font-semibold bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-600/40 text-indigo-300 rounded-lg transition-colors">
+                          {saved ? '✓ Saved' : 'Save Assessment'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Investor Update Drafter (uses component-level state) ── */}
+              {(() => {
+                // investorDraft, setInvestorDraft, investorDraftLoading, setInvestorDraftLoading, investorAudience, setInvestorAudience — lifted to component level
+                const updateDraft = investorDraft; const setUpdateDraft = setInvestorDraft;
+                const updateLoading = investorDraftLoading; const setUpdateLoading = setInvestorDraftLoading;
+                const audience = investorAudience; const setAudience = setInvestorAudience;
+
+                const audienceOptions: { id: 'lp'|'board'|'pe'; label: string }[] = [
+                  { id: 'board', label: 'Board of Directors' },
+                  { id: 'lp', label: 'LP / Investors' },
+                  { id: 'pe', label: 'PE Sponsor' },
+                ];
+
+                const draft = async () => {
+                  setUpdateLoading(true); setUpdateDraft('');
+                  const rev = effectiveData.revenue.total;
+                  const cogs = effectiveData.costs.totalCOGS;
+                  const opex = effectiveData.costs.totalOpEx;
+                  const ebitda = rev - cogs - opex;
+                  const gm = rev > 0 ? ((rev-cogs)/rev*100).toFixed(1) : 'N/A';
+                  const f = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n)}`;
+                  const prevRevs = effectiveData.revenue.byPeriod.slice(-4);
+                  const trendStr = prevRevs.map(p => `${p.period}: ${f(p.revenue)}`).join(' → ');
+
+                  const sprintData = (() => { try { const s = localStorage.getItem('bos_sprint_board'); return s ? JSON.parse(s) as {initiatives:{title:string;status:string}[]} : null; } catch { return null; } })();
+                  const initiatives = sprintData?.initiatives.slice(0,3).map(i => `${i.title} (${i.status})`).join('; ') ?? 'none tracked';
+
+                  const moatScores = (() => { try { const s = localStorage.getItem('bos_moat_scores'); return s ? JSON.parse(s) as Record<string,number> : {}; } catch { return {}; } })();
+                  const moatAvg = Object.values(moatScores).length > 0 ? (Object.values(moatScores).reduce((a,b)=>a+b,0)/Object.values(moatScores).length).toFixed(1) : 'N/A';
+
+                  const audienceLabel = audience === 'lp' ? 'limited partner / investor email' : audience === 'board' ? 'board of directors update memo' : 'PE sponsor operating update';
+                  const ebitdaPct = rev > 0 ? ((ebitda/rev)*100).toFixed(1) : 'N/A';
+                  const topCust = effectiveData.customers.topCustomers[0];
+                  const concentration = topCust ? ` Top customer ${topCust.name} at ${topCust.percentOfTotal.toFixed(1)}% of revenue.` : '';
+
+                  const prompt = `You are a sharp CFO writing a ${audienceLabel} for ${companyName ?? 'this company'}. Write like a seasoned operator — direct, numbers-first, no corporate filler. Investors have seen a hundred of these. Make yours land.
+
+BUSINESS DATA:
+Revenue: ${f(rev)} | Gross Margin: ${gm}% | EBITDA: ${f(ebitda)} (${ebitdaPct}% margin)
+Customers: ${effectiveData.customers.totalCount} total | +${effectiveData.customers.newThisPeriod} new | -${effectiveData.customers.churned} churned | ${((effectiveData.customers.retentionRate ?? 0.88)*100).toFixed(1)}% retention${concentration}
+Revenue trend: ${trendStr}
+${moatAvg !== 'N/A' ? `Competitive moat score: ${moatAvg}/10` : ''}
+${initiatives !== 'none tracked' ? `Initiatives in flight: ${initiatives}` : ''}
+
+WRITE THIS EXACT FORMAT (no deviations):
+
+SUBJECT: [One punchy subject line — lead with a number or outcome]
+
+[Company name] — [Month/Period] Update
+
+[ONE bold opening sentence: the single most important thing that happened. Start with a number.]
+
+📊 THE NUMBERS
+• [Metric]: [Value] — [1-sentence "so what"]
+• [Metric]: [Value] — [1-sentence "so what"]
+• [Metric]: [Value] — [1-sentence "so what"]
+
+✅ WHAT'S WORKING
+• [Specific win with numbers]
+• [Specific win with numbers]
+
+⚠️ WHERE WE'RE FOCUSED
+• [Honest challenge + what you're doing about it — be specific]
+
+🎯 NEXT 30 DAYS
+• [Specific deliverable — owner, outcome, deadline]
+• [Specific deliverable]
+
+[1-sentence close: forward momentum or specific ask]
+
+Rules: Every bullet has a number. No "we are pleased to report." No "it is worth noting." Speak like you own the outcome. ${audience === 'pe' ? 'PE sponsors want EBITDA trajectory and covenant headroom front and center.' : audience === 'lp' ? 'LPs want IRR trajectory and capital efficiency signals.' : 'Board members want decisions to make, not status updates.'} 250 words max.`;
+                  try {
+                    const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ message: prompt, data: effectiveData, companyName, planId: 'pro', maxTokens: 800 }) });
+                    const j = await r.json() as { reply?: string };
+                    setUpdateDraft(j.reply ?? '');
+                  } catch { setUpdateDraft('Error — check API key.'); }
+                  setUpdateLoading(false);
+                };
+
+                const copyToClipboard = () => { if (updateDraft) { void navigator.clipboard.writeText(updateDraft); } };
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Investor Update Drafter</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">AI writes your monthly investor / board update email from live data</div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex rounded-lg overflow-hidden border border-slate-700/40 text-[11px]">
+                          {audienceOptions.map(o => (
+                            <button key={o.id} onClick={() => setAudience(o.id)}
+                              className={`px-3 py-1.5 transition-colors ${audience === o.id ? 'bg-indigo-600/30 text-indigo-300' : 'text-slate-500 hover:text-slate-300'}`}>
+                              {o.label}
+                            </button>
+                          ))}
+                        </div>
+                        <button onClick={draft} disabled={updateLoading}
+                          className="text-[11px] px-4 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-600/40 text-indigo-300 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                          {updateLoading ? 'Drafting…' : 'Draft Update →'}
+                        </button>
+                      </div>
+                    </div>
+                    {updateDraft && (
+                      <div className="p-5">
+                        <div className="bg-slate-800/40 border border-slate-700/30 rounded-lg p-4 text-[12px] text-slate-300 leading-relaxed whitespace-pre-wrap font-mono">{updateDraft}</div>
+                        <div className="flex gap-2 mt-3">
+                          <button onClick={copyToClipboard}
+                            className="text-[11px] px-3 py-1.5 bg-slate-700/40 hover:bg-slate-700/60 border border-slate-600/40 text-slate-300 rounded-lg transition-colors">
+                            Copy to Clipboard
+                          </button>
+                          <button onClick={draft}
+                            className="text-[11px] px-3 py-1.5 text-slate-500 hover:text-slate-300 transition-colors">
+                            Regenerate
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {!updateDraft && !updateLoading && (
+                      <div className="px-5 py-8 text-center text-[11px] text-slate-600">Select audience and click Draft Update — pulls live financial data automatically</div>
+                    )}
+                  </div>
+                );
+              })()}
+
               <div className="flex items-center gap-3">
                 <div className="h-px flex-1 bg-slate-800/60"/>
                 <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em]">AI Advisory Agents</div>
@@ -3878,9 +5967,7 @@ export default function BusinessOS() {
               </div>
               <AgentPanel data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} companyName={companyName} companyProfile={companyProfile}/>
             </div>
-          )}
-          {activeView === 'scenarios'   && (
-            <div className="space-y-4">
+          <div className={activeView === 'scenarios' ? 'space-y-4' : 'hidden'}>
               <div className="flex items-center gap-2">
                 <div className="h-px flex-1 bg-amber-500/10"/>
                 <SectionNote noteKey="scenarios" notes={panelNotes} onSave={setPanelNote}/>
@@ -3891,15 +5978,360 @@ export default function BusinessOS() {
                 onAskAI={openChat}
                 onScenarioChange={s => setScenarioAdj(s && (s.revenueGrowthPct !== 0 || s.grossMarginPct !== 0 || s.opexChangePct !== 0 || s.newHires !== 0 || s.priceIncreasePct !== 0 || (s.newCustomers ?? 0) !== 0 || (s.churnRatePct ?? 0) !== 0 || (s.oneTimeExpense ?? 0) !== 0) ? { ...s, newCustomers: s.newCustomers ?? 0, churnRatePct: s.churnRatePct ?? 0, oneTimeExpense: s.oneTimeExpense ?? 0 } : null)}
               />
+
+              {/* ── Sensitivity / Stress Test Grid ── */}
+              {(() => {
+                const rev = effectiveData.revenue.total;
+                const cogs = effectiveData.costs.totalCOGS;
+                const opex = effectiveData.costs.totalOpEx;
+                const baseEBITDA = rev - cogs - opex;
+                const baseGM = rev > 0 ? (rev - cogs) / rev : 0.5;
+                const f = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n)}`;
+                const pct = (n: number) => `${n >= 0 ? '+' : ''}${(n*100).toFixed(1)}%`;
+
+                const revDeltas = [-0.30, -0.20, -0.10, 0, 0.10, 0.20, 0.30];
+                const marginDeltas = [-0.10, -0.05, 0, 0.05, 0.10];
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50">
+                      <div className="text-[12px] font-semibold text-slate-100">Sensitivity / Stress Test</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">EBITDA at revenue and gross margin scenarios · green = expansion, red = contraction</div>
+                    </div>
+                    <div className="p-5 overflow-x-auto">
+                      <table className="w-full text-[11px] border-collapse min-w-[500px]">
+                        <thead>
+                          <tr>
+                            <th className="text-left text-slate-600 pb-2 pr-4 font-medium">GM Δ \ Rev Δ</th>
+                            {revDeltas.map(rd => (
+                              <th key={rd} className={`text-center pb-2 px-2 font-medium ${rd < 0 ? 'text-red-400' : rd > 0 ? 'text-emerald-400' : 'text-slate-400'}`}>
+                                {pct(rd)}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {marginDeltas.map(md => (
+                            <tr key={md} className="border-t border-slate-800/40">
+                              <td className={`py-2 pr-4 font-medium ${md < 0 ? 'text-red-400' : md > 0 ? 'text-emerald-400' : 'text-slate-400'}`}>
+                                {pct(md)}
+                              </td>
+                              {revDeltas.map(rd => {
+                                const newRev = rev * (1 + rd);
+                                const newGM = Math.max(0, baseGM + md);
+                                const newCOGS = newRev * (1 - newGM);
+                                const newEBITDA = newRev - newCOGS - opex;
+                                const isBase = rd === 0 && md === 0;
+                                const isNeg = newEBITDA < 0;
+                                const isWorse = newEBITDA < baseEBITDA;
+                                const bgCls = isBase ? 'bg-indigo-500/20 text-indigo-300 font-bold' :
+                                              isNeg ? 'bg-red-500/20 text-red-400' :
+                                              isWorse ? 'bg-amber-500/10 text-amber-400' :
+                                              'bg-emerald-500/10 text-emerald-400';
+                                return (
+                                  <td key={rd} className={`text-center py-2 px-2 rounded ${bgCls}`}>
+                                    {f(newEBITDA)}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div className="flex items-center gap-4 mt-3 text-[10px] text-slate-600">
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-indigo-500/40 inline-block"/>Base case ({f(baseEBITDA)})</span>
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500/20 inline-block"/>Expansion</span>
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-amber-500/10 inline-block"/>Contraction</span>
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-500/20 inline-block"/>EBITDA negative</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
-          )}
-          {activeView === 'pipeline' && (
-            <div className="space-y-4">
+          <div className={activeView === 'pipeline' ? 'space-y-4' : 'hidden'}>
+              {/* ── Pipeline Velocity & Analytics ── */}
+              {(() => {
+                type LocalDeal = { id: string; name: string; company: string; value: number; stage: string; probability: number; closeDate?: string; owner?: string; createdAt: string; updatedAt: string; source?: string; lostReason?: string };
+                let deals: LocalDeal[] = [];
+                try { const s = localStorage.getItem('bos_deals'); if (s) deals = JSON.parse(s); } catch { /* ignore */ }
+                if (!deals.length) return null;
+
+                const STAGE_ORDER = ['lead','qualified','proposal','negotiation','closed-won','closed-lost'];
+                const STAGE_LABEL: Record<string, string> = { lead:'Lead', qualified:'Qualified', proposal:'Proposal', negotiation:'Negotiation', 'closed-won':'Closed Won', 'closed-lost':'Closed Lost' };
+                const active = deals.filter(d => d.stage !== 'closed-won' && d.stage !== 'closed-lost');
+                const won    = deals.filter(d => d.stage === 'closed-won');
+                const lost   = deals.filter(d => d.stage === 'closed-lost');
+                const total  = won.length + lost.length;
+                const winRate = total > 0 ? (won.length / total) * 100 : 0;
+                const avgDealSize = won.length > 0 ? won.reduce((s,d) => s + d.value, 0) / won.length : 0;
+                const totalPipelineVal = active.reduce((s,d) => s + d.value * (d.probability / 100), 0);
+                const fmtV = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${Math.round(n).toLocaleString()}`;
+
+                // Avg days in each active stage (approx from updatedAt)
+                const byStage = STAGE_ORDER.slice(0, 4).map(s => {
+                  const inStage = active.filter(d => d.stage === s);
+                  const avgDays = inStage.length > 0
+                    ? inStage.reduce((acc, d) => acc + Math.max(0, Math.round((Date.now() - new Date(d.updatedAt).getTime()) / 86400000)), 0) / inStage.length
+                    : 0;
+                  const stageVal = inStage.reduce((acc, d) => acc + d.value, 0);
+                  return { stage: s, label: STAGE_LABEL[s], count: inStage.length, avgDays: Math.round(avgDays), value: stageVal };
+                });
+
+                // Source breakdown of won deals
+                const sourceMap: Record<string, number> = {};
+                won.forEach(d => { const src = d.source ?? 'unknown'; sourceMap[src] = (sourceMap[src] ?? 0) + 1; });
+                const sources = Object.entries(sourceMap).sort((a,b) => b[1]-a[1]);
+
+                // Lost reasons
+                const lostReasons = lost.filter(d => d.lostReason).map(d => d.lostReason!).slice(0, 3);
+
+                return (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* Funnel metrics */}
+                    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5 space-y-4">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Pipeline Velocity</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Active deals by stage · avg days · weighted value</div>
+                      </div>
+                      <div className="space-y-3">
+                        {byStage.map((s, i) => {
+                          const maxCount = Math.max(...byStage.map(x => x.count), 1);
+                          const barW = maxCount > 0 ? (s.count / maxCount) * 100 : 0;
+                          return (
+                            <div key={s.stage}>
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] font-semibold text-slate-500 w-4">{i+1}</span>
+                                  <span className="text-[12px] font-medium text-slate-300">{s.label}</span>
+                                  <span className="text-[10px] text-slate-600">{s.count} deal{s.count !== 1 ? 's' : ''}</span>
+                                </div>
+                                <div className="flex items-center gap-3 text-[11px]">
+                                  {s.avgDays > 0 && <span className={`${s.avgDays > 21 ? 'text-amber-400' : 'text-slate-500'}`}>{s.avgDays}d avg</span>}
+                                  <span className="font-semibold text-slate-300">{fmtV(s.value)}</span>
+                                </div>
+                              </div>
+                              <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-full bg-sky-500/60 rounded-full transition-all" style={{ width: `${barW}%` }}/>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="grid grid-cols-3 gap-3 pt-2 border-t border-slate-800/40">
+                        {[
+                          { label: 'Win Rate',      value: `${winRate.toFixed(0)}%`,  color: winRate >= 30 ? 'text-emerald-400' : 'text-amber-400' },
+                          { label: 'Avg Deal Size', value: fmtV(avgDealSize),          color: 'text-slate-200' },
+                          { label: 'Wtd Pipeline',  value: fmtV(totalPipelineVal),     color: 'text-sky-300' },
+                        ].map(m => (
+                          <div key={m.label} className="text-center">
+                            <div className={`text-[16px] font-bold ${m.color}`}>{m.value}</div>
+                            <div className="text-[9px] text-slate-600 mt-0.5 uppercase tracking-wide">{m.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Win/Loss analysis */}
+                    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5 space-y-4">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Win / Loss Analysis</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">{won.length} won · {lost.length} lost · {active.length} active</div>
+                      </div>
+                      {/* Win/loss bar */}
+                      <div>
+                        <div className="flex items-center gap-1 h-3 rounded-full overflow-hidden">
+                          {total > 0 ? <>
+                            <div className="h-full bg-emerald-500/60 rounded-l-full transition-all" style={{ width: `${winRate}%` }}/>
+                            <div className="h-full bg-red-500/40 rounded-r-full transition-all" style={{ width: `${100 - winRate}%` }}/>
+                          </> : <div className="h-full w-full bg-slate-800 rounded-full"/>}
+                        </div>
+                        <div className="flex justify-between text-[10px] mt-1">
+                          <span className="text-emerald-400">{won.length} won ({winRate.toFixed(0)}%)</span>
+                          <span className="text-red-400">{lost.length} lost ({(100-winRate).toFixed(0)}%)</span>
+                        </div>
+                      </div>
+                      {/* Won by source */}
+                      {sources.length > 0 && (
+                        <div>
+                          <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wide mb-2">Won by Source</div>
+                          <div className="space-y-1.5">
+                            {sources.map(([src, count]) => (
+                              <div key={src} className="flex items-center justify-between text-[11px]">
+                                <span className="text-slate-400 capitalize">{src.replace(/-/g,' ')}</span>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-16 h-1 bg-slate-800 rounded-full overflow-hidden">
+                                    <div className="h-full bg-emerald-500/50 rounded-full" style={{ width: `${(count / won.length) * 100}%` }}/>
+                                  </div>
+                                  <span className="text-slate-500 w-4 text-right">{count}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {/* Lost reasons */}
+                      {lostReasons.length > 0 && (
+                        <div>
+                          <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wide mb-2">Recent Lost Reasons</div>
+                          <div className="space-y-1">
+                            {lostReasons.map((r, i) => (
+                              <div key={i} className="text-[11px] text-slate-500 bg-red-500/5 border border-red-500/10 rounded-lg px-3 py-1.5 leading-relaxed">· {r}</div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Referral Source ROI ── */}
+              {(() => {
+                type LocalDeal = { id: string; name: string; value: number; stage: string; source?: string; probability: number };
+                let deals: LocalDeal[] = [];
+                try { const s = localStorage.getItem('bos_deals'); if (s) deals = JSON.parse(s); } catch { /* ignore */ }
+                if (!deals.length) return null;
+
+                const fmtV = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${Math.round(n)}`;
+                const won  = deals.filter(d => d.stage === 'closed-won');
+                const lost = deals.filter(d => d.stage === 'closed-lost');
+                const all  = [...won, ...lost];
+                if (all.length === 0) return null;
+
+                const sources = Array.from(new Set(all.map(d => d.source ?? 'unknown')));
+                const bySource = sources.map(src => {
+                  const srcWon  = won.filter(d => (d.source ?? 'unknown') === src);
+                  const srcLost = lost.filter(d => (d.source ?? 'unknown') === src);
+                  const srcAll  = [...srcWon, ...srcLost];
+                  const wonValue = srcWon.reduce((s,d) => s+d.value, 0);
+                  const avgSize  = srcWon.length > 0 ? wonValue / srcWon.length : 0;
+                  const winRate  = srcAll.length > 0 ? (srcWon.length / srcAll.length) * 100 : 0;
+                  return { source: src, wonDeals: srcWon.length, lostDeals: srcLost.length, wonValue, avgSize, winRate, total: srcAll.length };
+                }).sort((a,b) => b.wonValue - a.wonValue);
+
+                const maxValue = Math.max(...bySource.map(s => s.wonValue), 1);
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50">
+                      <div className="text-[12px] font-semibold text-slate-100">Referral Source ROI</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">Closed-won value, avg deal size, and win rate by source</div>
+                    </div>
+                    <div className="divide-y divide-slate-800/40">
+                      {bySource.map((s, i) => (
+                        <div key={s.source} className="px-5 py-3.5 flex items-center gap-4">
+                          <div className="w-5 text-[11px] font-bold text-slate-600 flex-shrink-0">{i+1}</div>
+                          <div className="w-24 flex-shrink-0">
+                            <div className="text-[12px] font-semibold text-slate-300 capitalize">{s.source.replace(/-/g,' ')}</div>
+                            <div className="text-[10px] text-slate-600 mt-0.5">{s.wonDeals}W · {s.lostDeals}L · {s.total} total</div>
+                          </div>
+                          <div className="flex-1">
+                            <div className="h-2 bg-slate-800 rounded-full overflow-hidden mb-1">
+                              <div className="h-full bg-indigo-500/60 rounded-full" style={{ width: `${(s.wonValue / maxValue) * 100}%` }}/>
+                            </div>
+                            <div className="text-[10px] text-slate-600">avg {fmtV(s.avgSize)}/deal</div>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <div className="text-[14px] font-bold text-slate-200">{fmtV(s.wonValue)}</div>
+                            <div className={`text-[10px] font-semibold ${s.winRate >= 50 ? 'text-emerald-400' : s.winRate >= 30 ? 'text-amber-400' : 'text-red-400'}`}>{s.winRate.toFixed(0)}% win rate</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="px-5 py-3 border-t border-slate-800/40 text-[10px] text-slate-600">
+                      Double down on the source with the highest value × win rate combination — that's your most efficient growth channel
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Sales Velocity Calculator ── */}
+              {(() => {
+                let deals: { id: string; value: number; stage: string; probability: number; createdAt: string; updatedAt: string }[] = [];
+                try { const s = localStorage.getItem('bos_deals'); if (s) deals = JSON.parse(s); } catch { /* ignore */ }
+                if (!deals.length) return null;
+
+                const won = deals.filter(d => d.stage === 'closed-won');
+                const lost = deals.filter(d => d.stage === 'closed-lost');
+                const active = deals.filter(d => d.stage !== 'closed-won' && d.stage !== 'closed-lost');
+                const total = won.length + lost.length;
+                const winRate = total > 0 ? won.length / total : 0;
+                const avgDealSize = won.length > 0 ? won.reduce((s,d)=>s+d.value,0)/won.length : 0;
+
+                // Avg sales cycle: days from createdAt to updatedAt for won deals
+                const avgCycleDays = won.length > 0
+                  ? won.reduce((s,d) => s + Math.max(1, Math.round((new Date(d.updatedAt).getTime()-new Date(d.createdAt).getTime())/86400000)), 0) / won.length
+                  : 30;
+
+                // Sales Velocity = (# active deals × win rate × avg deal size) / avg cycle days
+                const velocity = avgCycleDays > 0 ? (active.length * winRate * avgDealSize) / avgCycleDays : 0;
+                const velocityMonthly = velocity * 30;
+
+                const fmtV = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n)}`;
+
+                // Levers: which factor improvement has most impact
+                const levers = [
+                  { label: 'Add 2 active deals', newVelocity: ((active.length+2)*winRate*avgDealSize/avgCycleDays)*30, factor: '+ 2 deals' },
+                  { label: '+10% win rate', newVelocity: (active.length*Math.min(1,winRate+0.10)*avgDealSize/avgCycleDays)*30, factor: '+10% win rate' },
+                  { label: '+20% deal size', newVelocity: (active.length*winRate*(avgDealSize*1.2)/avgCycleDays)*30, factor: '+20% avg deal size' },
+                  { label: '−7 day cycle', newVelocity: avgCycleDays > 7 ? (active.length*winRate*avgDealSize/(avgCycleDays-7))*30 : velocityMonthly, factor: '−7 day cycle' },
+                ].map(l => ({ ...l, delta: l.newVelocity - velocityMonthly }));
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50">
+                      <div className="text-[12px] font-semibold text-slate-100">Sales Velocity</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">(Active deals × Win rate × Avg deal size) ÷ Cycle days = revenue throughput</div>
+                    </div>
+                    <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-5">
+                      {/* Core metrics */}
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          {[
+                            { label: 'Active Deals',     value: active.length.toString(),           color: 'text-slate-200' },
+                            { label: 'Win Rate',         value: `${(winRate*100).toFixed(0)}%`,     color: winRate >= 0.30 ? 'text-emerald-400' : 'text-amber-400' },
+                            { label: 'Avg Deal Size',    value: fmtV(avgDealSize),                  color: 'text-slate-200' },
+                            { label: 'Avg Sales Cycle',  value: `${Math.round(avgCycleDays)}d`,     color: avgCycleDays <= 30 ? 'text-emerald-400' : avgCycleDays <= 60 ? 'text-amber-400' : 'text-red-400' },
+                          ].map(m => (
+                            <div key={m.label} className="bg-slate-800/30 border border-slate-700/30 rounded-lg p-3 text-center">
+                              <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">{m.label}</div>
+                              <div className={`text-[18px] font-bold ${m.color}`}>{m.value}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="bg-sky-950/30 border border-sky-500/20 rounded-lg p-4 text-center">
+                          <div className="text-[10px] text-sky-500 uppercase tracking-wide mb-1">Monthly Sales Velocity</div>
+                          <div className="text-[28px] font-bold text-sky-300">{fmtV(velocityMonthly)}</div>
+                          <div className="text-[10px] text-slate-500 mt-1">revenue generating capacity per month</div>
+                        </div>
+                      </div>
+                      {/* Lever analysis */}
+                      <div>
+                        <div className="text-[11px] font-semibold text-slate-400 mb-3">Velocity Levers — What moves the needle most?</div>
+                        <div className="space-y-2">
+                          {levers.sort((a,b)=>b.delta-a.delta).map(l => (
+                            <div key={l.factor} className="flex items-center justify-between bg-slate-800/30 border border-slate-700/20 rounded-lg px-3 py-2.5">
+                              <div>
+                                <div className="text-[11px] font-medium text-slate-300">{l.factor}</div>
+                                <div className="text-[10px] text-slate-600">→ {fmtV(l.newVelocity)}/mo</div>
+                              </div>
+                              <div className={`text-[13px] font-bold ${l.delta > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                                +{fmtV(l.delta)}/mo
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="text-[10px] text-slate-600 mt-3">Focus on the lever with the highest monthly revenue delta</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <KanbanBoard />
             </div>
-          )}
-          {activeView === 'automations' && (
-            <div className="space-y-4">
+          <div className={activeView === 'automations' ? 'space-y-4' : 'hidden'}>
               <div className="flex items-center gap-2">
                 <div className="h-px flex-1 bg-rose-500/10"/>
                 <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em]">IF / THEN Rules</div>
@@ -3907,41 +6339,1063 @@ export default function BusinessOS() {
               </div>
               <AutomationBuilder />
             </div>
-          )}
-          {activeView === 'acquisitions' && (
-            <div className="space-y-4">
+          <div className={activeView === 'acquisitions' ? 'space-y-4' : 'hidden'}>
               <AcquisitionPipeline onAskAI={openChat}/>
+
+              {/* ── IRR / MOIC Return Calculator ── */}
+              {(() => {
+                const [entryMultiple, setEntryMultiple] = React.useState(5.5);
+                const [equityPct, setEquityPct]         = React.useState(40);
+                const [holdYears, setHoldYears]         = React.useState(5);
+                const [exitMultiple, setExitMultiple]   = React.useState(7.0);
+                const [mgmtFee, setMgmtFee]             = React.useState(2);
+
+                const ebitda = data.revenue.total - data.costs.totalCOGS - data.costs.totalOpEx;
+                const entryEV     = ebitda * entryMultiple;
+                const debtPct     = 1 - equityPct / 100;
+                const equityIn    = entryEV * (equityPct / 100);
+                const debt        = entryEV * debtPct;
+                const exitEV      = ebitda * exitMultiple * Math.pow(1.05, holdYears); // assume 5% EBITDA CAGR
+                const debtRemain  = debt * Math.pow(1 - 0.07, holdYears); // ~7% annual paydown
+                const exitEquity  = Math.max(0, exitEV - debtRemain);
+                const fees        = equityIn * (mgmtFee / 100) * holdYears;
+                const netEquity   = exitEquity - fees;
+                const moic        = equityIn > 0 ? netEquity / equityIn : 0;
+                const irr         = equityIn > 0 && holdYears > 0 ? (Math.pow(moic, 1 / holdYears) - 1) * 100 : 0;
+
+                const fmtN = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(1)}M` : `$${Math.round(n).toLocaleString()}`;
+                const SliderRow = ({ label, value, min, max, step, unit, onChange }: { label: string; value: number; min: number; max: number; step: number; unit: string; onChange: (v: number) => void }) => (
+                  <div className="flex items-center gap-3">
+                    <div className="w-36 text-[11px] text-slate-400 flex-shrink-0">{label}</div>
+                    <input type="range" min={min} max={max} step={step} value={value} onChange={e => onChange(+e.target.value)}
+                      className="flex-1 h-1.5 accent-violet-500 cursor-pointer"/>
+                    <div className="w-16 text-right text-[12px] font-semibold text-slate-200 flex-shrink-0">{value}{unit}</div>
+                  </div>
+                );
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+                    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">IRR / MOIC Return Calculator</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">PE return model · uses your current EBITDA as the acquisition base</div>
+                      </div>
+                      <div className="flex gap-4">
+                        <div className="text-center">
+                          <div className={`text-[22px] font-bold tabular-nums ${irr >= 25 ? 'text-emerald-400' : irr >= 15 ? 'text-amber-400' : 'text-red-400'}`}>{irr.toFixed(1)}%</div>
+                          <div className="text-[10px] text-slate-600">IRR</div>
+                        </div>
+                        <div className="text-center">
+                          <div className={`text-[22px] font-bold tabular-nums ${moic >= 3 ? 'text-emerald-400' : moic >= 2 ? 'text-amber-400' : 'text-red-400'}`}>{moic.toFixed(1)}×</div>
+                          <div className="text-[10px] text-slate-600">MOIC</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-3">
+                        <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em]">Deal Structure</div>
+                        <SliderRow label="Entry Multiple" value={entryMultiple} min={2} max={12} step={0.5} unit="×" onChange={setEntryMultiple}/>
+                        <SliderRow label="Equity %"       value={equityPct}    min={10} max={70} step={5} unit="%" onChange={setEquityPct}/>
+                        <SliderRow label="Hold Period"    value={holdYears}    min={2} max={10} step={1} unit="yr" onChange={setHoldYears}/>
+                        <SliderRow label="Exit Multiple"  value={exitMultiple} min={2} max={15} step={0.5} unit="×" onChange={setExitMultiple}/>
+                        <SliderRow label="Mgmt Fee"       value={mgmtFee}      min={0} max={4} step={0.5} unit="%" onChange={setMgmtFee}/>
+                      </div>
+                      <div className="bg-slate-800/30 rounded-xl p-4 space-y-2.5 text-[12px]">
+                        <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em] mb-1">Return Summary</div>
+                        {[
+                          { label: 'Entry EV',       value: fmtN(entryEV),    sub: `${entryMultiple}× EBITDA` },
+                          { label: 'Equity In',      value: fmtN(equityIn),   sub: `${equityPct}% of EV` },
+                          { label: 'Senior Debt',    value: fmtN(debt),       sub: `${(100-equityPct)}% of EV` },
+                          { label: 'Exit EV',        value: fmtN(exitEV),     sub: `${exitMultiple}× × EBITDA CAGR` },
+                          { label: 'Exit Equity',    value: fmtN(netEquity),  sub: 'after debt paydown & fees' },
+                          { label: 'MOIC',           value: `${moic.toFixed(2)}×`, sub: irr >= 25 ? 'Top quartile' : irr >= 15 ? 'Acceptable' : 'Below hurdle', bold: true },
+                          { label: 'IRR',            value: `${irr.toFixed(1)}%`, sub: 'Unlevered ≈ ' + (irr * 0.65).toFixed(1) + '%', bold: true },
+                        ].map(r => (
+                          <div key={r.label} className={`flex items-center justify-between ${(r as {bold?:boolean}).bold ? 'pt-2 border-t border-slate-700/60' : ''}`}>
+                            <span className={`${(r as {bold?:boolean}).bold ? 'font-semibold text-slate-200' : 'text-slate-500'}`}>{r.label}</span>
+                            <div className="text-right">
+                              <div className={`font-semibold tabular-nums ${(r as {bold?:boolean}).bold ? (irr >= 25 ? 'text-emerald-400' : irr >= 15 ? 'text-amber-400' : 'text-red-400') : 'text-slate-300'}`}>{r.value}</div>
+                              <div className="text-[10px] text-slate-600">{r.sub}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="mt-3 text-[10px] text-slate-600">Assumes 5% annual EBITDA growth, 7% annual debt paydown, management fees on initial equity. Model is directional — not a substitute for a full LBO model.</div>
+                  </div>
+                );
+              })()}
+
+              {/* ── 100-Day Value Creation Plan ── */}
+              {(() => {
+                const PLAN_KEY = 'bos_100day_plan';
+                type Task100 = { id: string; stream: string; task: string; owner: string; day: number; done: boolean };
+                const STREAMS = ['Finance & Reporting', 'Revenue & Sales', 'Operations & Costs', 'Team & Culture', 'Technology & Systems', 'Customer & Retention'];
+                const DEFAULT_TASKS: Task100[] = [
+                  { id: 'd1', stream: 'Finance & Reporting', task: 'Establish weekly flash P&L reporting', owner: 'CFO', day: 14, done: false },
+                  { id: 'd2', stream: 'Finance & Reporting', task: 'Reconcile and normalize historical financials', owner: 'CFO', day: 30, done: false },
+                  { id: 'd3', stream: 'Revenue & Sales', task: 'Interview top 10 customers (retention check)', owner: 'CEO', day: 21, done: false },
+                  { id: 'd4', stream: 'Revenue & Sales', task: 'Audit pipeline and forecast accuracy', owner: 'Sales', day: 30, done: false },
+                  { id: 'd5', stream: 'Operations & Costs', task: 'Review all vendor contracts for renegotiation', owner: 'COO', day: 45, done: false },
+                  { id: 'd6', stream: 'Operations & Costs', task: 'Identify top 3 operational inefficiencies', owner: 'COO', day: 30, done: false },
+                  { id: 'd7', stream: 'Team & Culture', task: 'Complete management assessment (stay/go)', owner: 'CEO', day: 45, done: false },
+                  { id: 'd8', stream: 'Team & Culture', task: 'Establish leadership team cadence & KPIs', owner: 'CEO', day: 14, done: false },
+                  { id: 'd9', stream: 'Technology & Systems', task: 'Audit tech stack and identify consolidation', owner: 'COO', day: 60, done: false },
+                  { id: 'd10', stream: 'Customer & Retention', task: 'Re-execute all customer contracts to new entity', owner: 'Legal', day: 90, done: false },
+                ];
+                const [tasks, setTasks] = React.useState<Task100[]>(() => {
+                  try { const s = localStorage.getItem(PLAN_KEY); return s ? JSON.parse(s) : DEFAULT_TASKS; } catch { return DEFAULT_TASKS; }
+                });
+                const [startDate] = React.useState(new Date().toISOString().slice(0, 10));
+                const todayDay = Math.max(1, Math.ceil((new Date().getTime() - new Date(startDate).getTime()) / 86400000));
+
+                const saveTasks = (updated: Task100[]) => { setTasks(updated); try { localStorage.setItem(PLAN_KEY, JSON.stringify(updated)); } catch { /* ignore */ } };
+                const toggle = (id: string) => saveTasks(tasks.map(t => t.id === id ? { ...t, done: !t.done } : t));
+
+                const doneCount = tasks.filter(t => t.done).length;
+                const overdue = tasks.filter(t => !t.done && t.day < todayDay);
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">100-Day Value Creation Plan</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Post-acquisition sprint · {doneCount}/{tasks.length} complete{overdue.length > 0 ? ` · ${overdue.length} overdue` : ''}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-[16px] font-bold text-indigo-400">Day {Math.min(todayDay, 100)}</div>
+                        <div className="text-[10px] text-slate-600">{Math.min(todayDay, 100)} of 100</div>
+                      </div>
+                    </div>
+                    <div className="px-5 py-2">
+                      <div className="h-1.5 bg-slate-800/60 rounded-full overflow-hidden mt-1 mb-3">
+                        <div className="h-full bg-indigo-500/70 rounded-full transition-all" style={{ width: `${(doneCount/tasks.length)*100}%` }}/>
+                      </div>
+                    </div>
+                    {STREAMS.map(stream => {
+                      const streamTasks = tasks.filter(t => t.stream === stream).sort((a,b) => a.day - b.day);
+                      if (streamTasks.length === 0) return null;
+                      const streamDone = streamTasks.filter(t => t.done).length;
+                      return (
+                        <div key={stream} className="border-t border-slate-800/40">
+                          <div className="px-5 py-2.5 bg-slate-800/15 flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.08em]">{stream}</span>
+                            <span className="text-[10px] text-slate-600">{streamDone}/{streamTasks.length}</span>
+                          </div>
+                          {streamTasks.map(t => {
+                            const isOverdue = !t.done && t.day < todayDay;
+                            return (
+                              <label key={t.id} className="flex items-center gap-3 px-5 py-2.5 hover:bg-slate-800/20 cursor-pointer border-b border-slate-800/20 last:border-0">
+                                <input type="checkbox" checked={t.done} onChange={() => toggle(t.id)} className="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-0 flex-shrink-0"/>
+                                <div className="flex-1 min-w-0">
+                                  <div className={`text-[12px] ${t.done ? 'line-through text-slate-600' : 'text-slate-300'}`}>{t.task}</div>
+                                  <div className="text-[10px] text-slate-600 mt-0.5">@{t.owner} · Day {t.day}</div>
+                                </div>
+                                {isOverdue && <span className="text-[9px] font-bold text-red-400 border border-red-500/30 px-1.5 py-0.5 rounded flex-shrink-0">Overdue</span>}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
+              {/* ── Exit Readiness Score ── */}
+              {(() => {
+                const EXIT_KEY = 'bos_exit_readiness';
+                type ExitItem = { id: string; category: string; label: string; weight: number };
+                const EXIT_ITEMS: ExitItem[] = [
+                  { id: 'e1',  category: 'Financials',     label: '3+ years of clean, audit-ready financial statements', weight: 3 },
+                  { id: 'e2',  category: 'Financials',     label: 'Monthly reporting package with KPIs and variance analysis', weight: 2 },
+                  { id: 'e3',  category: 'Financials',     label: 'Recurring revenue clearly identified and documented', weight: 2 },
+                  { id: 'e4',  category: 'Financials',     label: 'Quality of Earnings adjustments identified and quantified', weight: 2 },
+                  { id: 'e5',  category: 'Management',     label: 'Leadership team can operate independently of founder', weight: 3 },
+                  { id: 'e6',  category: 'Management',     label: 'Management incentive plan aligned with buyer value creation', weight: 2 },
+                  { id: 'e7',  category: 'Customers',      label: 'No single customer > 15% of revenue', weight: 3 },
+                  { id: 'e8',  category: 'Customers',      label: 'Multi-year contracts or documented renewal history', weight: 2 },
+                  { id: 'e9',  category: 'Customers',      label: 'NPS or customer satisfaction data available', weight: 1 },
+                  { id: 'e10', category: 'Operations',     label: 'Documented processes and SOPs for all key workflows', weight: 2 },
+                  { id: 'e11', category: 'Operations',     label: 'Technology systems not dependent on one person', weight: 2 },
+                  { id: 'e12', category: 'Legal',          label: 'Clean cap table, IP fully assigned to company', weight: 3 },
+                  { id: 'e13', category: 'Legal',          label: 'No material litigation or regulatory exposure', weight: 2 },
+                  { id: 'e14', category: 'Growth Story',   label: 'Clear 3–5 year growth plan with supporting data', weight: 2 },
+                  { id: 'e15', category: 'Growth Story',   label: 'Identified add-on acquisition or market expansion plays', weight: 1 },
+                ];
+                const [checked, setChecked] = React.useState<Record<string, boolean>>(() => {
+                  try { const s = localStorage.getItem(EXIT_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
+                });
+                const toggle = (id: string) => {
+                  const updated = { ...checked, [id]: !checked[id] };
+                  setChecked(updated);
+                  try { localStorage.setItem(EXIT_KEY, JSON.stringify(updated)); } catch { /* ignore */ }
+                };
+                const totalWeight = EXIT_ITEMS.reduce((s, i) => s + i.weight, 0);
+                const earnedWeight = EXIT_ITEMS.filter(i => checked[i.id]).reduce((s, i) => s + i.weight, 0);
+                const score = Math.round((earnedWeight / totalWeight) * 100);
+                const label = score >= 80 ? 'Exit-Ready' : score >= 60 ? 'Nearly Ready' : score >= 40 ? 'Moderate Gaps' : 'Significant Gaps';
+                const scoreColor = score >= 80 ? 'text-emerald-400' : score >= 60 ? 'text-sky-400' : score >= 40 ? 'text-amber-400' : 'text-red-400';
+                const cats = ['Financials', 'Management', 'Customers', 'Operations', 'Legal', 'Growth Story'];
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Exit Readiness Score</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Weighted audit across 6 categories · used by PE firms to set deal process timing</div>
+                      </div>
+                      <div className="text-right">
+                        <div className={`text-[22px] font-bold tabular-nums ${scoreColor}`}>{score}%</div>
+                        <div className={`text-[10px] font-semibold ${scoreColor}`}>{label}</div>
+                      </div>
+                    </div>
+                    <div className="px-5 py-2">
+                      <div className="h-1.5 bg-slate-800/60 rounded-full overflow-hidden mt-1 mb-2">
+                        <div className={`h-full rounded-full transition-all ${score >= 80 ? 'bg-emerald-500' : score >= 60 ? 'bg-sky-500' : score >= 40 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${score}%` }}/>
+                      </div>
+                    </div>
+                    {cats.map(cat => {
+                      const catItems = EXIT_ITEMS.filter(i => i.category === cat);
+                      const catDone = catItems.filter(i => checked[i.id]).length;
+                      return (
+                        <div key={cat} className="border-t border-slate-800/40">
+                          <div className="px-5 py-2.5 bg-slate-800/15 flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.08em]">{cat}</span>
+                            <span className="text-[10px] text-slate-600">{catDone}/{catItems.length}</span>
+                          </div>
+                          {catItems.map(item => (
+                            <label key={item.id} className="flex items-center gap-3 px-5 py-2.5 hover:bg-slate-800/20 cursor-pointer border-b border-slate-800/20 last:border-0">
+                              <input type="checkbox" checked={!!checked[item.id]} onChange={() => toggle(item.id)} className="rounded border-slate-600 bg-slate-800 text-emerald-500 focus:ring-0 flex-shrink-0"/>
+                              <span className={`text-[12px] flex-1 ${checked[item.id] ? 'line-through text-slate-600' : 'text-slate-300'}`}>{item.label}</span>
+                              <span className="flex-shrink-0 text-[9px] text-slate-700">{'●'.repeat(item.weight)}</span>
+                            </label>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
+              {/* ── M&A Data Room Readiness Checklist ── */}
+              {(() => {
+                const CHECKLIST_KEY = 'bos_dataroom_checklist';
+                const ITEMS: { id: string; category: string; label: string; critical: boolean }[] = [
+                  // Financial
+                  { id: 'fin-1', category: 'Financials', label: '3 years audited or reviewed financial statements', critical: true },
+                  { id: 'fin-2', category: 'Financials', label: 'YTD P&L and balance sheet (current year)', critical: true },
+                  { id: 'fin-3', category: 'Financials', label: 'Monthly revenue breakdown by customer / product', critical: true },
+                  { id: 'fin-4', category: 'Financials', label: '12-month cash flow forecast', critical: false },
+                  { id: 'fin-5', category: 'Financials', label: 'AR aging report', critical: false },
+                  { id: 'fin-6', category: 'Financials', label: 'Quality of earnings (QoE) analysis or adjustments', critical: false },
+                  // Legal
+                  { id: 'leg-1', category: 'Legal', label: 'Corporate formation documents (articles, bylaws)', critical: true },
+                  { id: 'leg-2', category: 'Legal', label: 'Cap table / ownership structure', critical: true },
+                  { id: 'leg-3', category: 'Legal', label: 'All material contracts (customers, vendors, leases)', critical: true },
+                  { id: 'leg-4', category: 'Legal', label: 'IP assignments and ownership documentation', critical: false },
+                  { id: 'leg-5', category: 'Legal', label: 'Litigation history or pending disputes', critical: false },
+                  // Operations
+                  { id: 'ops-1', category: 'Operations', label: 'Org chart and key employee list with comp', critical: true },
+                  { id: 'ops-2', category: 'Operations', label: 'Top 10 customer list with revenue and contract terms', critical: true },
+                  { id: 'ops-3', category: 'Operations', label: 'Top 10 vendor / supplier agreements', critical: false },
+                  { id: 'ops-4', category: 'Operations', label: 'Employee handbook and benefit summaries', critical: false },
+                  // Strategy
+                  { id: 'str-1', category: 'Strategy', label: 'Company overview / CIM (Confidential Information Memo)', critical: true },
+                  { id: 'str-2', category: 'Strategy', label: '3-year financial projections with assumptions', critical: true },
+                  { id: 'str-3', category: 'Strategy', label: 'Revenue growth strategy and market sizing', critical: false },
+                  { id: 'str-4', category: 'Strategy', label: 'Competitive landscape overview', critical: false },
+                ];
+
+                const [checked, setChecked] = React.useState<Record<string,boolean>>(() => {
+                  try { const s = localStorage.getItem(CHECKLIST_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
+                });
+
+                const toggle = (id: string) => {
+                  setChecked(prev => {
+                    const next = { ...prev, [id]: !prev[id] };
+                    try { localStorage.setItem(CHECKLIST_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+                    return next;
+                  });
+                };
+
+                const categories = Array.from(new Set(ITEMS.map(i => i.category)));
+                const totalDone = ITEMS.filter(i => checked[i.id]).length;
+                const criticalDone = ITEMS.filter(i => i.critical && checked[i.id]).length;
+                const criticalTotal = ITEMS.filter(i => i.critical).length;
+                const readinessPct = Math.round((totalDone / ITEMS.length) * 100);
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-4 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-3">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">M&A Data Room Readiness</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Check off items as you prepare your data room for buyer due diligence</div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <div className={`text-[22px] font-bold tabular-nums ${readinessPct >= 80 ? 'text-emerald-400' : readinessPct >= 50 ? 'text-amber-400' : 'text-slate-300'}`}>{readinessPct}%</div>
+                          <div className="text-[10px] text-slate-600">ready</div>
+                        </div>
+                        <div className="text-right">
+                          <div className={`text-[16px] font-bold ${criticalDone === criticalTotal ? 'text-emerald-400' : 'text-red-400'}`}>{criticalDone}/{criticalTotal}</div>
+                          <div className="text-[10px] text-slate-600">critical items</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="h-1 bg-slate-800">
+                      <div className={`h-full transition-all ${readinessPct >= 80 ? 'bg-emerald-500' : readinessPct >= 50 ? 'bg-amber-500' : 'bg-indigo-500'}`} style={{ width: `${readinessPct}%` }}/>
+                    </div>
+                    <div className="divide-y divide-slate-800/40">
+                      {categories.map(cat => {
+                        const catItems = ITEMS.filter(i => i.category === cat);
+                        const catDone = catItems.filter(i => checked[i.id]).length;
+                        return (
+                          <div key={cat}>
+                            <div className="px-5 py-2.5 bg-slate-800/20 flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.1em]">{cat}</span>
+                              <span className="text-[10px] text-slate-600">{catDone}/{catItems.length}</span>
+                            </div>
+                            {catItems.map(item => (
+                              <div key={item.id}
+                                onClick={() => toggle(item.id)}
+                                className="px-5 py-3 flex items-start gap-3 hover:bg-slate-800/20 cursor-pointer transition-colors">
+                                <div className={`w-4 h-4 rounded border flex-shrink-0 mt-0.5 flex items-center justify-center transition-colors ${checked[item.id] ? 'bg-emerald-500/20 border-emerald-500/50' : 'border-slate-700'}`}>
+                                  {checked[item.id] && <svg viewBox="0 0 10 10" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" className="w-2.5 h-2.5"><path d="M1.5 5l2.5 2.5 4.5-4.5"/></svg>}
+                                </div>
+                                <div className="flex-1">
+                                  <span className={`text-[12px] leading-relaxed ${checked[item.id] ? 'text-slate-500 line-through' : 'text-slate-300'}`}>{item.label}</span>
+                                </div>
+                                {item.critical && !checked[item.id] && (
+                                  <span className="text-[9px] font-bold text-red-400 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded flex-shrink-0">Required</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="px-5 py-3 border-t border-slate-800/40 flex items-center justify-between flex-wrap gap-2">
+                      <div className="text-[10px] text-slate-600">Items marked "Required" are typically requested in the first week of buyer due diligence</div>
+                      {openChat && (
+                        <button onClick={() => openChat(`I'm preparing my business for sale. My data room is ${readinessPct}% complete — ${criticalDone}/${criticalTotal} critical items done. What should I focus on first and what do buyers scrutinize most in the first 30 days of due diligence?`)}
+                          className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors">Ask AI about due diligence →</button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Deal Sourcing Brief (uses component-level state) ── */}
+              {(() => {
+                // dealBrief, setDealBrief, dealBriefLoading, setDealBriefLoading, dealStratType, setDealStratType — lifted to component level
+                const brief = dealBrief; const setBrief = setDealBrief;
+                const briefLoading = dealBriefLoading; const setBriefLoading = setDealBriefLoading;
+                const stratType = dealStratType; const setStratType = setDealStratType;
+
+                const strategies = [
+                  { id: 'bolt-on' as const, label: 'Bolt-On', desc: 'Tuck-in acquisition for synergies' },
+                  { id: 'platform' as const, label: 'Platform', desc: 'Anchor for a buy-and-build' },
+                  { id: 'geographic' as const, label: 'Geographic', desc: 'New market / region expansion' },
+                  { id: 'vertical' as const, label: 'Vertical', desc: 'Adjacent industry or capability' },
+                ];
+
+                const generate = async () => {
+                  setBriefLoading(true); setBrief('');
+                  const rev = effectiveData.revenue.total;
+                  const ebitda = rev - effectiveData.costs.totalCOGS - effectiveData.costs.totalOpEx;
+                  const f = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n)}`;
+                  const gm = rev > 0 ? ((rev-effectiveData.costs.totalCOGS)/rev*100).toFixed(1) : 'N/A';
+                  const industries = Array.from(new Set(effectiveData.customers.topCustomers.map(c => c.industry).filter((x): x is NonNullable<typeof x> => x != null))).slice(0,4).join(', ');
+
+                  const prompt = `You are an M&A advisor. Based on this acquirer profile, write a deal sourcing brief for a ${stratType} acquisition.
+
+Acquirer profile:
+- Revenue: ${f(rev)} | EBITDA: ${f(ebitda)} | Gross Margin: ${gm}%
+- Customer industries: ${industries || 'not specified'}
+- Customers: ${effectiveData.customers.totalCount} | Retention: ${((effectiveData.customers.retentionRate ?? 0.88)*100).toFixed(1)}%
+- Company: ${companyName ?? 'undisclosed'}
+
+Strategy type: ${stratType} (${strategies.find(s=>s.id===stratType)?.desc})
+
+Write a concise deal sourcing brief with:
+🎯 Target Profile (size range, geography, key characteristics — be specific)
+📊 Financial Criteria (revenue range, EBITDA range, margin floors)
+⚡ Must-Have Attributes (3-4 non-negotiables)
+🔴 Red Flags / Avoid (3 deal-breakers for this acquirer)
+📞 Sourcing Channels (where to find these deals — intermediaries, associations, events)
+💰 Expected Multiple Range (EV/EBITDA, with rationale)
+
+Specific and actionable, not generic. 200 words.`;
+                  try {
+                    const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ message: prompt, data: effectiveData, companyName, planId: 'pro', maxTokens: 700 }) });
+                    const j = await r.json() as { reply?: string };
+                    setBrief(j.reply ?? '');
+                  } catch { setBrief('Error — check API key.'); }
+                  setBriefLoading(false);
+                };
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Deal Sourcing Brief</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">AI generates an M&A target profile and sourcing strategy based on your business</div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex rounded-lg overflow-hidden border border-slate-700/40 text-[10px]">
+                          {strategies.map(s => (
+                            <button key={s.id} onClick={() => setStratType(s.id)}
+                              className={`px-3 py-1.5 transition-colors ${stratType === s.id ? 'bg-amber-600/30 text-amber-300' : 'text-slate-500 hover:text-slate-300'}`}>
+                              {s.label}
+                            </button>
+                          ))}
+                        </div>
+                        <button onClick={generate} disabled={briefLoading}
+                          className="text-[11px] px-4 py-2 bg-amber-600/20 hover:bg-amber-600/30 border border-amber-600/40 text-amber-300 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                          {briefLoading ? 'Generating…' : 'Generate Brief →'}
+                        </button>
+                      </div>
+                    </div>
+                    {brief ? (
+                      <div className="p-5">
+                        <div className="bg-amber-950/10 border border-amber-500/15 rounded-lg p-4 text-[12px] text-slate-300 leading-relaxed whitespace-pre-wrap">{brief}</div>
+                        <button onClick={() => void navigator.clipboard.writeText(brief)}
+                          className="mt-3 text-[11px] px-3 py-1.5 bg-slate-700/40 hover:bg-slate-700/60 border border-slate-600/40 text-slate-300 rounded-lg transition-colors">
+                          Copy to Clipboard
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="px-5 py-8 text-center text-[11px] text-slate-600">Select acquisition strategy type and generate your sourcing brief</div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
-          )}
-          {activeView === 'goals' && (
-            <div className="space-y-4">
+          <div className={activeView === 'valuation' ? 'space-y-4' : 'hidden'}>
+              <ValuationEstimator data={effectiveData} previousData={prevSnapshot?.data} onAskAI={openChat}/>
+            </div>
+          <div className={activeView === 'goals' ? 'space-y-4' : 'hidden'}>
               <GoalEngine/>
+
+              {/* ── 90-Day Sprint Board ── */}
+              {(() => {
+                const SPRINT_KEY = 'bos_sprint_board';
+                type Milestone = { id: string; label: string; done: boolean };
+                type Initiative = { id: string; title: string; owner: string; status: 'on-track' | 'at-risk' | 'done'; milestones: Milestone[] };
+                type Sprint = { quarter: string; initiatives: Initiative[] };
+
+                const now90 = new Date();
+                const qtr = `Q${Math.ceil((now90.getMonth()+1)/3)} ${now90.getFullYear()}`;
+
+                const [sprint, setSprint] = React.useState<Sprint>(() => {
+                  try { const s = localStorage.getItem(SPRINT_KEY); return s ? JSON.parse(s) : { quarter: qtr, initiatives: [] }; } catch { return { quarter: qtr, initiatives: [] }; }
+                });
+                const [showAdd, setShowAdd] = React.useState(false);
+                const [newTitle, setNewTitle] = React.useState('');
+                const [newOwner, setNewOwner] = React.useState('');
+                const [expandedId, setExpandedId] = React.useState<string|null>(null);
+                const [newMilestone, setNewMilestone] = React.useState('');
+
+                const save = (updated: Sprint) => {
+                  setSprint(updated);
+                  try { localStorage.setItem(SPRINT_KEY, JSON.stringify(updated)); } catch { /* ignore */ }
+                };
+
+                const addInitiative = () => {
+                  if (!newTitle.trim()) return;
+                  const init: Initiative = { id: `i${Date.now()}`, title: newTitle.trim(), owner: newOwner.trim() || 'TBD', status: 'on-track', milestones: [] };
+                  save({ ...sprint, initiatives: [...sprint.initiatives, init] });
+                  setNewTitle(''); setNewOwner(''); setShowAdd(false);
+                };
+
+                const removeInitiative = (id: string) => save({ ...sprint, initiatives: sprint.initiatives.filter(i => i.id !== id) });
+
+                const cycleStatus = (id: string) => {
+                  const cycle: Initiative['status'][] = ['on-track','at-risk','done'];
+                  save({ ...sprint, initiatives: sprint.initiatives.map(i => i.id === id ? { ...i, status: cycle[(cycle.indexOf(i.status)+1)%3] } : i) });
+                };
+
+                const addMilestone = (initId: string) => {
+                  if (!newMilestone.trim()) return;
+                  save({ ...sprint, initiatives: sprint.initiatives.map(i => i.id === initId ? { ...i, milestones: [...i.milestones, { id: `m${Date.now()}`, label: newMilestone.trim(), done: false }] } : i) });
+                  setNewMilestone('');
+                };
+
+                const toggleMilestone = (initId: string, mId: string) => {
+                  save({ ...sprint, initiatives: sprint.initiatives.map(i => i.id === initId ? { ...i, milestones: i.milestones.map(m => m.id === mId ? { ...m, done: !m.done } : m) } : i) });
+                };
+
+                const statusConfig: Record<Initiative['status'], { label: string; cls: string }> = {
+                  'on-track': { label: 'On Track', cls: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
+                  'at-risk':  { label: 'At Risk',  cls: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
+                  'done':     { label: 'Done',     cls: 'bg-slate-700/40 text-slate-500 border-slate-700/40' },
+                };
+
+                const onTrack = sprint.initiatives.filter(i => i.status === 'on-track').length;
+                const atRisk  = sprint.initiatives.filter(i => i.status === 'at-risk').length;
+                const done    = sprint.initiatives.filter(i => i.status === 'done').length;
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">90-Day Sprint Board</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">{sprint.quarter} · {sprint.initiatives.length} initiatives · {done} done · {atRisk} at risk</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex gap-2 text-[10px]">
+                          {[['on-track', `${onTrack} on track`, 'text-emerald-400'], ['at-risk', `${atRisk} at risk`, 'text-amber-400'], ['done', `${done} done`, 'text-slate-500']].map(([,label,cls]) => (
+                            <span key={label as string} className={cls as string}>{label as string}</span>
+                          ))}
+                        </div>
+                        <button onClick={() => setShowAdd(v => !v)}
+                          className="text-[11px] px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-600/40 text-indigo-300 rounded-lg transition-colors">
+                          + Initiative
+                        </button>
+                      </div>
+                    </div>
+
+                    {showAdd && (
+                      <div className="px-5 py-4 border-b border-slate-800/40 bg-slate-800/20 flex items-center gap-2 flex-wrap">
+                        <input value={newTitle} onChange={e => setNewTitle(e.target.value)}
+                          placeholder="Initiative title…"
+                          className="flex-1 min-w-[180px] bg-slate-800/60 border border-slate-700/60 rounded-lg px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/60"/>
+                        <input value={newOwner} onChange={e => setNewOwner(e.target.value)}
+                          placeholder="Owner"
+                          className="w-28 bg-slate-800/60 border border-slate-700/60 rounded-lg px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/60"/>
+                        <button onClick={addInitiative}
+                          className="px-4 py-2 text-[12px] font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors">Add</button>
+                        <button onClick={() => setShowAdd(false)}
+                          className="px-3 py-2 text-[12px] text-slate-500 hover:text-slate-300">✕</button>
+                      </div>
+                    )}
+
+                    {sprint.initiatives.length === 0 ? (
+                      <div className="px-5 py-8 text-center">
+                        <div className="text-[12px] text-slate-500 mb-1">No initiatives yet</div>
+                        <div className="text-[11px] text-slate-600">Add your top priorities for this 90-day sprint</div>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-slate-800/40">
+                        {sprint.initiatives.map(init => {
+                          const total = init.milestones.length;
+                          const doneM = init.milestones.filter(m => m.done).length;
+                          const progress = total > 0 ? (doneM / total) * 100 : 0;
+                          const isExpanded = expandedId === init.id;
+                          return (
+                            <div key={init.id} className={`px-5 py-3.5 ${init.status === 'done' ? 'opacity-60' : ''}`}>
+                              <div className="flex items-center gap-3 flex-wrap">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className={`text-[12px] font-semibold ${init.status === 'done' ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{init.title}</span>
+                                    <span className="text-[10px] text-slate-600">@{init.owner}</span>
+                                    {total > 0 && <span className="text-[10px] text-slate-600">{doneM}/{total} milestones</span>}
+                                  </div>
+                                  {total > 0 && (
+                                    <div className="mt-1.5 h-1 bg-slate-800/60 rounded-full overflow-hidden w-full max-w-xs">
+                                      <div className="h-full bg-indigo-500/60 rounded-full transition-all" style={{ width: `${progress}%` }}/>
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                  <button onClick={() => cycleStatus(init.id)}
+                                    className={`text-[9px] font-bold px-2 py-1 rounded border cursor-pointer transition-all ${statusConfig[init.status].cls}`}>
+                                    {statusConfig[init.status].label}
+                                  </button>
+                                  <button onClick={() => setExpandedId(isExpanded ? null : init.id)}
+                                    className="text-[10px] text-slate-600 hover:text-slate-400 px-1">
+                                    {isExpanded ? '▲' : '▼'}
+                                  </button>
+                                  <button onClick={() => removeInitiative(init.id)}
+                                    className="text-[10px] text-slate-700 hover:text-red-400 px-1">✕</button>
+                                </div>
+                              </div>
+                              {isExpanded && (
+                                <div className="mt-3 pl-2 border-l border-slate-800/60 space-y-1.5">
+                                  {init.milestones.map(m => (
+                                    <label key={m.id} className="flex items-center gap-2 cursor-pointer group">
+                                      <input type="checkbox" checked={m.done} onChange={() => toggleMilestone(init.id, m.id)}
+                                        className="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-0"/>
+                                      <span className={`text-[11px] ${m.done ? 'line-through text-slate-600' : 'text-slate-400 group-hover:text-slate-300'}`}>{m.label}</span>
+                                    </label>
+                                  ))}
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <input value={newMilestone} onChange={e => setNewMilestone(e.target.value)}
+                                      onKeyDown={e => e.key === 'Enter' && addMilestone(init.id)}
+                                      placeholder="Add milestone…"
+                                      className="flex-1 bg-slate-800/60 border border-slate-700/40 rounded px-2.5 py-1.5 text-[11px] text-slate-300 placeholder:text-slate-700 focus:outline-none focus:border-indigo-500/50"/>
+                                    <button onClick={() => addMilestone(init.id)}
+                                      className="text-[10px] text-indigo-400 hover:text-indigo-300 px-1">Add</button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ── Market Sizing Calculator (TAM/SAM/SOM) (uses component-level state) ── */}
+              {(() => {
+                // mktInputs, setMktInputs — lifted to component level
+                const inputs = mktInputs;
+                type MarketInput = { tamDesc: string; tamSize: string; samPct: string; somPct: string; growthRate: string };
+                const setInput = (k: keyof MarketInput, v: string) => {
+                  const next = { ...inputs, [k]: v };
+                  setMktInputs(next);
+                  try { localStorage.setItem('bos_market_sizing', JSON.stringify(next)); } catch { /* ignore */ }
+                };
+
+                const tam = parseFloat(inputs.tamSize) || 0;
+                const sam = tam * (parseFloat(inputs.samPct) || 0) / 100;
+                const som = sam * (parseFloat(inputs.somPct) || 0) / 100;
+                const rev = effectiveData.revenue.total;
+                const currentShare = sam > 0 ? (rev / sam) * 100 : 0;
+                const g = parseFloat(inputs.growthRate) / 100;
+                const tam5yr = tam * Math.pow(1 + g, 5);
+                const fmtB = (n: number) => n >= 1e9 ? `$${(n/1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n/1e6).toFixed(0)}M` : `$${Math.round(n).toLocaleString()}`;
+                const fmtV = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n)}`;
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50">
+                      <div className="text-[12px] font-semibold text-slate-100">Market Sizing — TAM / SAM / SOM</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">Total addressable market, serviceable market, and your realistic capture — board deck ready</div>
+                    </div>
+                    <div className="p-5 space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="sm:col-span-2">
+                          <div className="text-[10px] font-semibold text-slate-500 mb-1">Market description</div>
+                          <input value={inputs.tamDesc} onChange={e => setInput('tamDesc', e.target.value)}
+                            placeholder="e.g. B2B outsourced accounting software for US SMBs"
+                            className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50"/>
+                        </div>
+                        {[
+                          { key: 'tamSize' as const, label: 'TAM ($M)', placeholder: 'e.g. 4200', suffix: 'M' },
+                          { key: 'growthRate' as const, label: 'Market Growth Rate (%/yr)', placeholder: 'e.g. 8', suffix: '%' },
+                          { key: 'samPct' as const, label: 'SAM (% of TAM you can serve)', placeholder: 'e.g. 20', suffix: '%' },
+                          { key: 'somPct' as const, label: 'SOM (% of SAM realistic win)', placeholder: 'e.g. 3', suffix: '%' },
+                        ].map(f => (
+                          <div key={f.key}>
+                            <div className="text-[10px] font-semibold text-slate-500 mb-1">{f.label}</div>
+                            <input type="number" value={inputs[f.key]} onChange={e => setInput(f.key, e.target.value)}
+                              placeholder={f.placeholder}
+                              className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50"/>
+                          </div>
+                        ))}
+                      </div>
+                      {tam > 0 && (
+                        <>
+                          <div className="grid grid-cols-3 gap-3">
+                            {[
+                              { label: 'TAM', value: fmtB(tam*1e6), sub: '5yr: '+fmtB(tam5yr*1e6), color: 'text-slate-300', bg: 'bg-slate-800/40' },
+                              { label: 'SAM', value: fmtB(sam*1e6), sub: `${inputs.samPct}% of TAM`, color: 'text-sky-300', bg: 'bg-sky-950/20 border-sky-500/10' },
+                              { label: 'SOM', value: fmtB(som*1e6), sub: `${inputs.somPct}% of SAM`, color: 'text-indigo-300', bg: 'bg-indigo-950/20 border-indigo-500/10' },
+                            ].map(m => (
+                              <div key={m.label} className={`border rounded-lg p-3 text-center ${m.bg}`}>
+                                <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">{m.label}</div>
+                                <div className={`text-[20px] font-bold ${m.color}`}>{m.value}</div>
+                                <div className="text-[10px] text-slate-600 mt-0.5">{m.sub}</div>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="bg-slate-800/30 rounded-lg p-3 grid grid-cols-2 gap-3 text-[11px]">
+                            <div>
+                              <span className="text-slate-500">Current revenue: </span>
+                              <span className="text-slate-300 font-semibold">{fmtV(rev)}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500">SAM share today: </span>
+                              <span className={`font-semibold ${currentShare < 1 ? 'text-amber-400' : currentShare < 5 ? 'text-sky-400' : 'text-emerald-400'}`}>
+                                {currentShare.toFixed(2)}%
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500">Revenue to reach SOM: </span>
+                              <span className="text-indigo-300 font-semibold">{fmtB(som*1e6)}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500">Headroom to SOM: </span>
+                              <span className="text-emerald-400 font-semibold">{fmtB(Math.max(0,som*1e6-rev))}</span>
+                            </div>
+                          </div>
+                          {/* TAM funnel visual */}
+                          <div className="space-y-2">
+                            {[
+                              { label: 'TAM', pct: 100, color: 'bg-slate-700/50' },
+                              { label: 'SAM', pct: parseFloat(inputs.samPct)||0, color: 'bg-sky-600/40' },
+                              { label: 'SOM', pct: (parseFloat(inputs.samPct)||0)*(parseFloat(inputs.somPct)||0)/100, color: 'bg-indigo-600/60' },
+                            ].map(b => (
+                              <div key={b.label} className="flex items-center gap-3">
+                                <div className="w-8 text-[10px] text-slate-500 text-right">{b.label}</div>
+                                <div className="flex-1 h-3 bg-slate-800/60 rounded-full overflow-hidden">
+                                  <div className={`h-full ${b.color} rounded-full transition-all`} style={{ width: `${Math.min(100,b.pct)}%` }}/>
+                                </div>
+                                <div className="text-[10px] text-slate-500 w-10 text-right">{b.pct.toFixed(1)}%</div>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {tam === 0 && (
+                        <div className="text-center py-4 text-[11px] text-slate-600">Enter your TAM to see the market funnel</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
-          )}
-          {activeView === 'team' && (
-            <div className="space-y-4">
+          <div className={activeView === 'team' ? 'space-y-4' : 'hidden'}>
               <div className="flex items-center gap-2">
                 <div className="h-px flex-1 bg-violet-500/10"/>
                 <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em]">Deal Activity & Tasks</div>
                 <div className="h-px flex-1 bg-violet-500/10"/>
               </div>
               <TeamFeed/>
+
+              {/* ── Org Cost Efficiency Heatmap ── */}
+              {(() => {
+                const depts = effectiveData.payrollByDept ?? [];
+                if (!depts.length) return null;
+                const rev = effectiveData.revenue.total;
+                const totalComp = depts.reduce((s,d) => s+d.totalCompensation, 0);
+                const totalHC = depts.reduce((s,d) => s+d.headcount, 0);
+                const fmtV = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n)}`;
+
+                // Benchmark rev/FTE: $85k LMM median, $120k strong
+                const BENCH_MED = 85000; const BENCH_STRONG = 120000;
+
+                const rows = depts.map(d => {
+                  const revShare = rev > 0 ? (d.headcount / Math.max(totalHC,1)) * rev : 0; // attributed rev
+                  const revPerFTE = d.headcount > 0 ? rev / totalHC : 0; // company-wide rev/FTE (dept doesn't generate independently)
+                  const compPerFTE = d.headcount > 0 ? d.totalCompensation / d.headcount : 0;
+                  const compPctRev = rev > 0 ? (d.totalCompensation / rev) * 100 : 0;
+                  const efficiency = compPerFTE > 0 ? revPerFTE / compPerFTE : 0; // rev : comp ratio
+                  return { ...d, compPerFTE, compPctRev, efficiency, revPerFTE };
+                }).sort((a,b) => b.totalCompensation - a.totalCompensation);
+
+                const companyRevPerFTE = totalHC > 0 ? rev / totalHC : 0;
+                const effColor = companyRevPerFTE >= BENCH_STRONG ? 'text-emerald-400' : companyRevPerFTE >= BENCH_MED ? 'text-amber-400' : 'text-red-400';
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Org Cost Efficiency</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Compensation by department vs revenue — identify over/under-staffed areas</div>
+                      </div>
+                      <div className="text-right">
+                        <div className={`text-[18px] font-bold ${effColor}`}>{fmtV(companyRevPerFTE)}</div>
+                        <div className="text-[10px] text-slate-600">rev / FTE (benchmark: {fmtV(BENCH_MED)} median)</div>
+                      </div>
+                    </div>
+                    <div className="divide-y divide-slate-800/40">
+                      {rows.map(d => {
+                        const barW = totalComp > 0 ? (d.totalCompensation / totalComp) * 100 : 0;
+                        const effLabel = d.compPctRev > 20 ? 'High cost' : d.compPctRev < 8 ? 'Lean' : 'Normal';
+                        const effCls = d.compPctRev > 20 ? 'text-red-400' : d.compPctRev < 8 ? 'text-emerald-400' : 'text-slate-400';
+                        return (
+                          <div key={d.department} className="px-5 py-3 flex items-center gap-4">
+                            <div className="w-28 flex-shrink-0">
+                              <div className="text-[12px] font-semibold text-slate-300">{d.department}</div>
+                              <div className="text-[10px] text-slate-600">{d.headcount} FTE{d.headcount !== 1 ? 's' : ''}</div>
+                            </div>
+                            <div className="flex-1">
+                              <div className="h-2 bg-slate-800 rounded-full overflow-hidden mb-1">
+                                <div className="h-full bg-violet-500/50 rounded-full transition-all" style={{ width: `${barW}%` }}/>
+                              </div>
+                              <div className="text-[10px] text-slate-600">{fmtV(d.compPerFTE)}/FTE avg · {d.compPctRev.toFixed(1)}% of revenue</div>
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                              <div className="text-[13px] font-bold text-slate-300">{fmtV(d.totalCompensation)}</div>
+                              <div className={`text-[10px] font-semibold ${effCls}`}>{effLabel}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="px-5 py-3 border-t border-slate-800/40 text-[10px] text-slate-600">
+                      High cost departments (&gt;20% of revenue) warrant ROI review · Rev/FTE target: {fmtV(BENCH_STRONG)}+ for strong LMM operators
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
-          )}
-          {activeView === 'cash' && (
-            <div className="space-y-4">
+          <div className={activeView === 'cash' ? 'space-y-4' : 'hidden'}>
               <CashRunway data={effectiveData} onAskAI={openChat}/>
+              <WorkingCapitalDashboard data={effectiveData} onAskAI={openChat}/>
+
+              {/* ── Debt Service / Leverage Tracker ── */}
+              {(() => {
+                const rev = effectiveData.revenue.total;
+                const ebitda = rev - effectiveData.costs.totalCOGS - effectiveData.costs.totalOpEx;
+                const fmtV = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n).toLocaleString()}`;
+
+                const saveDebt = (next: typeof debtLines) => {
+                  setDebtLines(next);
+                  try { localStorage.setItem('bos_debt_lines', JSON.stringify(next)); } catch { /* ignore */ }
+                };
+                const addLine = () => {
+                  const next = [...debtLines, { id: `d${Date.now()}`, name: 'New Facility', balance: 0, rate: 6.5, payment: 0, type: 'term' as const }];
+                  saveDebt(next);
+                };
+                const updateLine = (id: string, field: string, val: string | number) => {
+                  saveDebt(debtLines.map(d => d.id === id ? { ...d, [field]: typeof val === 'string' ? (isNaN(parseFloat(val)) ? val : parseFloat(val)) : val } : d));
+                };
+                const removeLine = (id: string) => saveDebt(debtLines.filter(d => d.id !== id));
+
+                // ── Auto-detect from financial data ──────────────────────────
+                const autoDetectFromFinancials = () => {
+                  const interestCats = effectiveData.costs.byCategory.filter(c =>
+                    /interest|debt.*service|loan|finance.*charge|borrowing/i.test(c.category)
+                  );
+                  if (!interestCats.length) {
+                    setDebtPdfMsg('No interest/debt expense found in cost categories. Add an "Interest Expense" category to your financial data.');
+                    setDebtPdfStatus('error');
+                    return;
+                  }
+                  const detected = interestCats.map((c, i) => {
+                    const annualInterest = c.amount;
+                    const assumedRate = 7.0;
+                    const impliedBalance = Math.round((annualInterest / (assumedRate / 100)) / 1000) * 1000;
+                    return {
+                      id: `auto${Date.now()}${i}`,
+                      name: c.category,
+                      balance: impliedBalance,
+                      rate: assumedRate,
+                      payment: Math.round(annualInterest / 12),
+                      type: 'term' as const,
+                    };
+                  });
+                  saveDebt(detected);
+                  setDebtPdfMsg(`Auto-detected ${detected.length} facilit${detected.length === 1 ? 'y' : 'ies'} from interest expense. Balance estimated at 7% rate — update to actual rate.`);
+                  setDebtPdfStatus('done');
+                };
+
+                // ── PDF upload ───────────────────────────────────────────────
+                const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (file.type !== 'application/pdf') {
+                    setDebtPdfMsg('Please upload a PDF file.'); setDebtPdfStatus('error'); return;
+                  }
+                  setDebtPdfStatus('loading'); setDebtPdfMsg('Reading loan document…');
+                  try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const bytes = new Uint8Array(arrayBuffer);
+                    let binary = '';
+                    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+                    const pdfBase64 = btoa(binary);
+
+                    const r = await fetch('/api/data/loan-pdf', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ pdfBase64 }),
+                    });
+                    const j = await r.json() as { lines?: typeof debtLines; error?: string };
+                    if (!r.ok || !j.lines) {
+                      setDebtPdfMsg(j.error ?? 'Could not parse loan data from this document.');
+                      setDebtPdfStatus('error');
+                      return;
+                    }
+                    if (j.lines.length === 0) {
+                      setDebtPdfMsg('No debt facilities found in this document. Try a term sheet, loan agreement, or credit agreement.');
+                      setDebtPdfStatus('error');
+                      return;
+                    }
+                    saveDebt([...debtLines.filter(d => !d.id.startsWith('d1') && !d.id.startsWith('d2') && !d.id.startsWith('d3')), ...j.lines]);
+                    setDebtPdfMsg(`Imported ${j.lines.length} facilit${j.lines.length === 1 ? 'y' : 'ies'} from ${file.name}`);
+                    setDebtPdfStatus('done');
+                  } catch (err) {
+                    setDebtPdfMsg(err instanceof Error ? err.message : 'Upload failed');
+                    setDebtPdfStatus('error');
+                  }
+                  e.target.value = '';
+                };
+
+                const totalDebt = debtLines.reduce((s,d) => s+d.balance, 0);
+                const totalAnnualService = debtLines.reduce((s,d) => s+(d.payment*12), 0);
+                const totalInterest = debtLines.reduce((s,d) => s+(d.balance*d.rate/100), 0);
+                const debtToEbitda = ebitda > 0 ? totalDebt / ebitda : null;
+                const dscr = totalAnnualService > 0 ? ebitda / totalAnnualService : null;
+                const interestCoverage = totalInterest > 0 ? ebitda / totalInterest : null;
+
+                const dscrColor = dscr === null ? 'text-slate-400' : dscr >= 2 ? 'text-emerald-400' : dscr >= 1.25 ? 'text-amber-400' : 'text-red-400';
+                const leverageColor = debtToEbitda === null ? 'text-slate-400' : debtToEbitda <= 3 ? 'text-emerald-400' : debtToEbitda <= 5 ? 'text-amber-400' : 'text-red-400';
+                const icColor = interestCoverage === null ? 'text-slate-400' : interestCoverage >= 3 ? 'text-emerald-400' : interestCoverage >= 1.5 ? 'text-amber-400' : 'text-red-400';
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Debt Service / Leverage Tracker</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Live from EBITDA · import from balance sheet data or loan agreement PDF</div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button onClick={autoDetectFromFinancials}
+                          className="text-[11px] px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-600/40 text-emerald-300 rounded-lg transition-colors">
+                          ⚡ Auto-detect from Financials
+                        </button>
+                        <label className={`text-[11px] px-3 py-1.5 border rounded-lg transition-colors cursor-pointer ${debtPdfStatus === 'loading' ? 'opacity-50 cursor-not-allowed bg-slate-700/20 border-slate-700/40 text-slate-500' : 'bg-sky-600/20 hover:bg-sky-600/30 border-sky-600/40 text-sky-300'}`}>
+                          {debtPdfStatus === 'loading' ? 'Parsing PDF…' : '↑ Upload Loan PDF'}
+                          <input type="file" accept="application/pdf" className="hidden" disabled={debtPdfStatus === 'loading'} onChange={handlePdfUpload}/>
+                        </label>
+                        <button onClick={addLine}
+                          className="text-[11px] px-3 py-1.5 bg-slate-700/30 hover:bg-slate-700/50 border border-slate-600/40 text-slate-400 rounded-lg transition-colors">
+                          + Manual
+                        </button>
+                      </div>
+                    </div>
+                    {debtPdfMsg && (
+                      <div className={`px-5 py-2.5 text-[11px] border-b ${debtPdfStatus === 'done' ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : debtPdfStatus === 'error' ? 'bg-red-500/5 border-red-500/20 text-red-400' : 'bg-sky-500/5 border-sky-500/20 text-sky-400'}`}>
+                        {debtPdfMsg}
+                        <button onClick={() => { setDebtPdfMsg(''); setDebtPdfStatus('idle'); }} className="ml-3 text-slate-600 hover:text-slate-400">×</button>
+                      </div>
+                    )}
+
+                    {/* Covenant metrics */}
+                    {totalDebt > 0 && (
+                      <div className="grid grid-cols-3 gap-0 divide-x divide-slate-800/50 border-b border-slate-800/50">
+                        {[
+                          { label: 'Debt / EBITDA', value: debtToEbitda !== null ? `${debtToEbitda.toFixed(1)}×` : '—', sub: 'Target ≤ 4×', color: leverageColor },
+                          { label: 'DSCR', value: dscr !== null ? `${dscr.toFixed(2)}×` : '—', sub: 'Target ≥ 1.25×', color: dscrColor },
+                          { label: 'Interest Coverage', value: interestCoverage !== null ? `${interestCoverage.toFixed(1)}×` : '—', sub: 'Target ≥ 2×', color: icColor },
+                        ].map(m => (
+                          <div key={m.label} className="px-5 py-4 text-center">
+                            <div className={`text-[22px] font-bold ${m.color}`}>{m.value}</div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">{m.label}</div>
+                            <div className="text-[9px] text-slate-700 mt-0.5">{m.sub}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Debt lines */}
+                    {debtLines.length > 0 ? (
+                      <div className="divide-y divide-slate-800/40">
+                        <div className="px-5 py-2 grid grid-cols-12 gap-2 text-[10px] font-semibold text-slate-600 uppercase tracking-wide">
+                          <div className="col-span-3">Facility</div>
+                          <div className="col-span-2">Type</div>
+                          <div className="col-span-2 text-right">Balance</div>
+                          <div className="col-span-2 text-right">Rate %</div>
+                          <div className="col-span-2 text-right">Mo. Payment</div>
+                          <div className="col-span-1"/>
+                        </div>
+                        {debtLines.map(d => (
+                          <div key={d.id} className="px-5 py-2.5 grid grid-cols-12 gap-2 items-center">
+                            <div className="col-span-3">
+                              <input value={d.name} onChange={e => updateLine(d.id,'name',e.target.value)}
+                                className="w-full bg-transparent text-[12px] text-slate-300 focus:outline-none border-b border-slate-700/40 focus:border-indigo-500/50"/>
+                            </div>
+                            <div className="col-span-2">
+                              <select value={d.type} onChange={e => updateLine(d.id,'type',e.target.value)}
+                                className="bg-slate-800/60 border border-slate-700/40 rounded px-1.5 py-1 text-[10px] text-slate-400 focus:outline-none w-full">
+                                <option value="term">Term</option>
+                                <option value="revolver">Revolver</option>
+                                <option value="mezz">Mezz</option>
+                              </select>
+                            </div>
+                            <div className="col-span-2 text-right">
+                              <input type="number" value={d.balance/1000} onChange={e => updateLine(d.id,'balance',(parseFloat(e.target.value)||0)*1000)}
+                                className="w-full bg-transparent text-[12px] text-slate-300 text-right focus:outline-none border-b border-slate-700/40 focus:border-indigo-500/50"/>
+                              <div className="text-[9px] text-slate-700">$k</div>
+                            </div>
+                            <div className="col-span-2 text-right">
+                              <input type="number" value={d.rate} onChange={e => updateLine(d.id,'rate',e.target.value)}
+                                step="0.25"
+                                className="w-full bg-transparent text-[12px] text-amber-400 text-right focus:outline-none border-b border-slate-700/40 focus:border-amber-500/50"/>
+                            </div>
+                            <div className="col-span-2 text-right">
+                              <input type="number" value={d.payment/1000} onChange={e => updateLine(d.id,'payment',(parseFloat(e.target.value)||0)*1000)}
+                                className="w-full bg-transparent text-[12px] text-slate-300 text-right focus:outline-none border-b border-slate-700/40 focus:border-indigo-500/50"/>
+                              <div className="text-[9px] text-slate-700">$k/mo</div>
+                            </div>
+                            <div className="col-span-1 text-right">
+                              <button onClick={() => removeLine(d.id)} className="text-slate-700 hover:text-red-400 transition-colors text-[14px]">×</button>
+                            </div>
+                          </div>
+                        ))}
+                        <div className="px-5 py-3 border-t border-slate-800/40 grid grid-cols-2 gap-4 text-[11px]">
+                          <div><span className="text-slate-600">Total Debt: </span><span className="text-slate-300 font-semibold">{fmtV(totalDebt)}</span></div>
+                          <div><span className="text-slate-600">Annual Debt Service: </span><span className="text-slate-300 font-semibold">{fmtV(totalAnnualService)}</span></div>
+                          <div><span className="text-slate-600">Annual Interest: </span><span className="text-amber-400 font-semibold">{fmtV(totalInterest)}</span></div>
+                          <div><span className="text-slate-600">EBITDA: </span><span className={`font-semibold ${ebitda >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtV(ebitda)}</span></div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="px-5 py-8 text-center text-[11px] text-slate-600">
+                        No debt facilities tracked — click &quot;+ Add Facility&quot; to add term loans, revolvers, or mezz debt
+                      </div>
+                    )}
+                    {/* Leverage-based pricing / covenant grid */}
+                    <div className="border-t border-slate-800/40">
+                      <div className="px-5 py-3 border-b border-slate-800/30">
+                        <div className="text-[11px] font-semibold text-slate-400">Leverage-Based Pricing Grid</div>
+                        <div className="text-[10px] text-slate-600 mt-0.5">Hypothetical rate step-ups by Debt/EBITDA tier — typical senior credit covenant structure</div>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-[11px] min-w-[500px]">
+                          <thead>
+                            <tr className="border-b border-slate-800/40">
+                              <th className="text-left text-slate-600 px-5 py-2 font-medium">Leverage Tier</th>
+                              <th className="text-right text-slate-600 px-4 py-2 font-medium">Debt/EBITDA</th>
+                              <th className="text-right text-slate-600 px-4 py-2 font-medium">Spread (SOFR+)</th>
+                              <th className="text-right text-slate-600 px-4 py-2 font-medium">All-in Rate*</th>
+                              <th className="text-right text-slate-600 px-5 py-2 font-medium">Annual Interest</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[
+                              { tier: 'I — Low',      min: 0,   max: 2.0, spread: 2.00, label: '< 2.0×' },
+                              { tier: 'II — Moderate', min: 2.0, max: 3.0, spread: 2.50, label: '2.0× – 3.0×' },
+                              { tier: 'III — Elevated',min: 3.0, max: 4.0, spread: 3.25, label: '3.0× – 4.0×' },
+                              { tier: 'IV — High',     min: 4.0, max: 5.0, spread: 4.00, label: '4.0× – 5.0×' },
+                              { tier: 'V — Stressed',  min: 5.0, max: 99,  spread: 5.50, label: '> 5.0×' },
+                            ].map(row => {
+                              const sofrBase = 5.33; // approximate SOFR as of mid-2025
+                              const allIn = sofrBase + row.spread;
+                              const annualInterest = totalDebt * (allIn / 100);
+                              const isCurrent = debtToEbitda !== null && debtToEbitda >= row.min && debtToEbitda < row.max;
+                              return (
+                                <tr key={row.tier} className={`border-b border-slate-800/30 ${isCurrent ? 'bg-indigo-500/10' : ''}`}>
+                                  <td className="px-5 py-2 text-slate-400 font-medium">
+                                    {isCurrent && <span className="text-indigo-400 mr-1.5">▶</span>}
+                                    {row.tier}
+                                  </td>
+                                  <td className="px-4 py-2 text-right text-slate-500">{row.label}</td>
+                                  <td className="px-4 py-2 text-right text-amber-400">+{row.spread.toFixed(2)}%</td>
+                                  <td className={`px-4 py-2 text-right font-semibold ${isCurrent ? 'text-indigo-300' : 'text-slate-400'}`}>{allIn.toFixed(2)}%</td>
+                                  <td className={`px-5 py-2 text-right font-bold ${isCurrent ? 'text-indigo-300' : 'text-slate-500'}`}>{fmtV(annualInterest)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="px-5 py-3 text-[10px] text-slate-600">
+                        * SOFR base: ~5.33% · Spread varies by lender and credit quality · ▶ indicates your current leverage tier · Reducing Debt/EBITDA below 3.0× typically saves 75–150bps
+                      </div>
+                    </div>
+
+                    <div className="px-5 py-3 border-t border-slate-800/40 text-[10px] text-slate-600">
+                      LMM benchmarks: Debt/EBITDA ≤ 4× safe · DSCR ≥ 1.25× (most covenants) · Interest coverage ≥ 2× healthy
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
-          )}
-          {activeView === 'deals' && (
+          <div className={activeView === 'deals' ? '' : 'hidden'}>
             <DealList
               onAskAI={openChat}
               initialDealId={jumpDealId}
               key={jumpDealId ?? 'list'}
             />
-          )}
-          {activeView === 'today' && (
-            <div className="space-y-4">
+          </div>
+          <div className={activeView === 'today' ? 'space-y-4' : 'hidden'}>
               {/* Today — business health snapshot */}
               {(() => {
                 const fmtN = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
@@ -4030,6 +7484,497 @@ export default function BusinessOS() {
                   </div>
                 );
               })()}
+              {/* ── Daily Action Checklist ──────────────────────────── */}
+              {(() => {
+                const d = effectiveData;
+                const rev    = d.revenue.total;
+                const cogs   = d.costs.totalCOGS;
+                const opex   = d.costs.totalOpEx;
+                const ebitda = rev - cogs - opex;
+                const ebitdaMargin = rev > 0 ? ebitda / rev : 0;
+                const cashPeriods = d.cashFlow ?? [];
+                const cashLatestVal = cashPeriods.length ? cashPeriods[cashPeriods.length - 1].closingBalance : null;
+                const burnRateVal = cashPeriods.length >= 2 ? cashPeriods[cashPeriods.length - 1].closingBalance - cashPeriods[cashPeriods.length - 2].closingBalance : null;
+                const retentionVal = d.customers.retentionRate;
+                const churnVal = retentionVal != null ? (1 - retentionVal) * 100 : null;
+                const activeDealsVal = (d.pipeline ?? []).filter(dl => dl.stage !== 'Closed Won' && dl.stage !== 'Closed Lost');
+                const overdueDeals = activeDealsVal.filter(dl => dl.daysInStage !== undefined && dl.daysInStage > 30);
+                const riskAR = d.arAging ? d.arAging.reduce((s, b) => s + b.days60 + b.days90 + b.over90, 0) : 0;
+                const utilVal = d.operations.employeeUtilization ?? d.operations.utilizationRate ?? d.operations.capacityUtilization ?? null;
+                const top1Pct = d.customers.topCustomers[0]?.percentOfTotal ?? 0;
+
+                type Action = { id: string; priority: 'critical' | 'high' | 'medium'; label: string; detail: string; cta: string; view: ActiveView | null; ask?: string };
+
+                const actions: Action[] = [];
+
+                // Critical: burning cash
+                if (burnRateVal !== null && burnRateVal < 0 && cashLatestVal !== null) {
+                  const runway = Math.abs(cashLatestVal / burnRateVal);
+                  if (runway < 6) {
+                    actions.push({
+                      id: 'cash-burn',
+                      priority: 'critical',
+                      label: `Cash runway: ${runway.toFixed(1)} months`,
+                      detail: `Burning ${(() => { const abs = Math.abs(burnRateVal); return abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString()}`; })()} per period. Review and cut discretionary OpEx today.`,
+                      cta: 'Review Cash →',
+                      view: 'cash',
+                      ask: `My cash runway is ${runway.toFixed(1)} months. What are the fastest levers to extend runway without harming revenue?`,
+                    });
+                  }
+                }
+
+                // Critical: EBITDA negative
+                if (ebitda < 0) {
+                  actions.push({
+                    id: 'ebitda-neg',
+                    priority: 'critical',
+                    label: 'EBITDA is negative',
+                    detail: `Operating at a loss (${(ebitdaMargin * 100).toFixed(1)}% margin). Identify top cost drivers and model cuts in Scenarios.`,
+                    cta: 'Model Scenarios →',
+                    view: 'scenarios',
+                    ask: `My EBITDA margin is ${(ebitdaMargin * 100).toFixed(1)}%. What are the most impactful cost reduction moves I should make this week?`,
+                  });
+                }
+
+                // High: overdue deals
+                if (overdueDeals.length > 0) {
+                  actions.push({
+                    id: 'overdue-deals',
+                    priority: 'high',
+                    label: `${overdueDeals.length} deal${overdueDeals.length > 1 ? 's' : ''} need follow-up today`,
+                    detail: `${overdueDeals.map(dl => dl.name).slice(0, 3).join(', ')}${overdueDeals.length > 3 ? ` +${overdueDeals.length - 3} more` : ''}`,
+                    cta: 'Open Deals →',
+                    view: 'deals',
+                  });
+                }
+
+                // High: 60+ day AR outstanding
+                if (riskAR > 0) {
+                  const fmtAR = riskAR >= 1_000_000 ? `$${(riskAR/1_000_000).toFixed(1)}M` : `$${Math.round(riskAR).toLocaleString()}`;
+                  actions.push({
+                    id: 'ar-risk',
+                    priority: 'high',
+                    label: `${fmtAR} AR is 60+ days overdue`,
+                    detail: 'Aging receivables compress cash and signal collection risk. Send statements to 60+ day accounts.',
+                    cta: 'View Financials →',
+                    view: 'financial',
+                    ask: `I have ${fmtAR} in 60+ day receivables. What collection actions should I take today?`,
+                  });
+                }
+
+                // High: churn above 10%
+                if (churnVal !== null && churnVal > 10) {
+                  actions.push({
+                    id: 'high-churn',
+                    priority: 'high',
+                    label: `${churnVal.toFixed(1)}% customer churn rate`,
+                    detail: 'Above 10% churn compresses valuation multiples. Review at-risk accounts and add a retention touch this week.',
+                    cta: 'View Customers →',
+                    view: 'customers',
+                    ask: `My churn rate is ${churnVal.toFixed(1)}%. What retention moves have the fastest payback in a service business?`,
+                  });
+                }
+
+                // Medium: customer concentration
+                if (top1Pct > 20) {
+                  actions.push({
+                    id: 'concentration',
+                    priority: 'medium',
+                    label: `Top customer = ${top1Pct.toFixed(0)}% of revenue`,
+                    detail: `${d.customers.topCustomers[0]?.name ?? 'Top customer'} is above the 20% concentration risk threshold. Prioritize diversification.`,
+                    cta: 'View Customers →',
+                    view: 'customers',
+                  });
+                }
+
+                // Medium: under-utilized
+                if (utilVal !== null && utilVal < 0.55) {
+                  actions.push({
+                    id: 'low-util',
+                    priority: 'medium',
+                    label: `Team utilization low: ${(utilVal * 100).toFixed(0)}%`,
+                    detail: 'Capacity is under-deployed. Shift team to pipeline development or billable projects to improve revenue per employee.',
+                    cta: 'View Operations →',
+                    view: 'operations',
+                  });
+                }
+
+                // Medium: strong EBITDA — consider reinvesting
+                if (ebitdaMargin >= 0.20 && ebitda > 0 && actions.filter(a => a.priority !== 'medium').length === 0) {
+                  actions.push({
+                    id: 'invest',
+                    priority: 'medium',
+                    label: `Strong ${(ebitdaMargin * 100).toFixed(0)}% EBITDA — model growth spend`,
+                    detail: 'Healthy margins create room to reinvest. Run a scenario to see the impact of hiring or a price increase.',
+                    cta: 'Run Scenarios →',
+                    view: 'scenarios',
+                    ask: `My EBITDA margin is ${(ebitdaMargin * 100).toFixed(0)}%. What are the highest-ROI ways to redeploy this cash flow for growth?`,
+                  });
+                }
+
+                // Default if nothing surfaces
+                if (actions.length === 0) {
+                  actions.push({
+                    id: 'default',
+                    priority: 'medium',
+                    label: 'No urgent items — stay proactive',
+                    detail: 'Business metrics look stable. Review your pipeline coverage and check in on your top 3 accounts.',
+                    cta: 'View Deals →',
+                    view: 'deals',
+                  });
+                }
+
+                const topActions = actions.slice(0, 4);
+                const priorityStyle = (p: Action['priority']) =>
+                  p === 'critical' ? { dot: 'bg-red-400 animate-pulse', label: 'Critical', badge: 'text-red-400 bg-red-500/10 border-red-500/20', border: 'border-l-red-500/50' } :
+                  p === 'high'     ? { dot: 'bg-amber-400', label: 'High', badge: 'text-amber-400 bg-amber-500/10 border-amber-500/20', border: 'border-l-amber-500/40' } :
+                                     { dot: 'bg-blue-400', label: 'Focus', badge: 'text-blue-400 bg-blue-500/10 border-blue-500/20', border: 'border-l-blue-500/30' };
+
+                return (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em] flex-shrink-0">Action Checklist</span>
+                      <div className="flex-1 h-px bg-slate-800/50"/>
+                      <span className="text-[10px] text-slate-600">{topActions.filter(a => a.priority === 'critical').length > 0 ? `${topActions.filter(a => a.priority === 'critical').length} critical` : 'No critical alerts'}</span>
+                    </div>
+                    <div className="space-y-2">
+                      {topActions.map(action => {
+                        const s = priorityStyle(action.priority);
+                        return (
+                          <div key={action.id} className={`bg-slate-900/50 border border-slate-800/50 border-l-2 ${s.border} rounded-xl px-4 py-3 flex items-start gap-3`}>
+                            <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${s.dot}`}/>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                                <span className="text-[12px] font-semibold text-slate-100">{action.label}</span>
+                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${s.badge}`}>{s.label}</span>
+                              </div>
+                              <div className="text-[11px] text-slate-500 leading-relaxed">{action.detail}</div>
+                            </div>
+                            <div className="flex-shrink-0 flex items-center gap-2">
+                              {action.ask && openChat && (
+                                <button onClick={() => openChat(action.ask!)}
+                                  className="text-[10px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors whitespace-nowrap">
+                                  Ask AI
+                                </button>
+                              )}
+                              {action.view && (
+                                <button onClick={() => setActiveView(action.view!)}
+                                  className="text-[11px] font-semibold text-slate-300 hover:text-slate-100 bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700/50 px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap">
+                                  {action.cta}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+              {/* ── Tax & Compliance Calendar ── */}
+              {(() => {
+                const TAX_KEY = 'bos_tax_checked';
+                const now = new Date();
+                const year = now.getFullYear();
+                type TaxItem = { id: string; date: string; label: string; category: string; critical: boolean };
+                const TAX_ITEMS: TaxItem[] = [
+                  // Q1
+                  { id: `q1-est-${year}`,   date: `${year}-04-15`, label: 'Q1 Estimated Tax Payment (Federal)',       category: 'Estimated Tax', critical: true  },
+                  { id: `q1-payroll-${year}`,date: `${year}-04-30`, label: 'Q1 Payroll Tax Deposit (Form 941)',        category: 'Payroll',       critical: true  },
+                  // Q2
+                  { id: `q2-est-${year}`,   date: `${year}-06-17`, label: 'Q2 Estimated Tax Payment (Federal)',       category: 'Estimated Tax', critical: true  },
+                  { id: `q2-payroll-${year}`,date: `${year}-07-31`, label: 'Q2 Payroll Tax Deposit (Form 941)',        category: 'Payroll',       critical: true  },
+                  // Q3
+                  { id: `q3-est-${year}`,   date: `${year}-09-16`, label: 'Q3 Estimated Tax Payment (Federal)',       category: 'Estimated Tax', critical: true  },
+                  { id: `q3-payroll-${year}`,date: `${year}-10-31`, label: 'Q3 Payroll Tax Deposit (Form 941)',        category: 'Payroll',       critical: true  },
+                  // Q4
+                  { id: `q4-est-${year}`,   date: `${year}-01-15`, label: `Q4 Estimated Tax Payment (${year} tax yr)`,category: 'Estimated Tax', critical: true  },
+                  { id: `q4-payroll-${year}`,date: `${year}-01-31`, label: 'Q4 Payroll Tax Deposit (Form 941)',        category: 'Payroll',       critical: true  },
+                  // Annual
+                  { id: `corp-return-${year}`,date:`${year}-03-15`, label: 'S-Corp / Partnership Return (Form 1120-S/1065)', category: 'Annual Filing', critical: true  },
+                  { id: `personal-${year}`, date: `${year}-04-15`, label: 'Personal Tax Return (Form 1040)',          category: 'Annual Filing', critical: true  },
+                  { id: `w2-${year}`,        date: `${year}-01-31`, label: 'W-2s to Employees',                       category: 'Payroll',       critical: true  },
+                  { id: `1099-${year}`,      date: `${year}-01-31`, label: '1099-NEC to Contractors',                 category: 'Payroll',       critical: false },
+                  { id: `sales-tax-q1-${year}`,date:`${year}-04-20`,label: 'Q1 Sales Tax Filing (varies by state)',   category: 'Sales Tax',     critical: false },
+                  { id: `sales-tax-q2-${year}`,date:`${year}-07-20`,label: 'Q2 Sales Tax Filing (varies by state)',   category: 'Sales Tax',     critical: false },
+                  { id: `sales-tax-q3-${year}`,date:`${year}-10-20`,label: 'Q3 Sales Tax Filing (varies by state)',   category: 'Sales Tax',     critical: false },
+                  { id: `boi-${year}`,       date: `${year}-12-31`, label: 'FinCEN BOI Report (beneficial ownership)', category: 'Compliance',   critical: true  },
+                ];
+
+                const [taxChecked, setTaxChecked] = React.useState<Record<string,boolean>>(() => {
+                  try { const s = localStorage.getItem(TAX_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
+                });
+                const toggleTax = (id: string) => {
+                  setTaxChecked(prev => {
+                    const next = { ...prev, [id]: !prev[id] };
+                    try { localStorage.setItem(TAX_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+                    return next;
+                  });
+                };
+
+                const todayMs = now.getTime();
+                const upcoming = TAX_ITEMS
+                  .filter(i => !taxChecked[i.id])
+                  .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                  .slice(0, 6);
+
+                const nextItem = upcoming[0];
+                const daysUntilNext = nextItem ? Math.ceil((new Date(nextItem.date).getTime() - todayMs) / 86400000) : null;
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Tax & Compliance Calendar</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Key US federal deadlines · check off when filed</div>
+                      </div>
+                      {daysUntilNext !== null && nextItem && (
+                        <div className={`text-[11px] font-semibold ${daysUntilNext <= 14 ? 'text-red-400' : daysUntilNext <= 30 ? 'text-amber-400' : 'text-slate-400'}`}>
+                          Next: {nextItem.label.split('(')[0].trim()} in {daysUntilNext}d
+                        </div>
+                      )}
+                    </div>
+                    <div className="divide-y divide-slate-800/30">
+                      {upcoming.map(item => {
+                        const daysAway = Math.ceil((new Date(item.date).getTime() - todayMs) / 86400000);
+                        const isOverdue = daysAway < 0;
+                        const isSoon = daysAway >= 0 && daysAway <= 14;
+                        const urgencyDot = isOverdue ? 'bg-red-400 animate-pulse' : isSoon ? 'bg-amber-400' : 'bg-slate-600';
+                        return (
+                          <div key={item.id} onClick={() => toggleTax(item.id)}
+                            className="px-5 py-3 flex items-center gap-3 hover:bg-slate-800/20 cursor-pointer transition-colors">
+                            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${urgencyDot}`}/>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[12px] text-slate-300 leading-tight">{item.label}</div>
+                              <div className="text-[10px] text-slate-600 mt-0.5">{item.category}</div>
+                            </div>
+                            <div className="flex items-center gap-3 flex-shrink-0">
+                              <div className={`text-[11px] font-semibold ${isOverdue ? 'text-red-400' : isSoon ? 'text-amber-400' : 'text-slate-500'}`}>
+                                {isOverdue ? `${Math.abs(daysAway)}d overdue` : daysAway === 0 ? 'Today' : `${daysAway}d`}
+                              </div>
+                              <div className="text-[10px] text-slate-600">{new Date(item.date + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' })}</div>
+                              <div className="w-4 h-4 rounded border border-slate-700 flex items-center justify-center">
+                                {taxChecked[item.id] && <svg viewBox="0 0 10 10" fill="none" stroke="#10b981" strokeWidth="2" className="w-2.5 h-2.5"><path d="M1.5 5l2.5 2.5 4.5-4.5"/></svg>}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="px-5 py-2.5 border-t border-slate-800/40 text-[10px] text-slate-700">
+                      {TAX_ITEMS.filter(i => taxChecked[i.id]).length} of {TAX_ITEMS.length} items filed · Dates are federal — state deadlines may vary · Consult your CPA
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Week at a Glance ── */}
+              {(() => {
+                type LocalDeal = { id: string; name: string; company: string; value: number; stage: string; closeDate?: string };
+                let crmDeals: LocalDeal[] = [];
+                try { const s = localStorage.getItem('bos_deals'); if (s) crmDeals = JSON.parse(s); } catch { /* ignore */ }
+                const today = new Date();
+                today.setHours(0,0,0,0);
+                const days = Array.from({ length: 7 }, (_, i) => {
+                  const d = new Date(today);
+                  d.setDate(today.getDate() + i);
+                  return d;
+                });
+                const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+                // Map deals closing within 7 days
+                const dealsThisWeek = crmDeals.filter(d => {
+                  if (!d.closeDate || d.stage === 'closed-won' || d.stage === 'closed-lost') return false;
+                  const cd = new Date(d.closeDate);
+                  cd.setHours(0,0,0,0);
+                  return cd >= today && cd <= days[6];
+                });
+
+                // Map pipeline deals from data closing this week
+                const pipelineThisWeek = (data.pipeline ?? []).filter(d => {
+                  if (!d.closeDate || d.stage === 'Closed Won' || d.stage === 'Closed Lost') return false;
+                  const cd = new Date(d.closeDate);
+                  cd.setHours(0,0,0,0);
+                  return cd >= today && cd <= days[6];
+                });
+
+                if (dealsThisWeek.length === 0 && pipelineThisWeek.length === 0) return null;
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3 border-b border-slate-800/50">
+                      <div className="text-[12px] font-semibold text-slate-100">Week at a Glance</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">Deals closing in the next 7 days</div>
+                    </div>
+                    <div className="grid grid-cols-7 divide-x divide-slate-800/40">
+                      {days.map((d, i) => {
+                        const isToday = i === 0;
+                        const dayDeals = dealsThisWeek.filter(dl => {
+                          const cd = new Date(dl.closeDate!); cd.setHours(0,0,0,0);
+                          return cd.getTime() === d.getTime();
+                        });
+                        const dayPipeline = pipelineThisWeek.filter(dl => {
+                          const cd = new Date(dl.closeDate!); cd.setHours(0,0,0,0);
+                          return cd.getTime() === d.getTime();
+                        });
+                        const hasDeal = dayDeals.length > 0 || dayPipeline.length > 0;
+                        return (
+                          <div key={i} className={`p-2 min-h-[72px] ${isToday ? 'bg-indigo-500/5' : ''}`}>
+                            <div className={`text-[10px] font-semibold mb-1 ${isToday ? 'text-indigo-400' : 'text-slate-600'}`}>{dayNames[d.getDay()]}</div>
+                            <div className={`text-[13px] font-bold mb-1 ${isToday ? 'text-indigo-300' : 'text-slate-500'}`}>{d.getDate()}</div>
+                            {hasDeal ? (
+                              <div className="space-y-1">
+                                {dayDeals.map(dl => (
+                                  <div key={dl.id} className="text-[9px] bg-sky-500/10 border border-sky-500/20 text-sky-300 rounded px-1 py-0.5 leading-tight truncate" title={dl.name}>{dl.company}</div>
+                                ))}
+                                {dayPipeline.map((dl, pi) => (
+                                  <div key={pi} className="text-[9px] bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 rounded px-1 py-0.5 leading-tight truncate" title={dl.name}>{dl.name}</div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-[9px] text-slate-800">—</div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── CEO Quick Notes ── */}
+              {(() => {
+                const NOTES_KEY = 'bos_ceo_notes';
+                const todayKey = new Date().toISOString().slice(0, 10);
+                const [noteText, setNoteText] = React.useState<string>(() => {
+                  try {
+                    const all = JSON.parse(localStorage.getItem(NOTES_KEY) ?? '{}');
+                    return all[todayKey] ?? '';
+                  } catch { return ''; }
+                });
+                const [noteSaved, setNoteSaved] = React.useState(false);
+
+                const saveNote = (val: string) => {
+                  setNoteText(val);
+                  try {
+                    const all = JSON.parse(localStorage.getItem(NOTES_KEY) ?? '{}');
+                    all[todayKey] = val;
+                    // Keep last 30 days only
+                    const keys = Object.keys(all).sort().slice(-30);
+                    const trimmed: Record<string, string> = {};
+                    keys.forEach(k => { trimmed[k] = all[k]; });
+                    localStorage.setItem(NOTES_KEY, JSON.stringify(trimmed));
+                  } catch { /* ignore */ }
+                  setNoteSaved(true);
+                  setTimeout(() => setNoteSaved(false), 1500);
+                };
+
+                // Load last 3 days with notes for history
+                const recentNotes: { date: string; text: string }[] = [];
+                try {
+                  const all = JSON.parse(localStorage.getItem(NOTES_KEY) ?? '{}');
+                  Object.entries(all)
+                    .filter(([k]) => k !== todayKey)
+                    .sort((a, b) => b[0].localeCompare(a[0]))
+                    .slice(0, 2)
+                    .forEach(([k, v]) => recentNotes.push({ date: k, text: v as string }));
+                } catch { /* ignore */ }
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">CEO Notes</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} · Saved locally</div>
+                      </div>
+                      {noteSaved && <span className="text-[11px] text-emerald-400 font-medium">Saved ✓</span>}
+                    </div>
+                    <textarea
+                      rows={4}
+                      placeholder="What's top of mind today? Key decisions, risks, ideas, follow-ups…"
+                      value={noteText}
+                      onChange={e => saveNote(e.target.value)}
+                      className="w-full bg-slate-800/40 border border-slate-700/50 rounded-xl px-4 py-3 text-[13px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 resize-none leading-relaxed transition-colors"
+                    />
+                    {recentNotes.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        {recentNotes.map(n => (
+                          <div key={n.date} className="bg-slate-800/20 rounded-lg px-3 py-2">
+                            <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wide mb-1">{new Date(n.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>
+                            <div className="text-[11px] text-slate-500 leading-relaxed line-clamp-2">{n.text}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ── AI Meeting → Action Items ── */}
+              {(() => {
+                const [notes, setNotes] = React.useState('');
+                const [actions, setActions] = React.useState('');
+                const [meetLoading, setMeetLoading] = React.useState(false);
+                const [added, setAdded] = React.useState(false);
+
+                const extract = async () => {
+                  if (!notes.trim()) return;
+                  setMeetLoading(true); setActions('');
+                  const prompt = `Extract action items from these meeting notes. Format each as: "ACTION: [owner] → [specific task] · Due: [timeframe]". Then write a one-sentence meeting summary at the top labeled "SUMMARY:". Be specific — use names from the notes if present. Meeting notes:\n\n${notes}`;
+                  try {
+                    const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: prompt, data: effectiveData, history: [], companyName, planId: 'pro' }) });
+                    const json = await res.json() as { reply?: string };
+                    setActions(json.reply ?? 'Failed to extract');
+                  } catch { setActions('Error connecting to AI'); } finally { setMeetLoading(false); }
+                };
+
+                const addToBoard = () => {
+                  if (!actions) return;
+                  const lines = actions.split('\n').filter(l => l.startsWith('ACTION:'));
+                  const tasks = lines.map(l => ({
+                    id: `mt${Date.now()}-${Math.random()}`,
+                    title: l.replace('ACTION:', '').trim(),
+                    status: 'todo',
+                    createdAt: new Date().toISOString(),
+                    source: 'meeting',
+                  }));
+                  try {
+                    const existing = JSON.parse(localStorage.getItem('bos_tasks') ?? '[]') as object[];
+                    localStorage.setItem('bos_tasks', JSON.stringify([...existing, ...tasks]));
+                  } catch { /* ignore */ }
+                  setAdded(true); setTimeout(() => setAdded(false), 3000);
+                };
+
+                return (
+                  <div className="bg-gradient-to-br from-emerald-950/20 to-slate-900/50 border border-emerald-800/30 rounded-xl p-5">
+                    <div className="text-[12px] font-semibold text-slate-100 mb-0.5">AI Meeting → Action Items</div>
+                    <div className="text-[10px] text-slate-500 mb-3">Paste raw meeting notes → AI extracts action items and adds them to your Execute board</div>
+                    <textarea value={notes} onChange={e => setNotes(e.target.value)}
+                      placeholder="Paste meeting notes here… (names, decisions, follow-ups)"
+                      rows={5}
+                      className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-4 py-3 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50 resize-none leading-relaxed mb-3"/>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button onClick={extract} disabled={meetLoading || !notes.trim()}
+                        className="flex items-center gap-2 px-4 py-2 text-[12px] font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl transition-colors">
+                        {meetLoading ? <><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block"/>Extracting…</> : '✦ Extract Actions'}
+                      </button>
+                      {actions && (
+                        <button onClick={addToBoard}
+                          className="px-4 py-2 text-[12px] font-semibold bg-slate-700/60 hover:bg-slate-700 border border-slate-600/50 text-slate-200 rounded-xl transition-colors">
+                          {added ? '✓ Added to Execute Board' : '→ Add to Execute Board'}
+                        </button>
+                      )}
+                    </div>
+                    {actions && (
+                      <div className="mt-3 bg-slate-900/60 border border-slate-700/40 rounded-xl p-4">
+                        <pre className="text-[12px] text-slate-200 whitespace-pre-wrap leading-relaxed font-sans">{actions}</pre>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               <DailyPriorities
                 onOpenDeal={(dealId) => {
                   setJumpDealId(dealId);
@@ -4038,31 +7983,157 @@ export default function BusinessOS() {
                 }}
               />
             </div>
-          )}
-          {activeView === 'execute' && (
-            <div className="space-y-5">
+          <div className={activeView === 'execute' ? 'space-y-5' : 'hidden'}>
               <TaskBoard data={data} onAskAI={openChat}/>
             </div>
-          )}
-          {activeView === 'suppliers' && (
+          <div className={activeView === 'suppliers' ? '' : 'hidden'}>
             <SupplierDashboard data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/>
-          )}
-          {activeView === 'skus' && (
+          </div>
+          <div className={activeView === 'skus' ? '' : 'hidden'}>
             <SKUAnalyzer data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/>
-          )}
-          {activeView === 'capacity' && (
+          </div>
+          <div className={activeView === 'capacity' ? '' : 'hidden'}>
             <CapacityAnalyzer data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/>
-          )}
-          {activeView === 'purchasing' && (
+          </div>
+          <div className={activeView === 'purchasing' ? '' : 'hidden'}>
             <CapitalImpactSummary data={data} onAskAI={openChat}/>
-          )}
-          {activeView === 'data' && (
-            <div className="space-y-5">
+          </div>
+          <div className={activeView === 'data' ? 'space-y-5' : 'hidden'}>
+              {/* ── Connection Status Dashboard ── */}
+              {(() => {
+                const rev = data.revenue.total;
+                const hasCOGS    = data.costs.totalCOGS > 0;
+                const hasOpEx    = data.costs.totalOpEx > 0;
+                const hasPeriods = (data.revenue.byPeriod ?? []).length > 0;
+                const hasCustomers = (data.customers.totalCount ?? 0) > 0;
+                const hasPayroll = (data.payrollByDept ?? []).length > 0;
+                const hasDeals   = (() => { try { const s = localStorage.getItem('bos_deals'); return s ? JSON.parse(s).length > 0 : false; } catch { return false; } })();
+                const hasARAging = (data.arAging ?? []).length > 0;
+                const hasBudget  = !!(budget.revenue || budget.cogs || budget.opex);
+                const hasTransactions = (data.transactions ?? []).length > 0;
+
+                type Source = { label: string; key: string; status: 'connected' | 'partial' | 'missing'; detail: string; action?: string };
+                const sources: Source[] = [
+                  { label: 'Revenue & P&L',       key: 'revenue',   status: rev > 0 ? 'connected' : 'missing',    detail: rev > 0 ? `$${rev >= 1e6 ? (rev/1e6).toFixed(1)+'M' : Math.round(rev).toLocaleString()} total revenue` : 'No revenue data imported', action: rev > 0 ? undefined : 'Import CSV' },
+                  { label: 'COGS & Gross Margin',  key: 'cogs',      status: hasCOGS ? 'connected' : 'missing',   detail: hasCOGS ? 'COGS data present' : 'No COGS — GP/margins unavailable', action: hasCOGS ? undefined : 'Add in Onboarding' },
+                  { label: 'OpEx / Overhead',      key: 'opex',      status: hasOpEx ? 'connected' : 'missing',   detail: hasOpEx ? 'OpEx data loaded' : 'No OpEx — EBITDA not calculated', action: hasOpEx ? undefined : 'Add in Onboarding' },
+                  { label: 'Time-Series Periods',  key: 'periods',   status: hasPeriods ? 'connected' : 'missing', detail: hasPeriods ? `${(data.revenue.byPeriod ?? []).length} periods loaded` : 'No period data — trends unavailable', action: hasPeriods ? undefined : 'Import CSV with dates' },
+                  { label: 'Customer Data',        key: 'customers', status: hasCustomers ? 'connected' : 'missing', detail: hasCustomers ? `${data.customers.totalCount} customers` : 'No customer data', action: hasCustomers ? undefined : 'Add via Onboarding' },
+                  { label: 'Payroll / Headcount',  key: 'payroll',   status: hasPayroll ? 'connected' : 'missing', detail: hasPayroll ? `${data.payrollByDept?.length} departments` : 'No payroll data — labor analytics unavailable', action: hasPayroll ? undefined : 'Add in Onboarding' },
+                  { label: 'CRM Pipeline',         key: 'deals',     status: hasDeals ? 'connected' : 'missing',  detail: hasDeals ? 'Pipeline deals loaded' : 'No deals — CRM analytics unavailable', action: hasDeals ? undefined : 'Add deals in CRM tab' },
+                  { label: 'AR Aging',             key: 'ar',        status: hasARAging ? 'connected' : 'missing', detail: hasARAging ? `${data.arAging?.length} AR buckets` : 'No AR aging — DSO/CCC estimates only', action: hasARAging ? undefined : 'Import AR report' },
+                  { label: 'Budget',               key: 'budget',    status: hasBudget ? 'connected' : 'missing', detail: hasBudget ? 'Budget targets set' : 'No budget — variance tracking unavailable', action: hasBudget ? undefined : 'Set in Financial tab' },
+                  { label: 'Transactions',         key: 'txns',      status: hasTransactions ? 'connected' : 'partial', detail: hasTransactions ? `${data.transactions?.length} transactions` : 'No transaction detail', action: hasTransactions ? undefined : 'Import bank export' },
+                ];
+
+                const connected = sources.filter(s => s.status === 'connected').length;
+                const partial   = sources.filter(s => s.status === 'partial').length;
+                const missing   = sources.filter(s => s.status === 'missing').length;
+                const pct = Math.round(((connected + partial * 0.5) / sources.length) * 100);
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-4 border-b border-slate-800/50">
+                      <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+                        <div>
+                          <div className="text-[12px] font-semibold text-slate-100">Data Connection Status</div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">{connected} of {sources.length} sources connected · {pct}% data completeness</div>
+                        </div>
+                        <div className="flex items-center gap-3 text-[11px]">
+                          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"/><span className="text-slate-400">{connected} connected</span></span>
+                          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-500 inline-block"/><span className="text-slate-400">{partial} partial</span></span>
+                          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-700 inline-block"/><span className="text-slate-400">{missing} missing</span></span>
+                        </div>
+                      </div>
+                      <div className="h-2 bg-slate-800/60 rounded-full overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full transition-all" style={{ width: `${pct}%` }}/>
+                      </div>
+                    </div>
+                    <div className="divide-y divide-slate-800/30">
+                      {sources.map(src => (
+                        <div key={src.key} className="px-5 py-3 flex items-center gap-3">
+                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${src.status === 'connected' ? 'bg-emerald-500' : src.status === 'partial' ? 'bg-amber-500' : 'bg-slate-700'}`}/>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[12px] font-medium text-slate-300">{src.label}</span>
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${src.status === 'connected' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : src.status === 'partial' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-slate-800/40 text-slate-600 border-slate-700/40'}`}>
+                                {src.status === 'connected' ? 'Connected' : src.status === 'partial' ? 'Partial' : 'Not Connected'}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-slate-600 mt-0.5">{src.detail}</div>
+                          </div>
+                          {src.action && src.status !== 'connected' && (
+                            <button onClick={() => src.key === 'deals' ? setActiveView('crm' as ActiveView) : src.key === 'budget' ? setActiveView('financial' as ActiveView) : undefined}
+                              className="text-[10px] text-indigo-400 hover:text-indigo-300 border border-indigo-500/30 hover:border-indigo-500/50 px-2.5 py-1 rounded-lg flex-shrink-0 transition-colors">
+                              {src.action}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
               <DataFreshnessBar snapshots={snapshots} activeSnapshotId={activeSnapshotId}/>
+              {/* localStorage storage indicator */}
+              {(() => {
+                try {
+                  let totalBytes = 0;
+                  const bosKeys: string[] = [];
+                  for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i) ?? '';
+                    const val = localStorage.getItem(key) ?? '';
+                    totalBytes += key.length + val.length;
+                    if (key.startsWith('bos_')) bosKeys.push(key);
+                  }
+                  const bosBytes = bosKeys.reduce((s, k) => {
+                    const v = localStorage.getItem(k) ?? '';
+                    return s + k.length + v.length;
+                  }, 0);
+                  const totalKB = (totalBytes / 1024).toFixed(0);
+                  const bosKB   = (bosBytes  / 1024).toFixed(0);
+                  const limitKB = 5120; // 5MB typical limit
+                  const pct = Math.min((totalBytes / (limitKB * 1024)) * 100, 100);
+                  const barColor = pct > 80 ? 'bg-red-500/60' : pct > 60 ? 'bg-amber-500/60' : 'bg-emerald-500/50';
+                  const textColor = pct > 80 ? 'text-red-400' : pct > 60 ? 'text-amber-400' : 'text-slate-400';
+                  return (
+                    <div className="bg-slate-900/40 border border-slate-800/50 rounded-xl px-4 py-3 flex items-center gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[11px] font-semibold text-slate-400">Browser Storage</span>
+                          <span className={`text-[11px] font-semibold tabular-nums ${textColor}`}>
+                            {totalKB} KB used · {bosKB} KB from Business OS
+                          </span>
+                        </div>
+                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }}/>
+                        </div>
+                        <div className="text-[10px] text-slate-700 mt-1">
+                          {pct.toFixed(0)}% of ~5MB browser limit · clear old periods to free space
+                        </div>
+                      </div>
+                    </div>
+                  );
+                } catch { return null; }
+              })()}
+              {/* ── Manual entry shortcut ── */}
+              <div className="bg-slate-900/40 border border-indigo-500/15 rounded-xl px-5 py-4 flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-[12px] font-semibold text-slate-200">Enter data manually</div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">No CSV? Fill in a quick form and get your dashboard live in 60 seconds.</div>
+                </div>
+                <button
+                  onClick={() => setShowManualEntry(true)}
+                  className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-[12px] font-semibold rounded-xl transition-colors"
+                >
+                  <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="w-3 h-3"><path d="M6 2v8M2 6h8"/></svg>
+                  Enter manually
+                </button>
+              </div>
               <DataSourcePanel data={data} onDataUpdate={handleDataUpdate} onSuccess={handleDataSuccess} companyProfile={companyProfile} onProfileChange={saveCompanyProfile}/>
               <SessionManagerPanel/>
             </div>
-          )}
           </>)}
         </main>
 
@@ -4074,6 +8145,15 @@ export default function BusinessOS() {
           <OnboardingFlow
             onComplete={handleOnboardingComplete}
             onSkip={handleOnboardingSkip}
+          />
+        )}
+
+        {/* ── Manual data entry modal ── */}
+        {showManualEntry && (
+          <ManualEntryModal
+            open={showManualEntry}
+            onClose={() => setShowManualEntry(false)}
+            onSubmit={(d) => { setShowManualEntry(false); handleDataUpdate(d); }}
           />
         )}
 
@@ -4118,6 +8198,18 @@ export default function BusinessOS() {
           onNavigate={(view) => setActiveView(view as ActiveView)}
           onAskAI={(msg) => { openChat(msg); setPaletteOpen(false); }}
           onRunAction={(action) => { runAction(action); setPaletteOpen(false); }}
+          onEnterManually={() => { setShowManualEntry(true); setPaletteOpen(false); }}
+          onBackupData={() => {
+            // Trigger the SessionManagerPanel export inline
+            const BOS_KEYS = ['bos_session','bos_company','bos_company_profile','bos_deals','bos_deals_v2','bos_acq_targets','bos_goals','bos_memory','bos_automations','bos_tasks','bos_custom_kpis','bos_thresholds','bos_budget','bos_panel_notes','bos_annotations','bos_agent_results','bos_weekly_insight','bos_board_deck','bos_alerts','bos_report_timestamps','bos_onboarding','bos_snapshots','bos_active_id'];
+            const out: Record<string, unknown> = { exportedAt: new Date().toISOString() };
+            BOS_KEYS.forEach(key => { try { const v = localStorage.getItem(key); if (v) out[key] = JSON.parse(v); } catch { /* ignore */ } });
+            const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = `business-os-backup-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url);
+            addToast('success', 'Backup downloaded');
+            setPaletteOpen(false);
+          }}
         />
 
         {/* ── Pricing modal ── */}
@@ -4130,6 +8222,68 @@ export default function BusinessOS() {
 
         {/* ── Keyboard shortcuts modal ── */}
         {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)}/>}
+
+        {/* ── Share snapshot modal ── */}
+        {showShareModal && (
+          <div className="fixed inset-0 z-[300] flex items-center justify-center p-4" onClick={() => setShowShareModal(false)}>
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm"/>
+            <div className="relative bg-[#0d1117] border border-slate-700/60 rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <div className="text-[15px] font-semibold text-slate-100">Share Snapshot</div>
+                  <div className="text-[12px] text-slate-500 mt-0.5">Read-only link · no login required</div>
+                </div>
+                <button onClick={() => setShowShareModal(false)} className="text-slate-600 hover:text-slate-300 text-xl leading-none transition-colors">×</button>
+              </div>
+              {/* Preview of what's included */}
+              <div className="bg-slate-900/60 border border-slate-800/50 rounded-xl p-3 mb-4 text-[11px] text-slate-500 space-y-1">
+                <div className="font-semibold text-slate-400 uppercase tracking-[0.08em] text-[10px] mb-1.5">Snapshot includes</div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  <span className="flex items-center gap-1.5"><span className="text-emerald-400">✓</span> Revenue & margins</span>
+                  <span className="flex items-center gap-1.5"><span className="text-emerald-400">✓</span> EBITDA</span>
+                  <span className="flex items-center gap-1.5"><span className="text-emerald-400">✓</span> Customer health</span>
+                  <span className="flex items-center gap-1.5"><span className="text-emerald-400">✓</span> Revenue trend</span>
+                  <span className="flex items-center gap-1.5"><span className="text-emerald-400">✓</span> Health score</span>
+                  <span className="flex items-center gap-1.5"><span className="text-emerald-400">✓</span> Top customers</span>
+                </div>
+              </div>
+              {/* URL field */}
+              <div className="flex gap-2">
+                <input
+                  readOnly
+                  value={shareUrl}
+                  className="flex-1 min-w-0 bg-slate-800/60 border border-slate-700/60 rounded-xl px-3 py-2.5 text-[11px] text-slate-300 font-mono focus:outline-none select-all"
+                  onClick={e => (e.target as HTMLInputElement).select()}
+                />
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(shareUrl).then(() => {
+                      setShareCopied(true);
+                      setTimeout(() => setShareCopied(false), 2500);
+                    });
+                  }}
+                  className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-[12px] font-semibold transition-all ${
+                    shareCopied
+                      ? 'bg-emerald-600 text-white border border-emerald-500'
+                      : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                  }`}
+                >
+                  {shareCopied ? '✓ Copied' : 'Copy'}
+                </button>
+              </div>
+              <div className="mt-3 flex items-center gap-2 text-[11px] text-slate-600">
+                <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3 flex-shrink-0"><rect x="4" y="1" width="6" height="5" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.2"/><rect x="1" y="6" width="12" height="7" rx="1.5"/><circle cx="7" cy="9.5" r="1"/></svg>
+                Anyone with the link can view this read-only snapshot. No login required.
+              </div>
+              <div className="mt-3 flex justify-end">
+                <a href={shareUrl} target="_blank" rel="noopener noreferrer"
+                  className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors">
+                  Preview link →
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Welcome modal (first visit) ── */}
         {showWelcome && (

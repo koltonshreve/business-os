@@ -292,6 +292,11 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
   const [showSave, setShowSave]   = useState(false);
   const [compareMode, setCompareMode] = useState(false);
   const [targetMargin, setTargetMargin] = useState(0); // 0 = disabled
+  // SBA Acquisition Calculator state
+  const [sbaMultiple,      setSbaMultiple]      = useState(5);
+  const [sbaDownPct,       setSbaDownPct]       = useState(20);
+  const [sbAInterestRate,  setSbAInterestRate]  = useState(7.5);
+  const [sbaTerm,          setSbaTerm]          = useState(10);
 
   const proj = project(data, active);
 
@@ -878,6 +883,121 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
             );
           })()}
 
+          {/* ── SBA Acquisition Calculator ── */}
+          {(() => {
+            const baseEBITDA = data.revenue.total - data.costs.totalCOGS - data.costs.totalOpEx;
+            if (baseEBITDA <= 0) return null;
+
+            const purchaseMultiple = sbaMultiple;
+            const purchasePrice    = baseEBITDA * purchaseMultiple;
+            const downPayment      = purchasePrice * (sbaDownPct / 100);
+            const loanAmount       = purchasePrice - downPayment;
+            const annualRate       = sbAInterestRate / 100;
+            const monthlyRate      = annualRate / 12;
+            const nPayments        = sbaTerm * 12;
+            // Monthly payment via standard amortization formula
+            const monthlyPayment   = loanAmount > 0 && monthlyRate > 0
+              ? loanAmount * (monthlyRate * Math.pow(1 + monthlyRate, nPayments)) / (Math.pow(1 + monthlyRate, nPayments) - 1)
+              : loanAmount / nPayments;
+            const annualDebtService = monthlyPayment * 12;
+            const dscr             = annualDebtService > 0 ? baseEBITDA / annualDebtService : Infinity;
+            const cashOnCash       = downPayment > 0 ? ((baseEBITDA - annualDebtService) / downPayment) * 100 : 0;
+            const dscrOk           = dscr >= 1.25;
+
+            return (
+              <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <div className="text-[12px] font-semibold text-slate-100">SBA Acquisition Calculator</div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">Model a leveraged buyout with SBA 7(a) financing</div>
+                  </div>
+                  <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-semibold ${dscrOk ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+                    <span>DSCR {isFinite(dscr) ? dscr.toFixed(2) : '∞'}×</span>
+                    <span className="opacity-60">{dscrOk ? '✓ Bankable' : '✗ Below 1.25× threshold'}</span>
+                  </div>
+                </div>
+
+                {/* Inputs */}
+                <div className="px-5 py-4 grid grid-cols-2 gap-x-6 gap-y-4 border-b border-slate-800/40">
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Purchase Multiple</label>
+                    <div className="flex items-center gap-2">
+                      <input type="range" min={2} max={10} step={0.5} value={sbaMultiple}
+                        onChange={e => setSbaMultiple(Number(e.target.value))}
+                        className="flex-1 accent-indigo-500"/>
+                      <span className="text-[13px] font-bold text-indigo-300 w-12 text-right">{sbaMultiple}×</span>
+                    </div>
+                    <div className="text-[10px] text-slate-600 mt-0.5">Purchase price: {fmt(purchasePrice)}</div>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Down Payment</label>
+                    <div className="flex items-center gap-2">
+                      <input type="range" min={10} max={50} step={5} value={sbaDownPct}
+                        onChange={e => setSbaDownPct(Number(e.target.value))}
+                        className="flex-1 accent-indigo-500"/>
+                      <span className="text-[13px] font-bold text-indigo-300 w-12 text-right">{sbaDownPct}%</span>
+                    </div>
+                    <div className="text-[10px] text-slate-600 mt-0.5">Equity needed: {fmt(downPayment)}</div>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Interest Rate</label>
+                    <div className="flex items-center gap-2">
+                      <input type="range" min={5} max={12} step={0.25} value={sbAInterestRate}
+                        onChange={e => setSbAInterestRate(Number(e.target.value))}
+                        className="flex-1 accent-indigo-500"/>
+                      <span className="text-[13px] font-bold text-indigo-300 w-12 text-right">{sbAInterestRate}%</span>
+                    </div>
+                    <div className="text-[10px] text-slate-600 mt-0.5">SBA prime + spread (est.)</div>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Loan Term</label>
+                    <div className="flex items-center gap-2">
+                      <input type="range" min={5} max={25} step={5} value={sbaTerm}
+                        onChange={e => setSbaTerm(Number(e.target.value))}
+                        className="flex-1 accent-indigo-500"/>
+                      <span className="text-[13px] font-bold text-indigo-300 w-14 text-right">{sbaTerm} yr</span>
+                    </div>
+                    <div className="text-[10px] text-slate-600 mt-0.5">SBA 7(a) max 25yr RE / 10yr working capital</div>
+                  </div>
+                </div>
+
+                {/* Results */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y divide-slate-800/40">
+                  {[
+                    { label: 'Purchase Price',    value: fmt(purchasePrice),                color: 'text-slate-200' },
+                    { label: 'Loan Amount',       value: fmt(loanAmount),                   color: 'text-slate-200' },
+                    { label: 'Monthly Payment',   value: fmt(monthlyPayment),               color: 'text-slate-200' },
+                    { label: 'Annual Debt Svc',   value: fmt(annualDebtService),            color: dscrOk ? 'text-slate-200' : 'text-red-400' },
+                    { label: 'Net Cash (yr 1)',   value: fmt(baseEBITDA - annualDebtService), color: baseEBITDA - annualDebtService >= 0 ? 'text-emerald-400' : 'text-red-400' },
+                    { label: 'Cash-on-Cash',      value: `${cashOnCash.toFixed(1)}%`,       color: cashOnCash >= 15 ? 'text-emerald-400' : cashOnCash >= 0 ? 'text-slate-200' : 'text-red-400' },
+                    { label: 'DSCR',              value: `${isFinite(dscr) ? dscr.toFixed(2) : '∞'}×`, color: dscrOk ? 'text-emerald-400' : 'text-red-400' },
+                    { label: 'EBITDA (current)',  value: fmt(baseEBITDA),                   color: 'text-slate-200' },
+                  ].map(r => (
+                    <div key={r.label} className="px-4 py-3">
+                      <div className="text-[10px] text-slate-500 mb-1">{r.label}</div>
+                      <div className={`text-[14px] font-bold tabular-nums ${r.color}`}>{r.value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="px-5 py-3 border-t border-slate-800/40 flex items-center gap-4 flex-wrap">
+                  <div className="text-[10px] text-slate-600 flex-1">
+                    SBA 7(a) requires DSCR ≥ 1.25× · Results are estimates — consult an SBA lender for actual terms
+                  </div>
+                  {onAskAI && (
+                    <button onClick={() => onAskAI(
+                      `I'm modeling an SBA acquisition of a business with $${Math.round(baseEBITDA).toLocaleString()} EBITDA at a ${sbaMultiple}× multiple ($${Math.round(purchasePrice).toLocaleString()} purchase price). ` +
+                      `With ${sbaDownPct}% down ($${Math.round(downPayment).toLocaleString()}), a ${sbAInterestRate}% rate over ${sbaTerm} years, my DSCR is ${isFinite(dscr) ? dscr.toFixed(2) : '∞'}×. ` +
+                      `${!dscrOk ? 'The deal doesn\'t meet the 1.25× DSCR threshold. ' : ''}What should I know about structuring this deal and improving my odds of SBA approval?`
+                    )} className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium flex-shrink-0 transition-colors">
+                      Ask AI about this deal →
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Waterfall */}
           <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
             <div className="text-[12px] font-semibold text-slate-300 mb-3">EBITDA Bridge — Base to Projected</div>
@@ -1056,9 +1176,12 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
                   { label: 'OpEx',         base: baseOpEx,   get: (p: ReturnType<typeof project>) => p.opex },
                   { label: 'EBITDA',       base: baseEBITDA, get: (p: ReturnType<typeof project>) => p.ebitda, bold: true },
                   { label: 'EBITDA %',     base: baseRev > 0 ? (baseEBITDA/baseRev)*100 : 0, get: (p: ReturnType<typeof project>) => p.ebitdaMargin, isPct: true, bold: true },
+                  { label: '— EV @ 3.5×', base: baseEBITDA * 3.5, get: (p: ReturnType<typeof project>) => p.ebitda * 3.5, isEV: true },
+                  { label: '— EV @ 5.5×', base: baseEBITDA * 5.5, get: (p: ReturnType<typeof project>) => p.ebitda * 5.5, isEV: true },
+                  { label: '— EV @ 7.5×', base: baseEBITDA * 7.5, get: (p: ReturnType<typeof project>) => p.ebitda * 7.5, isEV: true },
                 ].map(row => (
-                  <tr key={row.label} className="border-b border-slate-800/30">
-                    <td className={`px-4 py-2.5 text-[12px] ${row.bold ? 'font-semibold text-slate-100' : 'text-slate-400'}`}>{row.label}</td>
+                  <tr key={row.label} className={`border-b border-slate-800/30 ${(row as {isEV?:boolean}).isEV ? 'bg-purple-950/10' : ''}`}>
+                    <td className={`px-4 py-2.5 text-[12px] ${row.bold ? 'font-semibold text-slate-100' : (row as {isEV?:boolean}).isEV ? 'text-purple-400/80 pl-6' : 'text-slate-400'}`}>{row.label}</td>
                     <td className="px-4 py-2.5 text-[12px] text-right text-slate-500">
                       {row.isPct ? `${row.base.toFixed(1)}%` : fmt(row.base, true)}
                     </td>
@@ -1069,7 +1192,7 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
                       const isPos = row.label === 'OpEx' ? d <= 0 : d >= 0;
                       return (
                         <td key={s.id} className="px-4 py-2.5 text-right">
-                          <div className={`text-[12px] font-medium ${row.bold ? (isPos ? 'text-emerald-400' : 'text-red-400') : 'text-slate-300'}`}>
+                          <div className={`text-[12px] font-medium ${row.bold ? (isPos ? 'text-emerald-400' : 'text-red-400') : (row as {isEV?:boolean}).isEV ? (isPos ? 'text-purple-300' : 'text-red-400') : 'text-slate-300'}`}>
                             {row.isPct ? `${val.toFixed(1)}%` : fmt(val, true)}
                           </div>
                           {d !== 0 && (

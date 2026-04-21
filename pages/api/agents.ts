@@ -62,23 +62,41 @@ Cost breakdown: ${data.costs.byCategory.map(c => `${c.category} $${(c.amount/100
 }
 
 function parseJSON<T>(raw: string): T {
-  const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  // Strip markdown fences and leading/trailing whitespace
+  let cleaned = raw
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/, '')
+    .trim();
+
+  // Sometimes Claude adds a preamble like "Here is the JSON:" before the object
+  const firstBrace = cleaned.search(/[{[]/);
+  if (firstBrace > 0) cleaned = cleaned.slice(firstBrace);
+
   try { return JSON.parse(cleaned) as T; } catch {
+    // Last-resort: extract the largest {...} or [...] block
     const m = cleaned.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
     if (m) {
       try { return JSON.parse(m[0]) as T; } catch { /* fall through */ }
     }
-    throw new Error('JSON parse failed');
+    throw new Error('JSON parse failed — the AI returned an unexpected format. Please try again.');
   }
 }
 
-async function complete(prompt: string, maxTokens = 3000): Promise<string> {
+async function complete(prompt: string, maxTokens = 4000): Promise<string> {
   if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
+  // Prefill assistant turn with '{' — forces Claude to output raw JSON from the first token,
+  // completely eliminating markdown fences and preamble text.
   const r = await client.messages.create({
     model: 'claude-sonnet-4-6', max_tokens: maxTokens,
-    messages: [{ role: 'user', content: prompt }],
+    system: 'Return ONLY valid JSON. No markdown, no commentary.',
+    messages: [
+      { role: 'user',      content: prompt },
+      { role: 'assistant', content: '{' },   // prefill: forces raw JSON output
+    ],
   });
-  return r.content.filter(b => b.type === 'text').map(b => b.text).join('');
+  // Claude continues from '{', so we must prepend it back
+  const body = r.content.filter(b => b.type === 'text').map(b => b.text).join('');
+  return '{' + body;
 }
 
 // ── EXIT READINESS ─────────────────────────────────────────────────────────────
@@ -153,7 +171,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no commentary):
 
 Be specific with every number. Use the actual company data provided. Do not use generic filler.`;
 
-  const raw = await complete(prompt, 3500);
+  const raw = await complete(prompt, 4000);
   return parseJSON(raw);
 }
 
@@ -203,7 +221,7 @@ Return ONLY valid JSON:
 
 Generate 6+ talking points, 5+ Q&A pairs, 2-3 key asks. Make answers specific to this company's data.`;
 
-  const raw = await complete(prompt, 3000);
+  const raw = await complete(prompt, 4000);
   return parseJSON(raw);
 }
 
@@ -266,7 +284,7 @@ Return ONLY valid JSON:
 
 Generate 3-4 actions per category. Be specific — no generic advice. Use actual company data.`;
 
-  const raw = await complete(prompt, 3500);
+  const raw = await complete(prompt, 4000);
   return parseJSON(raw);
 }
 
@@ -344,7 +362,7 @@ Return ONLY valid JSON:
 
 Generate 4+ growth levers with specific dollar amounts. Use actual company numbers throughout.`;
 
-  const raw = await complete(prompt, 3000);
+  const raw = await complete(prompt, 4000);
   return parseJSON(raw);
 }
 

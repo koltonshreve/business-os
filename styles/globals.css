@@ -65,19 +65,21 @@
 @media print {
   @page {
     size: A4 landscape;
-    margin: 14mm 12mm;
+    margin: 12mm 10mm;
   }
 
   /* Light background for readability on paper */
   html, body {
     background: #ffffff !important;
     color: #111827 !important;
+    font-size: 10px;
   }
 
   /* Override dark card backgrounds */
   [class*="bg-slate-9"],
   [class*="bg-[#0"],
-  [class*="bg-slate-8"] {
+  [class*="bg-slate-8"],
+  [class*="bg-slate-7"] {
     background-color: #f8fafc !important;
     border-color: #e2e8f0 !important;
   }
@@ -96,12 +98,21 @@
     color: #6b7280 !important;
   }
 
+  /* Preserve accent colors */
+  [class*="text-emerald"] { color: #059669 !important; }
+  [class*="text-red-4"],
+  [class*="text-red-3"]   { color: #dc2626 !important; }
+  [class*="text-amber-4"] { color: #d97706 !important; }
+  [class*="text-indigo-4"]{ color: #4f46e5 !important; }
+
   /* Hide interactive chrome */
   .no-print,
   header,
   nav,
   footer,
-  [data-print="hidden"] {
+  aside,
+  [data-print="hidden"],
+  button:not([data-print="show"]) {
     display: none !important;
   }
 
@@ -115,13 +126,21 @@
   .print-break-before { page-break-before: always; }
   .print-break-avoid  { page-break-inside: avoid; }
 
-  /* Force all collapsible sections open */
-  [data-collapsible-body] { display: block !important; }
+  /* Force the main content column full width */
+  .flex-1.min-w-0.flex.flex-col {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
 
   /* Compact spacing for print */
-  body { font-size: 11px; }
-  .space-y-5 > * + * { margin-top: 10pt; }
-  .space-y-4 > * + * { margin-top: 8pt; }
+  .space-y-5 > * + * { margin-top: 8pt; }
+  .space-y-4 > * + * { margin-top: 6pt; }
+  .space-y-3 > * + * { margin-top: 4pt; }
+  .gap-3 { gap: 6pt; }
+  .gap-4 { gap: 8pt; }
+  .p-4, .p-5, .px-4, .px-5, .py-4, .py-5 {
+    padding: 6pt !important;
+  }
 
   /* Scrollable tables — print full width */
   .overflow-x-auto { overflow: visible !important; }
@@ -132,11 +151,31 @@
   /* Show print-only company name header */
   .print-header {
     display: block !important;
-    font-size: 18px;
+    font-size: 14px;
     font-weight: 700;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
     color: #111827;
-    border-bottom: 2px solid #e2e8f0;
-    padding-bottom: 8px;
+    border-bottom: 1.5px solid #e2e8f0;
+    padding-bottom: 6px;
   }
+
+  /* Chart SVGs — keep visible */
+  svg { overflow: visible !important; }
+
+  /* Borders legible on paper */
+  [class*="border-slate-8"] { border-color: #cbd5e1 !important; }
+  [class*="border-slate-7"] { border-color: #e2e8f0 !important; }
+
+  /* Reduce rounded corners for cleaner print */
+  [class*="rounded-xl"] { border-radius: 4pt !important; }
+  [class*="rounded-2xl"] { border-radius: 6pt !important; }
+}
+
+/* ── Chat panel entrance animation ──────────────────────────────────────── */
+@keyframes chat-slide-up {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+.animate-chat-enter {
+  animation: chat-slide-up 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

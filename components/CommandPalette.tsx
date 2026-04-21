@@ -20,6 +20,8 @@ interface CommandPaletteProps {
   onNavigate: (view: string) => void;
   onAskAI: (msg: string) => void;
   onRunAction: (action: string) => void;
+  onEnterManually?: () => void;
+  onBackupData?: () => void;
 }
 
 // ── AI suggestion prompts ─────────────────────────────────────────────────────
@@ -37,7 +39,7 @@ const AI_PROMPTS = [
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function CommandPalette({ open, onClose, onNavigate, onAskAI, onRunAction }: CommandPaletteProps) {
+export default function CommandPalette({ open, onClose, onNavigate, onAskAI, onRunAction, onEnterManually, onBackupData }: CommandPaletteProps) {
   const [query, setQuery]       = useState('');
   const [selected, setSelected] = useState(0);
   const inputRef                = useRef<HTMLInputElement>(null);
@@ -61,6 +63,8 @@ export default function CommandPalette({ open, onClose, onNavigate, onAskAI, onR
     { id: 'act-insight', type: 'action', label: 'Weekly Insight',      description: 'Generate weekly narrative report',         icon: '◇',  onSelect: () => { onRunAction('weekly-insight'); onClose(); } },
     { id: 'act-deck',    type: 'action', label: 'Board Deck',          description: 'Generate board presentation deck',         icon: '◆',  onSelect: () => { onRunAction('board-deck'); onClose(); } },
     { id: 'act-alerts',  type: 'action', label: 'Scan for Risks',      description: 'Run AI risk detection',                   icon: '⚠',  onSelect: () => { onRunAction('alerts'); onClose(); } },
+    ...(onEnterManually ? [{ id: 'act-manual', type: 'action' as CommandType, label: 'Enter data manually', description: 'Fill in a form instead of uploading CSV', icon: '✎', onSelect: () => { onEnterManually(); onClose(); } }] : []),
+    ...(onBackupData    ? [{ id: 'act-backup', type: 'action' as CommandType, label: 'Backup data',          description: 'Download all data as JSON',               icon: '↓', onSelect: () => { onBackupData();    onClose(); } }] : []),
   ];
 
   const isAIMode = query.startsWith('>') || query.startsWith('?') || (query.length > 2 && !allCommands.some(c => c.label.toLowerCase().startsWith(query.toLowerCase().slice(0, 3))));

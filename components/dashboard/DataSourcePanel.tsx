@@ -1,6 +1,43 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { UnifiedBusinessData, CSVUpload } from '../../types';
 import { parseCSVUpload, mergeDataSources } from '../../lib/data-connectors';
+
+// ── Import metadata (persisted in localStorage) ───────────────────────────────
+type ImportMeta = Record<string, { rowCount: number; importedAt: string; filename?: string }>;
+
+function loadMeta(): ImportMeta {
+  try { const s = localStorage.getItem('bos_import_meta'); return s ? JSON.parse(s) : {}; } catch { return {}; }
+}
+function saveMeta(meta: ImportMeta) {
+  try { localStorage.setItem('bos_import_meta', JSON.stringify(meta)); } catch { /* ignore */ }
+}
+function recordImport(type: string, rowCount: number, filename?: string) {
+  const meta = loadMeta();
+  meta[type] = { rowCount, importedAt: new Date().toISOString(), filename };
+  saveMeta(meta);
+}
+function clearMeta(type: string) {
+  const meta = loadMeta();
+  delete meta[type];
+  saveMeta(meta);
+}
+
+// Simple inline CSV row parser (handles quoted fields)
+function parseCsvRow(line: string): string[] {
+  const result: string[] = [];
+  let cur = ''; let inQ = false;
+  for (const ch of line) {
+    if (ch === '"') inQ = !inQ;
+    else if (ch === ',' && !inQ) { result.push(cur.trim()); cur = ''; }
+    else cur += ch;
+  }
+  result.push(cur.trim());
+  return result;
+}
+
+function buildPreview(csvText: string): string[][] {
+  return csvText.split('\n').filter(l => l.trim()).slice(0, 7).map(parseCsvRow);
+}
 
 export interface CompanyProfile {
   industry?: string;
@@ -285,9 +322,372 @@ const UPLOAD_CATEGORIES: {
   },
 ];
 
+// ── Smart Import ─────────────────────────────────────────────────────────────
+type SmartMode = 'idle' | 'detecting' | 'preview' | 'importing' | 'done';
+
+function SmartImportCard({ data, onDataUpdate, onSuccess }: Props) {
+  const [mode,     setMode]     = useState<SmartMode>('idle');
+  const [pasteMode, setPasteMode] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const [rawCsv,   setRawCsv]   = useState('');
+  const [filename, setFilename] = useState('');
+  const [detected, setDetected] = useState<{
+    detectedType: CSVUpload['type'];
+    confidence: number;
+    rationale: string;
+    columns: { original: string; mapped: string | null }[];
+  } | null>(null);
+  const [selType,  setSelType]  = useState<CSVUpload['type']>('revenue');
+  const [mergeMode, setMerge]   = useState<'append' | 'replace'>('append');
+  const [preview,  setPreview]  = useState<string[][]>([]);
+  const [status,   setStatus]   = useState('');
+  const [dragging, setDragging] = useState(false);
+
+  const ALL_TYPES: CSVUpload['type'][] = [
+    'revenue','costs','customers','operations','pipeline',
+    'payroll','cashflow','ar_aging','transactions','suppliers','capacity',
+  ];
+
+  const processText = useCallback(async (text: string, fname: string) => {
+    setRawCsv(text); setFilename(fname); setStatus('');
+    setPreview(buildPreview(text));
+    setMode('detecting');
+    try {
+      const res = await fetch('/api/data/ai-map', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rawCsv: text.split('\n').slice(0, 40).join('\n'), filename: fname }),
+      });
+      if (!res.ok) throw new Error('AI unavailable');
+      const result = await res.json();
+      setDetected(result);
+      setSelType(result.detectedType);
+    } catch {
+      setStatus('AI detection unavailable — select type manually.');
+    }
+    setMode('preview');
+  }, []);
+
+  const readFile = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => processText(reader.result as string, file.name);
+    // JSON files: convert to CSV-like representation
+    if (file.name.endsWith('.json')) {
+      reader.onload = () => {
+        try {
+          const obj = JSON.parse(reader.result as string);
+          const rows = Array.isArray(obj) ? obj : [obj];
+          if (rows.length === 0) { processText('', file.name); return; }
+          const headers = Object.keys(rows[0]);
+          const csv = [headers.join(','), ...rows.map((r: Record<string,unknown>) => headers.map(h => String(r[h] ?? '')).join(','))].join('\n');
+          processText(csv, file.name.replace('.json', '.csv'));
+        } catch { setStatus('Could not parse JSON file.'); setMode('idle'); }
+      };
+    }
+    reader.readAsText(file);
+  }, [processText]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); setDragging(false);
+    const file = e.dataTransfer.files[0]; if (file) readFile(file);
+  }, [readFile]);
+
+  const handleImport = useCallback(async () => {
+    setMode('importing');
+    try {
+      const res = await fetch('/api/data/csv', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uploads: [{ type: selType, filename, content: rawCsv }],
+          existingData: mergeMode === 'append' ? data : undefined,
+        }),
+      });
+      if (!res.ok) { setStatus('Import failed — check file format.'); setMode('preview'); return; }
+      const result = await res.json();
+      if (result.data) {
+        onDataUpdate(result.data);
+        const rows = result.results?.[0]?.rowCount ?? '?';
+        recordImport(selType, typeof rows === 'number' ? rows : 0, filename);
+        onSuccess?.(`Smart Import: ${rows} rows of ${selType} data loaded`);
+        setMode('done');
+      } else {
+        setStatus(result.error ?? 'Import failed');
+        setMode('preview');
+      }
+    } catch { setStatus('Network error — try again.'); setMode('preview'); }
+  }, [selType, filename, rawCsv, data, mergeMode, onDataUpdate, onSuccess]);
+
+  const reset = () => { setMode('idle'); setDetected(null); setRawCsv(''); setPreview([]); setPasteText(''); setStatus(''); setPasteMode(false); };
+
+  if (mode === 'done') return (
+    <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-6 text-center space-y-2">
+      <div className="text-2xl">✓</div>
+      <div className="text-[13px] font-semibold text-emerald-400">Imported successfully</div>
+      <button onClick={reset} className="text-[11px] text-slate-500 hover:text-slate-300 border border-slate-700/50 px-3 py-1.5 rounded-lg transition-colors">
+        Import another file
+      </button>
+    </div>
+  );
+
+  return (
+    <div className={`bg-slate-900/50 border rounded-xl overflow-hidden transition-colors ${dragging ? 'border-indigo-500/60' : 'border-slate-700/50'}`}>
+      {/* Header */}
+      <div className="px-5 py-4 border-b border-slate-800/50 flex items-center gap-3">
+        <div className="w-8 h-8 rounded-lg bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center flex-shrink-0">
+          <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 text-indigo-400"><path d="M7 1L2 6h3v5h4V6h3L7 1z"/></svg>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] font-semibold text-slate-100">Smart Import</div>
+          <div className="text-[11px] text-slate-500">Drop any CSV or JSON — AI auto-detects type and maps columns</div>
+        </div>
+        <span className="text-[10px] font-semibold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-full">AI</span>
+      </div>
+
+      <div className="p-5">
+        {/* Idle */}
+        {mode === 'idle' && (
+          <div className="space-y-3">
+            {!pasteMode ? (
+              <div
+                onDrop={handleDrop}
+                onDragOver={e => { e.preventDefault(); setDragging(true); }}
+                onDragLeave={() => setDragging(false)}
+                onClick={() => (document.getElementById('smart-import-file') as HTMLInputElement)?.click()}
+                className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all group ${dragging ? 'border-indigo-500/60 bg-indigo-500/5' : 'border-slate-700/60 hover:border-indigo-500/40 hover:bg-slate-800/20'}`}>
+                <div className="text-3xl mb-2">📂</div>
+                <div className="text-[13px] font-semibold text-slate-300 group-hover:text-slate-100 transition-colors">
+                  {dragging ? 'Drop to import' : 'Drop CSV / JSON or click to browse'}
+                </div>
+                <div className="text-[11px] text-slate-600 mt-1">Revenue, customers, costs, payroll, transactions — AI figures out the rest</div>
+                <input id="smart-import-file" type="file" accept=".csv,.tsv,.txt,.json" className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) readFile(f); e.target.value = ''; }}/>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <textarea value={pasteText} onChange={e => setPasteText(e.target.value)}
+                  placeholder={`Paste CSV or JSON data here…\n\nExample:\nPeriod,Revenue,COGS\nApr 2026,250000,150000\nMay 2026,275000,162000`}
+                  rows={9}
+                  className="w-full bg-slate-800/60 border border-slate-700/60 rounded-xl px-3 py-2.5 text-[11px] text-slate-300 font-mono focus:outline-none focus:border-indigo-500/50 transition-colors resize-none placeholder:text-slate-700"/>
+                <button disabled={!pasteText.trim()} onClick={() => processText(pasteText, 'pasted-data.csv')}
+                  className="w-full py-2 text-[13px] font-semibold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl transition-colors">
+                  Detect & Preview →
+                </button>
+              </div>
+            )}
+            <button onClick={() => setPasteMode(p => !p)}
+              className="w-full text-[11px] text-slate-600 hover:text-slate-400 border border-slate-800/50 hover:border-slate-700 px-3 py-2 rounded-lg transition-colors font-medium">
+              {pasteMode ? '↑ Upload a file instead' : '⌘V Paste CSV or JSON directly'}
+            </button>
+          </div>
+        )}
+
+        {/* Detecting */}
+        {mode === 'detecting' && (
+          <div className="py-10 text-center space-y-3">
+            <div className="flex items-center justify-center gap-2 text-indigo-400">
+              <Spinner/>
+              <span className="text-[13px] font-semibold">Analyzing with AI…</span>
+            </div>
+            <div className="text-[11px] text-slate-600">Detecting data type and mapping columns</div>
+          </div>
+        )}
+
+        {/* Preview + confirm */}
+        {(mode === 'preview' || mode === 'importing') && (
+          <div className="space-y-4">
+            {/* AI result */}
+            {detected && (
+              <div className={`flex items-center gap-3 p-3 rounded-xl border text-[11px] ${
+                detected.confidence >= 80 ? 'bg-emerald-500/5 border-emerald-500/20' :
+                detected.confidence >= 50 ? 'bg-amber-500/5 border-amber-500/20' : 'bg-slate-800/40 border-slate-700/40'}`}>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${
+                  detected.confidence >= 80 ? 'bg-emerald-500/15 text-emerald-400' :
+                  detected.confidence >= 50 ? 'bg-amber-500/15 text-amber-400' : 'bg-slate-700 text-slate-400'}`}>
+                  {detected.confidence}%
+                </span>
+                <span className="text-slate-300">{detected.rationale}</span>
+              </div>
+            )}
+
+            {/* Column mapping */}
+            {detected && detected.columns.length > 0 && (
+              <div>
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-2">Detected column mapping</div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 max-h-28 overflow-y-auto">
+                  {detected.columns.map((col, i) => (
+                    <div key={i} className="flex items-center gap-1.5 text-[10px]">
+                      <span className="text-slate-400 font-mono truncate max-w-[80px]" title={col.original}>{col.original}</span>
+                      <span className="text-slate-700 flex-shrink-0">→</span>
+                      <span className={`truncate ${col.mapped ? 'text-indigo-400' : 'text-slate-700'}`}>{col.mapped ?? 'skip'}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Preview table */}
+            {preview.length > 1 && (
+              <div>
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-2">
+                  Preview · {preview.length - 1} rows shown
+                </div>
+                <div className="overflow-x-auto rounded-lg border border-slate-800/50">
+                  <table className="w-full text-[10px]">
+                    <thead>
+                      <tr className="bg-slate-800/40 border-b border-slate-800/50">
+                        {preview[0].map((h, i) => (
+                          <th key={i} className="px-2.5 py-1.5 text-left font-semibold text-slate-400 whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.slice(1).map((row, ri) => (
+                        <tr key={ri} className="border-b border-slate-800/30 last:border-0 hover:bg-slate-800/20">
+                          {row.map((cell, ci) => (
+                            <td key={ci} className="px-2.5 py-1 text-slate-500 whitespace-nowrap max-w-[140px] truncate" title={cell}>{cell}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Controls */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Data type</label>
+                <select value={selType} onChange={e => setSelType(e.target.value as CSVUpload['type'])}
+                  className="w-full bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-100 focus:outline-none focus:border-indigo-500/50 transition-colors">
+                  {ALL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Import mode</label>
+                <div className="flex gap-1">
+                  {(['append', 'replace'] as const).map(m => (
+                    <button key={m} onClick={() => setMerge(m)}
+                      className={`flex-1 text-[10px] font-semibold py-1.5 rounded-lg border transition-all ${
+                        mergeMode === m ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-400' : 'border-slate-700/50 text-slate-500 hover:text-slate-300'}`}>
+                      {m === 'append' ? 'Merge' : 'Replace'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {status && <div className="text-[11px] text-amber-400 bg-amber-500/5 border border-amber-500/20 rounded-lg px-3 py-2">{status}</div>}
+
+            <div className="flex gap-2 pt-1">
+              <button onClick={reset} className="px-4 py-2 text-[12px] font-semibold text-slate-400 border border-slate-700/50 hover:border-slate-600 rounded-xl transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleImport} disabled={mode === 'importing'}
+                className="flex-1 py-2 text-[13px] font-semibold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 rounded-xl transition-colors flex items-center justify-center gap-2">
+                {mode === 'importing' ? <><Spinner/>Importing…</> : `Import as ${selType} →`}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Data Inventory ────────────────────────────────────────────────────────────
+function DataInventory({ data, onDataUpdate, onSuccess }: Props) {
+  const [meta, setMeta] = useState<ImportMeta>({});
+  useEffect(() => { setMeta(loadMeta()); }, []);
+
+  const sources = [
+    { type: 'revenue',      label: 'Revenue & P&L',   loaded: data.revenue.total > 0 && data.revenue.byPeriod.length > 0, count: data.revenue.byPeriod.length,      unit: 'periods',   accent: 'bg-indigo-500' },
+    { type: 'costs',        label: 'Cost Structure',  loaded: data.costs.byCategory.length > 1,                            count: data.costs.byCategory.length,      unit: 'categories',accent: 'bg-amber-500' },
+    { type: 'customers',    label: 'Customers',       loaded: data.customers.totalCount > 0,                               count: data.customers.totalCount,          unit: 'accounts',  accent: 'bg-violet-500' },
+    { type: 'pipeline',     label: 'Pipeline',        loaded: (data.pipeline?.length ?? 0) > 0,                            count: data.pipeline?.length ?? 0,         unit: 'deals',     accent: 'bg-sky-500' },
+    { type: 'payroll',      label: 'Payroll',         loaded: (data.payrollByDept?.length ?? 0) > 0,                       count: data.payrollByDept?.length ?? 0,    unit: 'depts',     accent: 'bg-pink-500' },
+    { type: 'cashflow',     label: 'Cash Flow',       loaded: (data.cashFlow?.length ?? 0) > 0,                            count: data.cashFlow?.length ?? 0,         unit: 'periods',   accent: 'bg-emerald-500' },
+    { type: 'ar_aging',     label: 'AR Aging',        loaded: (data.arAging?.length ?? 0) > 0,                             count: data.arAging?.length ?? 0,          unit: 'customers', accent: 'bg-orange-500' },
+    { type: 'transactions', label: 'Transactions',    loaded: (data.transactions?.length ?? 0) > 0,                        count: data.transactions?.length ?? 0,     unit: 'rows',      accent: 'bg-slate-400' },
+    { type: 'suppliers',    label: 'Suppliers',       loaded: (data.suppliers?.suppliers.length ?? 0) > 0,                 count: data.suppliers?.suppliers.length ?? 0, unit: 'vendors', accent: 'bg-lime-500' },
+    { type: 'capacity',     label: 'Capacity',        loaded: (data.capacity?.resources.length ?? 0) > 0,                  count: data.capacity?.resources.length ?? 0,  unit: 'resources',accent: 'bg-cyan-500' },
+    { type: 'operations',   label: 'Operations',      loaded: !!data.operations.headcount,                                 count: data.operations.headcount ?? 0,     unit: 'FTEs',      accent: 'bg-teal-500' },
+  ];
+
+  const clearDataType = (type: string, updated: UnifiedBusinessData): UnifiedBusinessData => {
+    switch (type) {
+      case 'revenue':      return { ...updated, revenue: { total: 0, byPeriod: [], currency: 'USD', byProduct: [], byCustomer: [] }, metadata: { ...updated.metadata, sources: updated.metadata.sources.filter(s => s !== 'CSV Revenue') } };
+      case 'costs':        return { ...updated, costs: { totalCOGS: 0, totalOpEx: 0, byCategory: [] } };
+      case 'customers':    return { ...updated, customers: { totalCount: 0, newThisPeriod: 0, churned: 0, topCustomers: [], avgRevenuePerCustomer: 0 } };
+      case 'pipeline':     return { ...updated, pipeline: [] };
+      case 'payroll':      return { ...updated, payrollByDept: [] };
+      case 'cashflow':     return { ...updated, cashFlow: [] };
+      case 'ar_aging':     return { ...updated, arAging: [] };
+      case 'transactions': return { ...updated, transactions: [] };
+      case 'suppliers':    return { ...updated, suppliers: undefined };
+      case 'capacity':     return { ...updated, capacity: undefined };
+      case 'operations':   return { ...updated, operations: { headcount: undefined, openPositions: undefined, utilizationRate: undefined } };
+      default:             return updated;
+    }
+  };
+
+  const handleClear = (type: string) => {
+    const cleared = clearDataType(type, data);
+    onDataUpdate(cleared);
+    clearMeta(type);
+    setMeta(loadMeta());
+    onSuccess?.(`${type} data cleared`);
+  };
+
+  const loaded = sources.filter(s => s.loaded);
+  if (loaded.length === 0) return null;
+
+  const total = sources.length;
+  const loadedCount = loaded.length;
+
+  return (
+    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-slate-800/40 flex items-center justify-between">
+        <div>
+          <div className="text-[12px] font-semibold text-slate-200">Loaded Data</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">{loadedCount} of {total} data types in session</div>
+        </div>
+        <div className="flex gap-0.5">
+          {sources.map(s => (
+            <div key={s.type} className={`w-2 h-4 rounded-sm transition-opacity ${s.loaded ? s.accent : 'bg-slate-800'}`} title={s.label}/>
+          ))}
+        </div>
+      </div>
+      <div className="divide-y divide-slate-800/30">
+        {sources.map(item => (
+          <div key={item.type} className={`px-5 py-2.5 flex items-center gap-3 transition-opacity ${item.loaded ? '' : 'opacity-25'}`}>
+            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${item.loaded ? item.accent : 'bg-slate-700'}`}/>
+            <div className="flex-1 min-w-0">
+              <div className="text-[12px] font-medium text-slate-300">{item.label}</div>
+              {item.loaded && (
+                <div className="text-[10px] text-slate-600 font-mono">
+                  {item.count} {item.unit}
+                  {meta[item.type]?.importedAt && ` · ${new Date(meta[item.type].importedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}`}
+                  {meta[item.type]?.filename && ` · ${meta[item.type].filename}`}
+                </div>
+              )}
+            </div>
+            {item.loaded && (
+              <button onClick={() => handleClear(item.type)}
+                className="text-[10px] text-slate-700 hover:text-red-400 transition-colors font-medium px-2 py-1 rounded-lg hover:bg-red-500/5 flex-shrink-0">
+                clear
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── CSV Upload Section ───────────────────────────────────────────────────────
 function CSVUploadSection({ data, onDataUpdate, onSuccess }: Props) {
-  const [statuses, setStatuses] = useState<Record<string, string>>({});
+  const [statuses,  setStatuses]  = useState<Record<string, string>>({});
+  const [mergeMode, setMergeMode] = useState<'append' | 'replace'>('append');
 
   const handleUpload = useCallback(async (
     e: React.ChangeEvent<HTMLInputElement>,
@@ -300,12 +700,24 @@ function CSVUploadSection({ data, onDataUpdate, onSuccess }: Props) {
     const reader = new FileReader();
     reader.onload = async () => {
       try {
+        let content = reader.result as string;
+        // JSON → CSV conversion
+        if (file.name.endsWith('.json')) {
+          try {
+            const rows = JSON.parse(content);
+            const arr = Array.isArray(rows) ? rows : [rows];
+            if (arr.length > 0) {
+              const headers = Object.keys(arr[0]);
+              content = [headers.join(','), ...arr.map((r: Record<string,unknown>) => headers.map(h => String(r[h] ?? '')).join(','))].join('\n');
+            }
+          } catch { setStatuses(prev => ({ ...prev, [type]: 'Error: Invalid JSON' })); e.target.value = ''; return; }
+        }
         const res = await fetch('/api/data/csv', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            uploads: [{ type, filename: file.name, content: reader.result }],
-            existingData: data,
+            uploads: [{ type, filename: file.name, content }],
+            existingData: mergeMode === 'append' ? data : undefined,
           }),
         });
         if (!res.ok) {
@@ -317,7 +729,9 @@ function CSVUploadSection({ data, onDataUpdate, onSuccess }: Props) {
         const result = await res.json();
         if (result.data) {
           onDataUpdate(result.data);
-          const msg = `${file.name} — ${result.results?.[0]?.rowCount ?? '?'} rows imported`;
+          const rows = result.results?.[0]?.rowCount ?? 0;
+          recordImport(type, typeof rows === 'number' ? rows : 0, file.name);
+          const msg = `${file.name} — ${rows} rows imported`;
           setStatuses(prev => ({ ...prev, [type]: `✓ ${msg}` }));
           onSuccess?.(msg);
         } else {
@@ -329,10 +743,24 @@ function CSVUploadSection({ data, onDataUpdate, onSuccess }: Props) {
       e.target.value = '';
     };
     reader.readAsText(file);
-  }, [data, onDataUpdate, onSuccess]);
+  }, [data, mergeMode, onDataUpdate, onSuccess]);
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      {/* Merge/Replace toggle */}
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] text-slate-500">How new uploads interact with existing data:</div>
+        <div className="flex gap-1">
+          {(['append', 'replace'] as const).map(m => (
+            <button key={m} onClick={() => setMergeMode(m)}
+              className={`text-[11px] font-semibold px-3 py-1 rounded-lg border transition-all ${
+                mergeMode === m ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-400' : 'border-slate-700/50 text-slate-500 hover:text-slate-300'}`}>
+              {m === 'append' ? 'Merge' : 'Replace'}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {UPLOAD_CATEGORIES.map(cat => {
         const status    = statuses[cat.type] ?? '';
         const isSuccess = status.startsWith('✓');
@@ -378,7 +806,7 @@ function CSVUploadSection({ data, onDataUpdate, onSuccess }: Props) {
                   </span>
                   <input
                     type="file"
-                    accept=".csv,.tsv,.txt"
+                    accept=".csv,.tsv,.txt,.json"
                     className="hidden"
                     disabled={isLoading}
                     onChange={e => handleUpload(e, cat.type)}
@@ -1189,6 +1617,12 @@ export default function DataSourcePanel({ data, onDataUpdate, onSuccess, company
         </div>
       )}
 
+      {/* Smart Import */}
+      <SmartImportCard data={data} onDataUpdate={onDataUpdate} onSuccess={onSuccess}/>
+
+      {/* Loaded Data Inventory */}
+      <DataInventory data={data} onDataUpdate={onDataUpdate} onSuccess={onSuccess}/>
+
       {/* Progress banner */}
       <div className={`border rounded-xl p-5 ${isDemo
         ? 'bg-gradient-to-br from-indigo-500/8 to-transparent border-indigo-500/15'
@@ -1288,6 +1722,81 @@ export default function DataSourcePanel({ data, onDataUpdate, onSuccess, company
           <span className="text-[11px] text-slate-500 -mt-3">Export CSV from any system and upload here</span>
         </div>
         <CSVUploadSection data={data} onDataUpdate={onDataUpdate} onSuccess={onSuccess}/>
+      </div>
+
+      {/* Data Export */}
+      <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-800/40">
+          <div className="text-[12px] font-semibold text-slate-200">Export Current Data</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">Download session data for advisors, auditors, or offline analysis</div>
+        </div>
+        <div className="px-5 py-4 flex flex-wrap gap-2">
+          {/* JSON export — full UnifiedBusinessData */}
+          <button
+            onClick={() => {
+              const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a'); a.href = url;
+              a.download = `business-os-export-${new Date().toISOString().slice(0,10)}.json`;
+              a.click(); URL.revokeObjectURL(url);
+            }}
+            className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-200 border border-slate-700/60 hover:border-slate-500 hover:bg-slate-800/40 px-3 py-2 rounded-lg transition-all">
+            <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3 text-indigo-400"><path d="M7 1v7M4 5l3 3 3-3M2 10v2a1 1 0 001 1h8a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/></svg>
+            Full JSON Export
+          </button>
+
+          {/* Revenue CSV */}
+          {data.revenue.byPeriod.length > 0 && (
+            <button
+              onClick={() => {
+                const rows = data.revenue.byPeriod.map(p =>
+                  `${p.period},${p.revenue},${p.cogs ?? ''},${p.grossProfit ?? ''},${p.ebitda ?? ''}`
+                );
+                const csv = ['Period,Revenue,COGS,GrossProfit,EBITDA', ...rows].join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob); const a = document.createElement('a');
+                a.href = url; a.download = 'revenue-export.csv'; a.click(); URL.revokeObjectURL(url);
+              }}
+              className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-200 border border-slate-700/60 hover:border-slate-500 hover:bg-slate-800/40 px-3 py-2 rounded-lg transition-all">
+              <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3 text-emerald-400"><path d="M7 1v7M4 5l3 3 3-3M2 10v2a1 1 0 001 1h8a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/></svg>
+              Revenue CSV
+            </button>
+          )}
+
+          {/* Customers CSV */}
+          {data.customers.topCustomers.length > 0 && (
+            <button
+              onClick={() => {
+                const rows = data.customers.topCustomers.map(c =>
+                  `"${c.name}",${c.revenue},${c.percentOfTotal.toFixed(2)},${c.industry ?? ''},${c.revenueType ?? ''}`
+                );
+                const csv = ['Name,Revenue,PctOfTotal,Industry,RevenueType', ...rows].join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = 'customers-export.csv'; a.click(); URL.revokeObjectURL(url);
+              }}
+              className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-200 border border-slate-700/60 hover:border-slate-500 hover:bg-slate-800/40 px-3 py-2 rounded-lg transition-all">
+              <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3 text-violet-400"><path d="M7 1v7M4 5l3 3 3-3M2 10v2a1 1 0 001 1h8a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/></svg>
+              Customers CSV
+            </button>
+          )}
+
+          {/* Transactions CSV */}
+          {(data.transactions?.length ?? 0) > 0 && (
+            <button
+              onClick={() => {
+                const rows = (data.transactions ?? []).map(t =>
+                  `${t.date},"${t.description}",${t.amount},${t.type},${t.category},"${t.customer ?? ''}","${t.vendor ?? ''}"`
+                );
+                const csv = ['Date,Description,Amount,Type,Category,Customer,Vendor', ...rows].join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = 'transactions-export.csv'; a.click(); URL.revokeObjectURL(url);
+              }}
+              className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-200 border border-slate-700/60 hover:border-slate-500 hover:bg-slate-800/40 px-3 py-2 rounded-lg transition-all">
+              <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3 text-amber-400"><path d="M7 1v7M4 5l3 3 3-3M2 10v2a1 1 0 001 1h8a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/></svg>
+              Transactions CSV
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Footer: legend */}

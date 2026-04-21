@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { UnifiedBusinessData, PipelineDeal, PayrollRecord } from '../../types';
 import CostBreakdownChart from '../charts/CostBreakdownChart';
 import { fmtMoney } from '../../lib/format';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 
 // ── Collapsible cost group ─────────────────────────────────────────────────────
 const COGS_KEYWORDS = ['cogs','cost of goods','cost of sales','materials','direct labor',
@@ -911,6 +912,74 @@ export default function OperationsDashboard({ data, previousData, onAskAI }: Pro
           ))}
         </div>
       </div>
+
+      {/* Revenue per Employee Trend */}
+      {(() => {
+        const periods = data.revenue.byPeriod;
+        if (periods.length < 2 || !headcount) return null;
+
+        // LMM benchmark: $150k–$250k/employee annually; monthly = /12
+        const annualBenchmarkLow  = 150_000;
+        const annualBenchmarkHigh = 250_000;
+        const periodsPerYear = periods.length >= 10 ? 12 : periods.length >= 4 ? 4 : 1;
+
+        const chartData = periods.slice(-8).map(p => ({
+          period: p.period.replace(/^20\d\d-/, ''),
+          revenuePerEmp: Math.round(p.revenue / headcount),
+          annualizedRPE: Math.round((p.revenue / headcount) * periodsPerYear),
+          benchmark: Math.round(annualBenchmarkLow / periodsPerYear),
+          benchmarkHigh: Math.round(annualBenchmarkHigh / periodsPerYear),
+        }));
+
+        const latestRPE = chartData[chartData.length - 1]?.annualizedRPE ?? 0;
+        const fmtK = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n}`;
+        const rpeGrade = latestRPE >= annualBenchmarkHigh ? 'text-emerald-400' : latestRPE >= annualBenchmarkLow ? 'text-amber-400' : 'text-red-400';
+
+        return (
+          <div>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em]">Revenue per Employee</div>
+              <div className="flex-1 h-px bg-cyan-500/10"/>
+              <span className={`text-[13px] font-bold ${rpeGrade}`}>{fmtK(latestRPE)}/yr</span>
+            </div>
+            <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+              <div className="flex items-center justify-between mb-3 text-[11px]">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-cyan-500/60"/><span className="text-slate-500">Rev / Employee (period)</span></div>
+                  <div className="flex items-center gap-1.5"><div className="w-8 h-px border-t-2 border-dashed border-amber-500/60"/><span className="text-slate-500">LMM benchmark $150k/yr</span></div>
+                </div>
+                <div className="text-slate-600">{headcount} headcount</div>
+              </div>
+              <div className="h-44">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                    <XAxis dataKey="period" tick={{ fill: '#475569', fontSize: 10 }} tickLine={false} axisLine={false}/>
+                    <YAxis tick={{ fill: '#475569', fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={v => fmtK(v)}/>
+                    <Tooltip
+                      contentStyle={{ background: '#0d1117', border: '1px solid #1e293b', borderRadius: 8, fontSize: 11 }}
+                      formatter={(v: number) => [fmtK(v), 'Rev/Employee (period)']}
+                    />
+                    <ReferenceLine y={Math.round(annualBenchmarkLow / periodsPerYear)} stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 3" label={{ value: 'LMM min', fill: '#d97706', fontSize: 9, position: 'insideTopRight' }}/>
+                    <Bar dataKey="revenuePerEmp" fill="rgba(6,182,212,0.5)" radius={[3,3,0,0]}/>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mt-3 pt-3 border-t border-slate-800/40">
+                {[
+                  { label: 'Current (annualized)', value: fmtK(latestRPE), color: rpeGrade },
+                  { label: 'LMM Range', value: '$150k–$250k', color: 'text-slate-400' },
+                  { label: 'Headcount', value: `${headcount}`, color: 'text-slate-200' },
+                ].map(m => (
+                  <div key={m.label} className="text-center">
+                    <div className={`text-[15px] font-bold ${m.color}`}>{m.value}</div>
+                    <div className="text-[9px] text-slate-600 mt-0.5 uppercase tracking-wide">{m.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Sales Pipeline */}
       {hasPipeline ? (
