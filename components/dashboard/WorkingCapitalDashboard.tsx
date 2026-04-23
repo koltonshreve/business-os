@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { UnifiedBusinessData } from '../../types';
+
+const WC_STORAGE_KEY = 'bos_working_capital';
 
 const fmt = (n: number) => {
   const abs = Math.abs(n);
@@ -42,11 +44,28 @@ export default function WorkingCapitalDashboard({
   data, onAskAI,
 }: { data: UnifiedBusinessData; onAskAI?: (m: string) => void }) {
   // Manually entered AP, inventory, accrued (since we typically don't have these in CSV)
-  const [ap,          setAp]          = useState(0);
-  const [inventory,   setInventory]   = useState(0);
-  const [accrued,     setAccrued]     = useState(0);
+  const [ap,          setAp]          = useState(() => {
+    if (typeof window === 'undefined') return 0;
+    try { return JSON.parse(localStorage.getItem(WC_STORAGE_KEY) ?? '{}').ap ?? 0; } catch { return 0; }
+  });
+  const [inventory,   setInventory]   = useState(() => {
+    if (typeof window === 'undefined') return 0;
+    try { return JSON.parse(localStorage.getItem(WC_STORAGE_KEY) ?? '{}').inventory ?? 0; } catch { return 0; }
+  });
+  const [accrued,     setAccrued]     = useState(() => {
+    if (typeof window === 'undefined') return 0;
+    try { return JSON.parse(localStorage.getItem(WC_STORAGE_KEY) ?? '{}').accrued ?? 0; } catch { return 0; }
+  });
   const [showInputs,  setShowInputs]  = useState(false);
-  const [pegMonths,   setPegMonths]   = useState(2.0);  // NWC peg in months of revenue
+  const [pegMonths,   setPegMonths]   = useState(() => {
+    if (typeof window === 'undefined') return 2.0;
+    try { return JSON.parse(localStorage.getItem(WC_STORAGE_KEY) ?? '{}').pegMonths ?? 2.0; } catch { return 2.0; }
+  });
+
+  // Persist working capital inputs across refreshes
+  useEffect(() => {
+    try { localStorage.setItem(WC_STORAGE_KEY, JSON.stringify({ ap, inventory, accrued, pegMonths })); } catch { /* ignore */ }
+  }, [ap, inventory, accrued, pegMonths]);
 
   const rev  = data.revenue.total;
   const cogs = data.costs.totalCOGS;
