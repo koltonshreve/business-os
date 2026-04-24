@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { UnifiedBusinessData, SupplierRecord, SupplierData } from '../../types';
 import { buildSupplierData } from '../../lib/data-connectors';
 import Tooltip from '../ui/Tooltip';
@@ -148,7 +148,14 @@ export default function SupplierDashboard({ data, onDataUpdate, onAskAI }: Props
   const [catFilter, setCatFilter] = useState('all');
   const [editId, setEditId] = useState<string | null>(null);
   const [editVal, setEditVal] = useState('');
-  const [localOverrides, setLocalOverrides] = useState<Record<string, number>>({});
+  const [localOverrides, setLocalOverrides] = useState<Record<string, number>>(() => {
+    if (typeof window === 'undefined') return {};
+    try { return JSON.parse(localStorage.getItem('bos_supplier_overrides') ?? '{}'); } catch { return {}; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('bos_supplier_overrides', JSON.stringify(localOverrides)); } catch { /* ignore */ }
+  }, [localOverrides]);
 
   const isDemo = !data.suppliers;
 

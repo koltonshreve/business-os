@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { UnifiedBusinessData, CapacityResource, CapacityData } from '../../types';
 import Tooltip from '../ui/Tooltip';
 
@@ -112,7 +112,10 @@ export default function CapacityAnalyzer({ data, onDataUpdate, onAskAI }: Props)
   const [sort,       setSort]       = useState<SortKey>('utilization');
   const [sortDir,    setSortDir]    = useState<'asc' | 'desc'>('desc');
   const [catFilter,  setCatFilter]  = useState<string>('all');
-  const [overrides,  setOverrides]  = useState<Record<string, number>>({});
+  const [overrides,  setOverrides]  = useState<Record<string, number>>(() => {
+    if (typeof window === 'undefined') return {};
+    try { return JSON.parse(localStorage.getItem('bos_capacity_overrides') ?? '{}'); } catch { return {}; }
+  });
   const [editingId,  setEditingId]  = useState<string | null>(null);
   const [editVal,    setEditVal]    = useState('');
   const [scenario,   setScenario]   = useState<ScenarioState>({
@@ -120,6 +123,10 @@ export default function CapacityAnalyzer({ data, onDataUpdate, onAskAI }: Props)
     action:     'increase_volume',
     changePercent: 20,
   });
+
+  useEffect(() => {
+    try { localStorage.setItem('bos_capacity_overrides', JSON.stringify(overrides)); } catch { /* ignore */ }
+  }, [overrides]);
 
   const isDemo = !data?.capacity?.resources?.length;
   const rawList = isDemo ? DEMO_RESOURCES_RAW : (data.capacity!.resources as typeof DEMO_RESOURCES_RAW);
