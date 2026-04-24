@@ -5,6 +5,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb, isDbConfigured } from '../../lib/db';
+import { getSessionUser } from '../../lib/session';
 
 interface DigestSection {
   headline: string;
@@ -21,6 +22,15 @@ export interface DigestPayload {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // Accept either a user session or the cron secret (for server-to-server calls)
+  const cronSecret = process.env.CRON_SECRET;
+  const authHeader = req.headers.authorization ?? '';
+  const isCron = cronSecret && authHeader === `Bearer ${cronSecret}`;
+  if (!isCron) {
+    const user = await getSessionUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  }
 
   const {
     companyName = 'your company',

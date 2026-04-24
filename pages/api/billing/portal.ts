@@ -4,9 +4,13 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import Stripe from 'stripe';
+import { getSessionUser } from '../../../lib/session';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  const user = await getSessionUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) return res.status(500).json({ error: 'Stripe not configured' });

@@ -75,9 +75,13 @@ async function getOrGenerateDigest(baseUrl: string): Promise<DigestPayload | nul
 
   // Generate a fresh digest (generic — no user-specific financial data at cron time)
   try {
+    const cronSecret = process.env.CRON_SECRET;
     const res = await fetch(`${baseUrl}/api/digest`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(cronSecret ? { 'Authorization': `Bearer ${cronSecret}` } : {}),
+      },
       body: JSON.stringify({ companyName: 'your company' }),
     });
     if (!res.ok) return null;
