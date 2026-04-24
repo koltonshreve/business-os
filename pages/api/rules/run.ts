@@ -6,6 +6,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getDb, isDbConfigured, ensureSchema } from '../../../lib/db';
+import { getSessionUser } from '../../../lib/session';
 import { evaluateRules, type RuleContext } from '../../../lib/rules';
 import type { UnifiedBusinessData } from '../../../types';
 
@@ -15,6 +16,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!isDbConfigured()) {
     return res.status(503).json({ error: 'Database not configured' });
   }
+
+  const user = await getSessionUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
   const { data, acqTargets, goals } = req.body ?? {};
   if (!data) return res.status(400).json({ error: 'data required' });
@@ -85,7 +89,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         INSERT INTO bos_tasks (
           title, context, impact, priority, status, created_by,
           trigger_id, entity_type, entity_id, entity_name,
-          assignee, due_date, metadata
+          assignee, due_date, metadata, user_email
         ) VALUES (
           ${t.title},
           ${t.context ?? null},
@@ -99,7 +103,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ${t.entity_name ?? null},
           ${t.assignee ?? 'you'},
           ${t.due_date ?? null},
-          ${JSON.stringify(t.metadata ?? {})}
+          ${JSON.stringify(t.metadata ?? {})},
+          ${user.email}
         )
         RETURNING *
       ` as unknown as Record<string, unknown>[];

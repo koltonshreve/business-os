@@ -6,6 +6,7 @@ import {
 } from '../../../lib/ai-insights';
 import { parseCSVUpload, mergeDataSources } from '../../../lib/data-connectors';
 import type { UnifiedBusinessData, CSVUpload } from '../../../types';
+import { getSessionUser } from '../../../lib/session';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '5mb' } },
@@ -13,6 +14,9 @@ export const config = {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  const user = await getSessionUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
   try {
     const { action, data, previousData, csvUploads, reportType, companyName, companyProfile } = req.body as {

@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import Anthropic from '@anthropic-ai/sdk';
 import type { UnifiedBusinessData } from '../../types';
+import { getSessionUser } from '../../lib/session';
 
 export const config = { api: { bodyParser: { sizeLimit: '2mb' } } };
 
@@ -396,6 +397,9 @@ Generate 4+ growth levers with specific dollar amounts. Use actual company numbe
 // ── Handler ────────────────────────────────────────────────────────────────────
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  const user = await getSessionUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return res.status(500).json({ error: 'ANTHROPIC_API_KEY is not configured. Add it in Vercel → Settings → Environment Variables.' });

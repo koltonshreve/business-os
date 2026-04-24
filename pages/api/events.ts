@@ -4,11 +4,15 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getDb, isDbConfigured } from '../../lib/db';
+import { getSessionUser } from '../../lib/session';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!isDbConfigured()) {
     return res.status(503).json({ error: 'Database not configured' });
   }
+
+  const user = await getSessionUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
   try {
     const sql = getDb();
