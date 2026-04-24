@@ -85,7 +85,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const token     = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    const baseUrl   = process.env.NEXTAUTH_URL ?? process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://businessos.app';
+    const baseUrl   = process.env.NEXT_PUBLIC_BASE_URL ?? `https://${req.headers.host}`;
     const acceptUrl = `${baseUrl}/accept-invite?token=${token}`;
 
     await sql`
