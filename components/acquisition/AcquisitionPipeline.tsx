@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { addMemoryEntry } from '../../lib/memory';
+import { authHeaders, loadAuthSession } from '../../lib/auth';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -195,6 +196,19 @@ function TargetCard({ target, onOpen, onDragStart }: {
         </div>
       )}
 
+      {/* Idle warning */}
+      {(() => {
+        const idleDays = Math.floor((Date.now() - new Date(target.updatedAt).getTime()) / 86400000);
+        const active = ACTIVE_STAGES.includes(target.stage);
+        if (active && idleDays >= 7) return (
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-amber-500/8 border border-amber-500/20">
+            <svg viewBox="0 0 10 10" fill="currentColor" className="w-2 h-2 text-amber-500 flex-shrink-0"><circle cx="5" cy="5" r="4.5" stroke="currentColor" strokeWidth="1" fill="none"/><path d="M5 2.5v2.75l1 .58"/></svg>
+            <span className="text-[9px] font-semibold text-amber-500">{idleDays}d idle</span>
+          </div>
+        );
+        return null;
+      })()}
+
       {/* Footer */}
       <div className="flex items-center justify-between pt-1.5 border-t border-slate-800/40">
         <div className="flex items-center gap-2">
@@ -290,7 +304,81 @@ function TargetDrawer({ target, onClose, onUpdate }: {
 }) {
   const [draft, setDraft] = useState(target);
   const [editing, setEditing] = useState(false);
-  const stage = STAGES.find(s => s.id === draft.stage)!;
+  const [scoring, setScoring] = useState(false);
+  const [aiResult, setAiResult] = useState<{ score: number; rationale: string[] } | null>(null);
+  const [prepping, setPrepping] = useState(false);
+  const [prepResult, setPrepResult] = useState<{
+    talkingPoints: string[];
+    questionsToAsk: string[];
+    redFlagsToProbe: string[];
+    keyNumbers: string[];
+  } | null>(null);
+  const [loiGenerating, setLoiGenerating] = useState(false);
+  const [loiResult, setLoiResult] = useState<{ subject: string; body: string } | null>(null);
+  const [loiCopied, setLoiCopied] = useState(false);
+  const stage = STAGES.find(s => s.id === draft.stage)!
+
+  const runAiScore = async () => {
+    setScoring(true);
+    setAiResult(null);
+    try {
+      const r = await fetch('/api/acq-targets/score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ target: draft }),
+      });
+      if (r.ok) {
+        const result = await r.json() as { score: number; rationale: string[] };
+        setAiResult(result);
+        // Save score back to the target
+        const updated = { ...draft, score: result.score, updatedAt: new Date().toISOString() };
+        setDraft(updated);
+        onUpdate(updated);
+      }
+    } catch { /* ignore */ } finally {
+      setScoring(false);
+    }
+  };;
+
+  const runMeetingPrep = async () => {
+    setPrepping(true);
+    setPrepResult(null);
+    try {
+      const r = await fetch('/api/acq-targets/meeting-prep', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ target: draft }),
+      });
+      if (r.ok) {
+        const result = await r.json() as typeof prepResult;
+        setPrepResult(result);
+      }
+    } catch { /* ignore */ } finally {
+      setPrepping(false);
+    }
+  };
+
+  const runLoiDraft = async () => {
+    setLoiGenerating(true);
+    setLoiResult(null);
+    try {
+      const r = await fetch('/api/acq-targets/loi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ target: draft }),
+      });
+      if (r.ok) setLoiResult(await r.json() as { subject: string; body: string });
+    } catch { /* ignore */ } finally { setLoiGenerating(false); }
+  };
+
+  const copyLoi = async () => {
+    if (!loiResult) return;
+    try {
+      await navigator.clipboard.writeText(`Subject: ${loiResult.subject}\n\n${loiResult.body}`);
+      setLoiCopied(true);
+      setTimeout(() => setLoiCopied(false), 2000);
+    } catch { /* ignore */ }
+  };
 
   const save = () => { onUpdate(draft); setEditing(false); };
   const field = (label: string, val: string, key: keyof AcquisitionTarget, type = 'text') => (
@@ -332,7 +420,45 @@ function TargetDrawer({ target, onClose, onUpdate }: {
                 <button onClick={() => { setDraft(target); setEditing(false); }} className="px-3 py-1.5 border border-slate-700 text-slate-400 hover:text-slate-200 text-[11px] rounded-lg transition-colors">Cancel</button>
               </>
             ) : (
-              <button onClick={() => setEditing(true)} className="px-3 py-1.5 border border-slate-700 hover:border-slate-600 text-slate-400 hover:text-slate-200 text-[11px] rounded-lg transition-colors">Edit</button>
+              <>
+                <button
+                  onClick={runAiScore}
+                  disabled={scoring}
+                  title="Score this deal with AI"
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-indigo-500/30 bg-indigo-500/8 hover:bg-indigo-500/15 text-indigo-400 hover:text-indigo-300 text-[11px] font-semibold rounded-lg transition-colors disabled:opacity-50">
+                  {scoring ? (
+                    <svg className="animate-spin w-3 h-3" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="7" cy="7" r="5" strokeOpacity="0.3"/><path d="M7 2a5 5 0 015 5"/></svg>
+                  ) : (
+                    <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3"><path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/></svg>
+                  )}
+                  {scoring ? 'Scoring…' : 'AI Score'}
+                </button>
+                <button
+                  onClick={runMeetingPrep}
+                  disabled={prepping}
+                  title="Generate pre-call meeting prep"
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-violet-500/30 bg-violet-500/8 hover:bg-violet-500/15 text-violet-400 hover:text-violet-300 text-[11px] font-semibold rounded-lg transition-colors disabled:opacity-50">
+                  {prepping ? (
+                    <svg className="animate-spin w-3 h-3" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="7" cy="7" r="5" strokeOpacity="0.3"/><path d="M7 2a5 5 0 015 5"/></svg>
+                  ) : (
+                    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3"><rect x="2" y="2" width="10" height="10" rx="1.5"/><path d="M4.5 5h5M4.5 7h5M4.5 9h3"/></svg>
+                  )}
+                  {prepping ? 'Prepping…' : 'Meeting Prep'}
+                </button>
+                <button
+                  onClick={runLoiDraft}
+                  disabled={loiGenerating}
+                  title="Draft a non-binding Letter of Intent"
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-500/30 bg-emerald-500/8 hover:bg-emerald-500/15 text-emerald-400 hover:text-emerald-300 text-[11px] font-semibold rounded-lg transition-colors disabled:opacity-50">
+                  {loiGenerating ? (
+                    <svg className="animate-spin w-3 h-3" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="7" cy="7" r="5" strokeOpacity="0.3"/><path d="M7 2a5 5 0 015 5"/></svg>
+                  ) : (
+                    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3"><path d="M2 2h10v10H2z" rx="1"/><path d="M4.5 5h5M4.5 7h5M4.5 9h2.5"/><path d="M9 9l1.5 1.5" strokeLinecap="round"/></svg>
+                  )}
+                  {loiGenerating ? 'Drafting…' : 'LOI Draft'}
+                </button>
+                <button onClick={() => setEditing(true)} className="px-3 py-1.5 border border-slate-700 hover:border-slate-600 text-slate-400 hover:text-slate-200 text-[11px] rounded-lg transition-colors">Edit</button>
+              </>
             )}
             <button onClick={onClose} className="text-slate-600 hover:text-slate-300 text-xl w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-800/60 transition-colors">×</button>
           </div>
@@ -371,6 +497,84 @@ function TargetDrawer({ target, onClose, onUpdate }: {
               >
                 Advance →
               </button>
+            </div>
+          )}
+
+          {/* Idle warning */}
+          {(() => {
+            const idleDays = Math.floor((Date.now() - new Date(draft.updatedAt).getTime()) / 86400000);
+            if (ACTIVE_STAGES.includes(draft.stage) && idleDays >= 7) return (
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-amber-500/8 border border-amber-500/20">
+                <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3 text-amber-400 flex-shrink-0"><path d="M7 1a6 6 0 100 12A6 6 0 007 1zm0 2.5a.5.5 0 01.5.5v3l1.5.87a.5.5 0 01-.5.87l-2-1.16A.5.5 0 016.5 7V4a.5.5 0 01.5-.5z"/></svg>
+                <span className="text-[11px] text-amber-400 font-medium">No activity in <span className="font-bold">{idleDays} days</span> — add a note or update the next action</span>
+              </div>
+            );
+            return null;
+          })()}
+
+          {/* AI Score result */}
+          {aiResult && (
+            <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em]">AI Deal Score</div>
+                <div className={`text-[20px] font-black tabular-nums ${
+                  aiResult.score >= 8 ? 'text-emerald-400' : aiResult.score >= 6 ? 'text-amber-400' : 'text-red-400'
+                }`}>{aiResult.score}<span className="text-[12px] font-medium text-slate-600">/10</span></div>
+              </div>
+              <ul className="space-y-1.5">
+                {aiResult.rationale.map((r, i) => (
+                  <li key={i} className="flex items-start gap-2 text-[11px] text-slate-400 leading-snug">
+                    <span className="flex-shrink-0 text-indigo-500 mt-0.5">·</span>
+                    {r}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Meeting Prep result */}
+          {prepResult && (
+            <div className="bg-violet-500/5 border border-violet-500/20 rounded-xl p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em]">Pre-Call Briefing</div>
+                <button onClick={() => setPrepResult(null)} className="text-slate-700 hover:text-slate-400 text-xs">✕</button>
+              </div>
+              {([
+                { label: 'Talking Points', items: prepResult.talkingPoints, color: 'text-violet-400' },
+                { label: 'Questions to Ask', items: prepResult.questionsToAsk, color: 'text-sky-400' },
+                { label: 'Red Flags to Probe', items: prepResult.redFlagsToProbe, color: 'text-amber-400' },
+                { label: 'Key Numbers to Validate', items: prepResult.keyNumbers, color: 'text-emerald-400' },
+              ] as const).map(section => (
+                <div key={section.label}>
+                  <div className={`text-[10px] font-semibold uppercase tracking-[0.07em] mb-1.5 ${section.color}`}>{section.label}</div>
+                  <ul className="space-y-1">
+                    {section.items.map((item, i) => (
+                      <li key={i} className="flex items-start gap-2 text-[11px] text-slate-400 leading-snug">
+                        <span className={`flex-shrink-0 mt-0.5 ${section.color}`}>·</span>
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* LOI Draft result */}
+          {loiResult && (
+            <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em]">LOI Draft — Non-Binding</div>
+                <div className="flex items-center gap-2">
+                  <button onClick={copyLoi}
+                    className={`text-[10px] font-semibold px-2.5 py-1 rounded-lg border transition-colors ${loiCopied ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-500 border-slate-700/50 hover:text-slate-300 hover:border-slate-600'}`}>
+                    {loiCopied ? '✓ Copied' : '⎘ Copy'}
+                  </button>
+                  <button onClick={() => setLoiResult(null)} className="text-slate-700 hover:text-slate-400 text-xs">✕</button>
+                </div>
+              </div>
+              <div className="text-[11px] font-semibold text-emerald-300/80 mb-2">{loiResult.subject}</div>
+              <pre className="text-[11px] text-slate-300 whitespace-pre-wrap font-sans leading-relaxed max-h-96 overflow-y-auto">{loiResult.body}</pre>
             </div>
           )}
 
@@ -606,10 +810,42 @@ export default function AcquisitionPipeline({ onAskAI }: { onAskAI?: (msg: strin
   const [filterMatch, setFilterMatch] = useState<'all' | 'strong' | 'moderate' | 'weak'>('all');
   const dragId = useRef<string | null>(null);
 
+  // ── DB sync helpers ───────────────────────────────────────────────────────────
+  const syncToDb = useCallback((list: AcquisitionTarget[]) => {
+    const session = loadAuthSession();
+    if (!session) return;
+    fetch('/api/acq-targets', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(list),
+    }).catch(() => null);
+  }, []);
+
+  // On mount: if authenticated, load from DB; if DB is empty, push localStorage data up
+  useEffect(() => {
+    const session = loadAuthSession();
+    if (!session) return;
+    fetch('/api/acq-targets', { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((dbTargets: AcquisitionTarget[] | null) => {
+        if (dbTargets && dbTargets.length > 0) {
+          setTargetsState(dbTargets);
+          try { localStorage.setItem('bos_acq_targets', JSON.stringify(dbTargets)); } catch { /* ignore */ }
+        } else {
+          // Push current local targets to DB
+          const local = loadTargets();
+          syncToDb(local);
+        }
+      })
+      .catch(() => null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const save = useCallback((list: AcquisitionTarget[]) => {
     setTargetsState(list);
     try { localStorage.setItem('bos_acq_targets', JSON.stringify(list)); } catch { /* ignore */ }
-  }, []);
+    syncToDb(list);
+  }, [syncToDb]);
 
   const updateTarget = useCallback((t: AcquisitionTarget) => {
     save(targets.map(x => x.id === t.id ? { ...t, updatedAt: new Date().toISOString() } : x));

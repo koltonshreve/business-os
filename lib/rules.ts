@@ -69,6 +69,7 @@ export const RULES: Rule[] = [
           entity_type: 'metric',
           entity_name: 'Cash Runway',
           assignee: 'you',
+          recurrence: 'none',
           metadata: { runway, cash },
         },
       };
@@ -101,6 +102,7 @@ export const RULES: Rule[] = [
           entity_type: 'metric',
           entity_name: 'Cash Runway',
           assignee: 'you',
+          recurrence: 'none',
           metadata: { runway, cash },
         },
       };
@@ -131,6 +133,7 @@ export const RULES: Rule[] = [
           entity_type: 'metric',
           entity_name: 'EBITDA',
           assignee: 'you',
+          recurrence: 'none',
           metadata: { ebitda },
         },
       };
@@ -161,6 +164,7 @@ export const RULES: Rule[] = [
           entity_type: 'metric',
           entity_name: 'EBITDA Margin',
           assignee: 'you',
+          recurrence: 'none',
           metadata: { margin },
         },
       };
@@ -190,6 +194,7 @@ export const RULES: Rule[] = [
           entity_type: 'company',
           entity_name: top.name,
           assignee: 'you',
+          recurrence: 'none',
           metadata: { pct: top.percentOfTotal, customer: top.name },
         },
       };
@@ -220,6 +225,7 @@ export const RULES: Rule[] = [
           entity_type: 'metric',
           entity_name: 'Retention Rate',
           assignee: 'you',
+          recurrence: 'none',
           metadata: { retention: ret, lost },
         },
       };
@@ -255,6 +261,7 @@ export const RULES: Rule[] = [
           entity_type: 'deal',
           entity_name: names,
           assignee: 'you',
+          recurrence: 'none',
           metadata: { count: overdue.length, deals: overdue.map(d => d.name) },
         },
       };
@@ -283,6 +290,7 @@ export const RULES: Rule[] = [
           entity_type: 'metric',
           entity_name: 'Acquisition Pipeline',
           assignee: 'you',
+          recurrence: 'none',
           metadata: { activeCount: active.length },
         },
       };
@@ -311,6 +319,7 @@ export const RULES: Rule[] = [
           entity_type: 'deal',
           entity_name: stale[0].name,
           assignee: 'you',
+          recurrence: 'none',
           metadata: { deal: stale[0].name },
         },
       };
@@ -349,6 +358,7 @@ export const RULES: Rule[] = [
           entity_type: 'goal',
           entity_name: g.title,
           assignee: 'you',
+          recurrence: 'none',
           metadata: { goal: g.title, pct, daysLeft: daysUntil(g.dueDate) },
         },
       };

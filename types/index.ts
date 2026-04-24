@@ -14,6 +14,7 @@ export interface UnifiedBusinessData {
   transactions?: Transaction[];
   suppliers?: SupplierData;
   capacity?: CapacityData;
+  balanceSheet?: BalanceSheet;
 }
 
 export interface RevenueData {
@@ -237,7 +238,7 @@ export interface GoogleSheetsConfig {
 }
 
 export interface CSVUpload {
-  type: 'revenue' | 'costs' | 'customers' | 'operations' | 'pipeline' | 'payroll' | 'cashflow' | 'ar_aging' | 'transactions' | 'suppliers' | 'capacity';
+  type: 'revenue' | 'costs' | 'customers' | 'operations' | 'pipeline' | 'payroll' | 'cashflow' | 'ar_aging' | 'transactions' | 'suppliers' | 'capacity' | 'balance_sheet';
   filename: string;
   content: string; // CSV text
 }
@@ -376,6 +377,34 @@ export interface CapacitySummary {
 export interface CapacityData {
   resources: CapacityResource[];
   summary: CapacitySummary;
+}
+
+// ─── Balance Sheet ────────────────────────────────────────────────────────────
+
+export interface BalanceSheetLineItem {
+  label: string;
+  amount: number;
+  note?: string;
+}
+
+export interface BalanceSheetSection {
+  items: BalanceSheetLineItem[];
+  total: number;
+}
+
+export interface BalanceSheet {
+  asOf: string; // ISO date — snapshot date
+  currency?: string;
+  // Assets
+  currentAssets: BalanceSheetSection;    // cash, AR, inventory, prepaid, etc.
+  nonCurrentAssets: BalanceSheetSection; // PP&E, intangibles, goodwill, etc.
+  // Liabilities
+  currentLiabilities: BalanceSheetSection;  // AP, accrued exp, short-term debt, etc.
+  longTermLiabilities: BalanceSheetSection; // long-term debt, deferred revenue, etc.
+  // Equity
+  equity: BalanceSheetSection; // paid-in capital, retained earnings, etc.
+  // Prior period for comparison (optional)
+  prior?: Omit<BalanceSheet, 'prior'>;
 }
 
 // ─── CRM / Deal Pipeline ──────────────────────────────────────────────────────

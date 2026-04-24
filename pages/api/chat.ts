@@ -1,7 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import Anthropic from '@anthropic-ai/sdk';
 import type { UnifiedBusinessData } from '../../types';
-import { getDb, isDbConfigured } from '../../lib/db';
+import { getDb, ensureSchema, isDbConfigured } from '../../lib/db';
+import { getSessionUser } from '../../lib/session';
 
 export const config = { api: { bodyParser: { sizeLimit: '1mb' } } };
 
@@ -127,26 +128,62 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // ── Demo bypass: operator key skips all limits ────────────────────────────
   const isDemoBypass = DEMO_BYPASS_KEY && bypassKey === DEMO_BYPASS_KEY;
 
-  // ── Server-side plan verification ────────────────────────────────────────
+  // ── Server-side auth + plan + usage ──────────────────────────────────────
   let planId = clientPlanId;
-  if (!isDemoBypass && isDbConfigured() && stripeCustomerId) {
+  let authedEmail: string | null = null;
+
+  if (!isDemoBypass && isDbConfigured()) {
     try {
-      const sql = getDb();
-      const rows = await sql`
-        SELECT plan_id FROM bos_user_plans WHERE stripe_customer_id = ${stripeCustomerId} LIMIT 1
-      ` as { plan_id: string }[];
-      if (rows.length > 0) planId = rows[0].plan_id;
+      await ensureSchema();
+      const sessionUser = await getSessionUser(req);
+      if (sessionUser) {
+        authedEmail = sessionUser.email;
+        const sql = getDb();
+        const userRows = await sql`
+          SELECT plan_id FROM bos_users WHERE email = ${authedEmail} LIMIT 1
+        ` as { plan_id: string }[];
+        if (userRows.length > 0) planId = userRows[0].plan_id;
+      } else if (stripeCustomerId) {
+        // Legacy: fall back to stripe customer lookup
+        const sql = getDb();
+        const rows = await sql`
+          SELECT plan_id FROM bos_user_plans WHERE stripe_customer_id = ${stripeCustomerId} LIMIT 1
+        ` as { plan_id: string }[];
+        if (rows.length > 0) planId = rows[0].plan_id;
+      }
     } catch { /* non-fatal: fall back to client-reported plan */ }
   }
 
   if (!isDemoBypass) {
     const monthlyLimit = PLAN_MONTHLY_LIMITS[planId] ?? PLAN_MONTHLY_LIMITS.starter;
-    if (monthlyLimit < 999 && queriesUsed >= monthlyLimit) {
-      return res.status(402).json({
-        error: 'monthly_limit_reached',
-        message: `You've used all ${monthlyLimit} AI queries on the ${planId} plan this month.`,
-        upgradeRequired: true,
-      });
+
+    // Server-side usage check for authenticated users
+    if (authedEmail && isDbConfigured() && monthlyLimit < 999) {
+      try {
+        const sql = getDb();
+        const yearMonth = new Date().toISOString().slice(0, 7); // "2026-04"
+        const usageRows = await sql`
+          SELECT count FROM bos_ai_usage WHERE user_email = ${authedEmail} AND year_month = ${yearMonth} LIMIT 1
+        ` as { count: number }[];
+        const serverCount = usageRows.length > 0 ? usageRows[0].count : 0;
+        if (serverCount >= monthlyLimit) {
+          return res.status(402).json({
+            error: 'monthly_limit_reached',
+            message: `You've used all ${monthlyLimit} AI queries on the ${planId} plan this month.`,
+            upgradeRequired: true,
+          });
+        }
+      } catch { /* non-fatal */ }
+    } else if (!authedEmail) {
+      // Unauthenticated: trust client count as before
+      const monthlyLimitForClient = PLAN_MONTHLY_LIMITS[planId] ?? PLAN_MONTHLY_LIMITS.starter;
+      if (monthlyLimitForClient < 999 && queriesUsed >= monthlyLimitForClient) {
+        return res.status(402).json({
+          error: 'monthly_limit_reached',
+          message: `You've used all ${monthlyLimitForClient} AI queries on the ${planId} plan this month.`,
+          upgradeRequired: true,
+        });
+      }
     }
 
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
@@ -185,6 +222,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         messages: msgList,
       });
       const reply = msg.content.filter(b => b.type === 'text').map(b => b.text).join('');
+      // Increment server-side usage for non-streaming authenticated calls
+      if (authedEmail && isDbConfigured() && !isDemoBypass) {
+        try {
+          const sql = getDb();
+          const yearMonth = new Date().toISOString().slice(0, 7);
+          await sql`
+            INSERT INTO bos_ai_usage (user_email, year_month, count)
+            VALUES (${authedEmail}, ${yearMonth}, 1)
+            ON CONFLICT (user_email, year_month) DO UPDATE SET count = bos_ai_usage.count + 1
+          `;
+        } catch { /* non-fatal */ }
+      }
       return res.json({ reply });
     } catch (err) {
       console.error('Chat error:', err);
@@ -214,6 +263,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     await stream.finalMessage();
     res.write('data: [DONE]\n\n');
     res.end();
+
+    // Increment server-side usage counter for authenticated users
+    if (authedEmail && isDbConfigured() && !isDemoBypass) {
+      try {
+        const sql = getDb();
+        const yearMonth = new Date().toISOString().slice(0, 7);
+        await sql`
+          INSERT INTO bos_ai_usage (user_email, year_month, count)
+          VALUES (${authedEmail}, ${yearMonth}, 1)
+          ON CONFLICT (user_email, year_month) DO UPDATE SET count = bos_ai_usage.count + 1
+        `;
+      } catch { /* non-fatal */ }
+    }
 
   } catch (err) {
     console.error('Chat stream error:', err);

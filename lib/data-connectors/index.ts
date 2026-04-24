@@ -148,9 +148,9 @@ function parseRevenueSheet(rows: string[][]): UnifiedBusinessData['revenue'] {
       grossProfit: cogsIdx >= 0 ? parseNum(row[revenueIdx]) - parseNum(row[cogsIdx]) : undefined,
     }));
 
-  const total = byPeriod.length > 0
-    ? byPeriod[byPeriod.length - 1].revenue // Most recent period
-    : 0;
+  // Sum all periods — revenue.total must equal the full uploaded dataset,
+  // not just the last period (prior bug caused 1/N undercount for multi-period CSVs).
+  const total = byPeriod.reduce((s, p) => s + p.revenue, 0);
 
   return { total, byPeriod, currency: 'USD' };
 }

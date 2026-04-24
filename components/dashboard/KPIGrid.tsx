@@ -612,6 +612,20 @@ function KPIDetailModal({
   );
 }
 
+// ── KPI notes storage helpers ─────────────────────────────────────────────────
+const KPI_NOTES_KEY = 'bos_kpi_notes';
+function loadKpiNotes(): Record<string, string> {
+  try { const s = localStorage.getItem(KPI_NOTES_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
+}
+function saveKpiNote(id: string, note: string) {
+  try {
+    const notes = loadKpiNotes();
+    if (note.trim()) notes[id] = note.trim();
+    else delete notes[id];
+    localStorage.setItem(KPI_NOTES_KEY, JSON.stringify(notes));
+  } catch { /* ignore */ }
+}
+
 // ── KPI card ───────────────────────────────────────────────────────────────────
 function KPICard({
   kpi, goal, data, previousData, onNavigate,
@@ -624,6 +638,12 @@ function KPICard({
 }) {
   const [showDetail, setShowDetail] = useState(false);
   const [copied, setCopied]         = useState(false);
+  const [showNote, setShowNote]     = useState(false);
+  const [noteText, setNoteText]     = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return loadKpiNotes()[kpi.id] ?? '';
+  });
+  const [noteDraft, setNoteDraft]   = useState('');
   const source = METRIC_SOURCE[kpi.id];
 
   const handleCopy = (e: React.MouseEvent) => {
@@ -662,11 +682,12 @@ function KPICard({
 
   return (
     <>
+      <div className="relative group/card">
       <button onClick={() => setShowDetail(true)}
-        className={`group w-full text-left ${statusStyles.bg} hover:bg-slate-800/60 border border-slate-800/50 border-l-2 ${statusStyles.border} rounded-xl p-3.5 relative transition-all cursor-pointer print-break-avoid`}>
+        className={`w-full text-left ${statusStyles.bg} hover:bg-slate-800/60 border border-slate-800/50 border-l-2 ${statusStyles.border} rounded-xl p-3.5 relative transition-all cursor-pointer print-break-avoid`}>
         {kpi.isAnomalous && <div className="absolute top-2.5 right-2.5 w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"/>}
         {/* Name row */}
-        <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] truncate mb-2">{kpi.name}</div>
+        <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] truncate mb-2 pr-5">{kpi.name}</div>
         {/* Value + change pill */}
         <div className="flex items-end justify-between gap-1">
           <div
@@ -690,7 +711,7 @@ function KPICard({
           </div>
         )}
 
-        {/* Benchmark — single text line, no bar */}
+        {/* Benchmark — visual bar with marker */}
         {(() => {
           const bv = BENCHMARK_VALS[kpi.id];
           if (!bv) return null;
@@ -702,13 +723,85 @@ function KPICard({
           const fmtDiff = isMonetary
             ? (absDiff >= 1_000_000 ? `$${(absDiff/1_000_000).toFixed(1)}M` : absDiff >= 1000 ? `$${(absDiff/1000).toFixed(0)}k` : `$${absDiff.toFixed(0)}`)
             : `${absDiff.toFixed(1)}pp`;
+
+          // For bar: show user's value relative to benchmark (0–200% of benchmark)
+          const ratio = bv.val > 0 ? Math.min(kpi.value / bv.val, 2) : 0;
+          const barPct = isInvB
+            ? Math.min((1 - (kpi.value / (bv.val * 2 || 1))) * 100, 100) // lower is better
+            : Math.min((ratio / 2) * 100, 100); // benchmark at 50% of bar
+          const benchmarkPct = isInvB ? 50 : 50; // always center
+
           return (
-            <div className={`mt-2 text-[10px] font-medium tabular-nums ${isAhead ? 'text-emerald-400/60' : 'text-amber-400/60'}`}>
-              {isAhead ? `+${fmtDiff} vs` : `${fmtDiff} below`} {bv.label}
+            <div className="mt-2.5">
+              <div className="flex items-center justify-between mb-1">
+                <span className={`text-[9px] font-semibold ${isAhead ? 'text-emerald-400/70' : 'text-amber-400/70'}`}>
+                  {isAhead ? `+${fmtDiff} vs benchmark` : `${fmtDiff} below benchmark`}
+                </span>
+                <span className="text-[9px] text-slate-600">{bv.label}</span>
+              </div>
+              <div className="relative h-1 bg-slate-800/80 rounded-full overflow-visible">
+                {/* Fill bar */}
+                <div
+                  className={`absolute left-0 top-0 h-full rounded-full transition-all ${isAhead ? 'bg-emerald-500/50' : 'bg-amber-500/40'}`}
+                  style={{ width: `${Math.min(barPct, 100)}%` }}
+                />
+                {/* Benchmark marker */}
+                <div
+                  className="absolute top-1/2 -translate-y-1/2 w-0.5 h-2.5 bg-slate-500 rounded-full"
+                  style={{ left: `${benchmarkPct}%` }}
+                  title={bv.label}
+                />
+              </div>
             </div>
           );
         })()}
       </button>
+
+      {/* Note button — appears on card hover */}
+      <button
+        onClick={e => { e.stopPropagation(); setNoteDraft(noteText); setShowNote(v => !v); }}
+        className={`absolute top-2 right-2 p-1 rounded-md transition-all opacity-0 group-hover/card:opacity-100 ${noteText ? 'opacity-100 text-amber-400/70 hover:text-amber-300' : 'text-slate-600 hover:text-slate-400'}`}
+        title={noteText ? 'View / edit note' : 'Add note'}
+      >
+        <svg viewBox="0 0 14 14" className="w-3 h-3" fill="currentColor">
+          <path d="M2 2h10a1 1 0 011 1v7a1 1 0 01-1 1H8l-3 2v-2H2a1 1 0 01-1-1V3a1 1 0 011-1z"/>
+        </svg>
+      </button>
+
+      {/* Note popover */}
+      {showNote && (
+        <div
+          className="absolute z-20 top-8 right-0 w-56 bg-[#0e1520] border border-slate-700/60 rounded-xl shadow-2xl p-3 space-y-2"
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">{kpi.name} — Note</div>
+          <textarea
+            autoFocus
+            value={noteDraft}
+            onChange={e => setNoteDraft(e.target.value)}
+            placeholder="Add context, assumptions, or flags…"
+            className="w-full h-20 bg-slate-800/60 border border-slate-700/40 rounded-lg px-2.5 py-2 text-[11px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 resize-none"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={() => { saveKpiNote(kpi.id, noteDraft); setNoteText(noteDraft.trim()); setShowNote(false); }}
+              className="flex-1 text-[11px] py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 rounded-lg transition-colors"
+            >Save</button>
+            <button
+              onClick={() => { saveKpiNote(kpi.id, ''); setNoteText(''); setNoteDraft(''); setShowNote(false); }}
+              className="text-[11px] px-2.5 py-1.5 text-slate-500 hover:text-red-400 transition-colors"
+              title="Delete note"
+            >
+              <svg viewBox="0 0 12 12" className="w-3 h-3" fill="currentColor"><path d="M2 2l8 8M10 2L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/></svg>
+            </button>
+          </div>
+          {noteText && (
+            <div className="text-[10px] text-amber-400/70 bg-amber-500/5 border border-amber-500/15 rounded-lg px-2.5 py-2 leading-relaxed whitespace-pre-wrap">{noteText}</div>
+          )}
+        </div>
+      )}
+      </div>
+
       {showDetail && (
         <KPIDetailModal
           kpi={kpi} goal={goal}
@@ -821,8 +914,45 @@ export default function KPIGrid({ dashboard, data, previousData, goals, onNaviga
     .map(cat => ({ cat, items: kpis.filter(k => k.category === cat) }))
     .filter(g => g.items.length > 0);
 
+  const exportCSV = () => {
+    const rows = [
+      ['Metric', 'Category', 'Value', 'Formatted', 'Unit', 'Change %', 'Trend', 'Status'],
+      ...kpis.map(k => [
+        k.name,
+        k.category,
+        k.value.toString(),
+        k.formattedValue,
+        k.unit ?? '',
+        k.changePercent != null ? k.changePercent.toFixed(2) : '',
+        k.trend ?? '',
+        k.status,
+      ]),
+    ];
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `kpis-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-2">
+      {/* Export row */}
+      <div className="flex justify-end">
+        <button
+          onClick={exportCSV}
+          className="flex items-center gap-1.5 text-[10px] font-medium text-slate-600 hover:text-slate-400 transition-colors no-print"
+          title="Export all KPIs as CSV"
+        >
+          <svg viewBox="0 0 12 12" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <path d="M6 1v7M3 5l3 3 3-3M1 9v1a1 1 0 001 1h8a1 1 0 001-1V9"/>
+          </svg>
+          Export CSV
+        </button>
+      </div>
       {grouped.map(({ cat, items }) => (
         <KPIGroup
           key={cat}

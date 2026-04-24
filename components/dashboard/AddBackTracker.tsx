@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { UnifiedBusinessData } from '../../types';
 
 type AddBackCategory =
@@ -25,6 +25,43 @@ const CATS: Record<AddBackCategory, { label: string; hint: string; color: string
 };
 
 const KEY = 'bos_addbacks';
+const QUAL_KEY = 'bos_qual_qoe';
+
+type QualRating = 'green' | 'yellow' | 'red';
+interface QualFactor {
+  id: string;
+  label: string;
+  hint: string;
+  group: string;
+  rating: QualRating;
+}
+
+const QUAL_FACTORS_DEFAULT: Omit<QualFactor, 'rating'>[] = [
+  // Revenue quality
+  { id: 'recurring',       group: 'Revenue Quality',    label: 'High recurring revenue',         hint: '>70% subscription/contract/retainer' },
+  { id: 'multiyear',       group: 'Revenue Quality',    label: 'Multi-year contracts in place',  hint: 'Signed agreements with >1yr remaining' },
+  { id: 'diversified',     group: 'Revenue Quality',    label: 'Diversified customer base',      hint: 'No single customer >15% of revenue' },
+  { id: 'growing_rev',     group: 'Revenue Quality',    label: 'Revenue growth trend',           hint: 'YoY revenue growing for 2+ years' },
+  { id: 'backlog',         group: 'Revenue Quality',    label: 'Backlog / contracted pipeline',  hint: 'Visible forward revenue >3 months' },
+  // Management & people
+  { id: 'mgmt_depth',      group: 'Management',         label: 'Strong #2 leadership',           hint: 'Non-owner GM/COO running day-to-day' },
+  { id: 'owner_dep',       group: 'Management',         label: 'Low owner dependency',           hint: 'Business runs without owner in sales/ops' },
+  { id: 'retention',       group: 'Management',         label: 'Low key-person turnover',        hint: 'Core team has been stable 3+ years' },
+  { id: 'mgmt_stay',       group: 'Management',         label: 'Management willing to stay',     hint: 'Leadership committed post-close' },
+  // Financials
+  { id: 'audited',         group: 'Financial Quality',  label: 'Audited or reviewed financials', hint: 'CPA-prepared with at least a review' },
+  { id: 'gaap',            group: 'Financial Quality',  label: 'Clean GAAP accounting',          hint: 'No revenue recognition issues or restatements' },
+  { id: 'ar_quality',      group: 'Financial Quality',  label: 'Clean AR aging',                 hint: '<15% AR over 90 days past due' },
+  { id: 'margin_stable',   group: 'Financial Quality',  label: 'Stable or improving margins',    hint: 'GM% consistent or trending up 2+ years' },
+  // Operations
+  { id: 'sops',            group: 'Operations',         label: 'Documented SOPs / processes',    hint: 'Written playbooks for key business functions' },
+  { id: 'systems',         group: 'Operations',         label: 'Modern tech & systems',          hint: 'CRM, ERP, or PM tools in active use' },
+  { id: 'scalable',        group: 'Operations',         label: 'Scalable without linear headcount', hint: 'Revenue can grow faster than headcount' },
+  // Market
+  { id: 'market_growth',   group: 'Market',             label: 'Growing addressable market',     hint: 'Industry tailwinds / favorable macro' },
+  { id: 'moat',            group: 'Market',             label: 'Defensible competitive moat',    hint: 'Switching costs, brand, IP, or network effects' },
+  { id: 'regulatory',      group: 'Market',             label: 'Low regulatory / litigation risk',hint: 'No pending suits, permits, or compliance issues' },
+];
 const fmt = (n: number) => {
   const abs = Math.abs(n);
   const s = abs >= 1e6 ? `$${(abs/1e6).toFixed(2)}M` : `$${Math.round(abs).toLocaleString()}`;
@@ -37,14 +74,28 @@ const BLANK: Omit<AddBack,'id'> = { category: 'owner_comp', description: '', amo
 export default function AddBackTracker({
   data, onAskAI,
 }: { data: UnifiedBusinessData; onAskAI?: (m: string) => void }) {
-  const [items,   setItems]   = useState<AddBack[]>([]);
-  const [draft,   setDraft]   = useState<Omit<AddBack,'id'>>(BLANK);
-  const [adding,  setAdding]  = useState(false);
-  const [editId,  setEditId]  = useState<string | null>(null);
-  const [multiple,setMultiple]= useState(6.0);
+  const [items,    setItems]    = useState<AddBack[]>([]);
+  const [draft,    setDraft]    = useState<Omit<AddBack,'id'>>(BLANK);
+  const [adding,   setAdding]   = useState(false);
+  const [editId,   setEditId]   = useState<string | null>(null);
+  const [multiple, setMultiple] = useState(6.0);
+  const [qualOpen, setQualOpen] = useState(false);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [qualFactors, setQualFactors] = useState<QualFactor[]>(() =>
+    QUAL_FACTORS_DEFAULT.map(f => ({ ...f, rating: 'yellow' as QualRating }))
+  );
 
   useEffect(() => {
     try { const s = localStorage.getItem(KEY); if (s) setItems(JSON.parse(s)); } catch {}
+    try { const q = localStorage.getItem(QUAL_KEY); if (q) setQualFactors(JSON.parse(q)); } catch {}
+  }, []);
+
+  const setQualRating = useCallback((id: string, rating: QualRating) => {
+    setQualFactors(prev => {
+      const next = prev.map(f => f.id === id ? { ...f, rating } : f);
+      try { localStorage.setItem(QUAL_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
   }, []);
 
   const persist = (next: AddBack[]) => {
@@ -68,6 +119,61 @@ export default function AddBackTracker({
   const reported = rev - cogs - opex;
   const totalAB  = items.reduce((s, i) => s + i.amount, 0);
   const adjusted = reported + totalAB;
+
+  // ── Auto-detect potential add-backs ────────────────────────────────────────
+  interface Suggestion {
+    category: AddBackCategory;
+    description: string;
+    amount: number;
+    oneTime: boolean;
+    reason: string;
+  }
+
+  const suggestions: Suggestion[] = (() => {
+    const out: Suggestion[] = [];
+    const existingDescs = new Set(items.map(i => i.description.toLowerCase()));
+
+    // 1. D&A from cost categories
+    const DA_KEYWORDS = ['depreciation', 'amortization', 'd&a', 'da expense'];
+    for (const cat of data.costs.byCategory) {
+      const name = cat.category.toLowerCase();
+      if (DA_KEYWORDS.some(kw => name.includes(kw)) && cat.amount > 0) {
+        const desc = `${cat.category} (non-cash)`;
+        if (!existingDescs.has(desc.toLowerCase())) {
+          out.push({ category: 'non_cash', description: desc, amount: cat.amount, oneTime: false, reason: 'Non-cash expense — typically added back in EBITDA normalization.' });
+        }
+      }
+    }
+
+    // 2. Owner / excess comp — if labor cost per head looks high
+    const headcount = data.operations.headcount ?? 0;
+    const laborCost = data.costs.laborCost ?? 0;
+    if (headcount > 0 && laborCost > 0) {
+      const avgComp = laborCost / headcount;
+      // Market replacement CEO ≈ $200k–$250k for LMM; flag if avg > $280k (suggests owner above market)
+      if (avgComp > 280_000) {
+        const excess = Math.round((avgComp - 200_000) * Math.min(headcount, 1));
+        const desc = "Owner's comp above market replacement";
+        if (excess > 0 && !existingDescs.has(desc.toLowerCase())) {
+          out.push({ category: 'owner_comp', description: desc, amount: excess, oneTime: false, reason: `Average total comp/head of ${fmt(avgComp)} suggests owner compensation above a $200k market replacement CEO.` });
+        }
+      }
+    }
+
+    // 3. Non-recurring cost categories (legal, consulting, restructuring, settlement, M&A)
+    const NR_KEYWORDS = ['legal', 'litigation', 'settlement', 'restructur', 'm&a', 'transaction', 'consulting fee', 'advisory fee', 'severance'];
+    for (const cat of data.costs.byCategory) {
+      const name = cat.category.toLowerCase();
+      if (NR_KEYWORDS.some(kw => name.includes(kw)) && cat.amount > 0) {
+        const desc = `${cat.category} (non-recurring)`;
+        if (!existingDescs.has(desc.toLowerCase())) {
+          out.push({ category: 'non_recurring', description: desc, amount: cat.amount, oneTime: true, reason: `"${cat.category}" cost category may be non-recurring — verify and add back if truly one-time.` });
+        }
+      }
+    }
+
+    return out;
+  })();
 
   return (
     <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
@@ -132,6 +238,64 @@ export default function AddBackTracker({
           </div>
         );
       })()}
+
+      {/* Auto-detected suggestions */}
+      {suggestions.length > 0 && (
+        <div className="px-5 py-3 border-b border-slate-800/40">
+          <button
+            onClick={() => setSuggestOpen(v => !v)}
+            className="flex items-center justify-between w-full text-left"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold text-amber-300">Suggested Add-backs</span>
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20">
+                {suggestions.length} detected
+              </span>
+            </div>
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5"
+              className={`w-3.5 h-3.5 text-slate-500 transition-transform ${suggestOpen ? 'rotate-180' : ''}`}>
+              <path d="M2 4l5 5 5-5"/>
+            </svg>
+          </button>
+          {suggestOpen && (
+            <div className="mt-3 space-y-2">
+              {suggestions.map((s, i) => (
+                <div key={i} className="bg-amber-500/5 border border-amber-500/15 rounded-xl px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-slate-900 border border-slate-700/60 ${CATS[s.category].color}`}>
+                          {CATS[s.category].label}
+                        </span>
+                        {s.oneTime && (
+                          <span className="text-[9px] text-amber-400/80 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-full font-semibold">one-time</span>
+                        )}
+                      </div>
+                      <div className="text-[12px] font-medium text-slate-200">{s.description}</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">{s.reason}</div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <div className="text-[14px] font-bold text-emerald-400 tabular-nums">{fmt(s.amount)}</div>
+                      <button
+                        onClick={() => {
+                          const newItem: AddBack = { id: `ab${Date.now()}`, ...s };
+                          persist([...items, newItem]);
+                        }}
+                        className="text-[10px] font-semibold text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 hover:border-emerald-500/50 px-2.5 py-1 rounded-lg transition-colors"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <div className="text-[9px] text-slate-700 pt-1">
+                Auto-detected from your cost categories. Verify each item before including in a buyer presentation.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Items list */}
       <div className="px-5 py-4 space-y-2">
@@ -227,6 +391,90 @@ export default function AddBackTracker({
           </button>
         )}
       </div>
+
+      {/* ── Qualitative Quality of Earnings ── */}
+      {(() => {
+        const greens  = qualFactors.filter(f => f.rating === 'green').length;
+        const reds    = qualFactors.filter(f => f.rating === 'red').length;
+        const yellows = qualFactors.filter(f => f.rating === 'yellow').length;
+        const score   = Math.round((greens / qualFactors.length) * 100);
+        const groups  = qualFactors.reduce<string[]>((acc, f) => acc.includes(f.group) ? acc : [...acc, f.group], []);
+        return (
+          <div className="border-t border-slate-800/40">
+            <button
+              onClick={() => setQualOpen(v => !v)}
+              className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-slate-800/20 transition-colors">
+              <div className="flex items-center gap-3">
+                <span className="text-[12px] font-semibold text-slate-300">Qualitative Quality of Earnings</span>
+                <div className="flex items-center gap-1.5 text-[10px]">
+                  {greens > 0  && <span className="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded font-semibold">{greens} ✓</span>}
+                  {yellows > 0 && <span className="text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded font-semibold">{yellows} ?</span>}
+                  {reds > 0    && <span className="text-red-400 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded font-semibold">{reds} ✗</span>}
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className={`text-[12px] font-bold px-2.5 py-1 rounded-lg border ${
+                  score >= 70 ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
+                  score >= 40 ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' :
+                                'text-red-400 bg-red-500/10 border-red-500/20'
+                }`}>{score}%</div>
+                <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
+                  className={`w-3 h-3 text-slate-500 transition-transform ${qualOpen ? 'rotate-180' : ''}`}>
+                  <path d="M2 3.5L5 6.5 8 3.5"/>
+                </svg>
+              </div>
+            </button>
+            {qualOpen && (
+              <div className="px-5 pb-5 space-y-5">
+                <div className="text-[10px] text-slate-600 -mt-1">Rate each factor: green = strength, yellow = neutral/unknown, red = risk. Score reflects % green.</div>
+                {groups.map(group => (
+                  <div key={group}>
+                    <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-2">{group}</div>
+                    <div className="space-y-1.5">
+                      {qualFactors.filter(f => f.group === group).map(f => (
+                        <div key={f.id} className="flex items-center gap-3 bg-slate-800/20 border border-slate-800/40 rounded-lg px-3 py-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[12px] font-medium text-slate-300">{f.label}</div>
+                            <div className="text-[10px] text-slate-600">{f.hint}</div>
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {(['green', 'yellow', 'red'] as QualRating[]).map(r => (
+                              <button key={r} onClick={() => setQualRating(f.id, r)}
+                                className={`w-6 h-6 rounded-full border-2 transition-all ${
+                                  f.rating === r
+                                    ? r === 'green'  ? 'bg-emerald-500 border-emerald-400 scale-110'
+                                    : r === 'yellow' ? 'bg-amber-500 border-amber-400 scale-110'
+                                    :                  'bg-red-500 border-red-400 scale-110'
+                                    : r === 'green'  ? 'bg-transparent border-slate-700 hover:border-emerald-500/50'
+                                    : r === 'yellow' ? 'bg-transparent border-slate-700 hover:border-amber-500/50'
+                                    :                  'bg-transparent border-slate-700 hover:border-red-500/50'
+                                }`}
+                                title={r === 'green' ? 'Strength' : r === 'yellow' ? 'Neutral / Unknown' : 'Risk'}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {/* Ask AI about qualitative score */}
+                {onAskAI && (
+                  <button onClick={() => onAskAI(
+                    `Qualitative Q of E assessment: ${greens} green (strengths), ${yellows} yellow (neutral), ${reds} red (risks) out of ${qualFactors.length} factors (${score}% score). ` +
+                    `Risks: ${qualFactors.filter(f => f.rating === 'red').map(f => f.label).join(', ') || 'none flagged'}. ` +
+                    `Strengths: ${qualFactors.filter(f => f.rating === 'green').map(f => f.label).join(', ') || 'none flagged'}. ` +
+                    `How would a PE buyer or SBA lender view these qualitative factors, and what should I work on before going to market?`
+                  )}
+                  className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium border border-indigo-500/20 hover:border-indigo-500/40 px-3 py-1.5 rounded-lg transition-colors">
+                    Ask AI to interpret these factors →
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Valuation impact */}
       {items.length > 0 && (

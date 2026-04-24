@@ -5,7 +5,7 @@ import { useRouter } from 'next/router';
 import type { UnifiedBusinessData, KPIDashboard, WeeklyInsight, BoardDeck, Goals, Budget, CustomKPI, OnboardingData } from '../types';
 import { DEMO_CUSTOMERS } from '../lib/demo-customers';
 import { loadSession, saveSession, defaultSession } from '../lib/plan';
-import { loadAuthSession, clearAuthSession } from '../lib/auth';
+import { loadAuthSession, signOut, authHeaders } from '../lib/auth';
 import KPIGrid from '../components/dashboard/KPIGrid';
 import AlertFeed from '../components/dashboard/AlertFeed';
 import AIChat from '../components/AIChat';
@@ -14,6 +14,7 @@ import CommandPalette from '../components/CommandPalette';
 import PricingModal from '../components/pricing/PricingModal';
 import DailyBriefing from '../components/dashboard/DailyBriefing';
 import DailyPriorities from '../components/deals/DailyPriorities';
+import TodayView from '../components/dashboard/TodayView';
 import ConnectedModel from '../components/dashboard/ConnectedModel';
 import type { CompanyProfile } from '../components/dashboard/DataSourcePanel';
 import type { Threshold } from '../components/dashboard/MetricThresholdsPanel';
@@ -24,6 +25,11 @@ import WorkingCapitalDashboard from '../components/dashboard/WorkingCapitalDashb
 import CompanySwitcher from '../components/dashboard/CompanySwitcher';
 import ManualEntryModal from '../components/ManualEntryModal';
 import ErrorBoundary from '../components/ErrorBoundary';
+import PWAInstallBanner from '../components/PWAInstallBanner';
+import AccountModal from '../components/AccountModal';
+import SetupChecklist from '../components/onboarding/SetupChecklist';
+import SnapshotCompare from '../components/dashboard/SnapshotCompare';
+import SnapshotTrend from '../components/dashboard/SnapshotTrend';
 import { loadDeals } from '../lib/deals';
 import type { Deal } from '../lib/deals';
 import { computeModelChain, applyScenario, ZERO_SCENARIO } from '../lib/model';
@@ -107,7 +113,7 @@ interface PeriodSnapshot { id: string; label: string; data: UnifiedBusinessData;
 function ToastContainer({ toasts, dismiss }: { toasts: ToastItem[]; dismiss: (id: string) => void }) {
   if (!toasts.length) return null;
   return (
-    <div className="fixed bottom-5 right-5 z-[200] flex flex-col gap-2 pointer-events-none">
+    <div className="fixed bottom-[72px] right-3 md:bottom-5 md:right-5 z-[200] flex flex-col gap-2 pointer-events-none">
       {toasts.map(t => (
         <div key={t.id} className={`pointer-events-auto flex items-center gap-3 pl-4 pr-3 py-3 rounded-xl border shadow-2xl text-[13px] backdrop-blur-sm ${
           t.type === 'success' ? 'bg-slate-950/95 border-emerald-500/30' :
@@ -681,6 +687,220 @@ const DEMO_DATA: UnifiedBusinessData = {
     { customer: 'Echo Systems',    current: 18000, days30: 0,     days60: 7000,  days90: 0,    over90: 4000, total: 29000 },
     { customer: 'Foxtrot Group',   current: 14000, days30: 0,     days60: 0,     days90: 0,    over90: 0,    total: 14000 },
   ],
+  transactions: [
+    // Jan 2026
+    { date: '2026-01-03', description: 'Acme Corp — Managed Services Retainer', amount: 38000,  type: 'revenue',  category: 'Client Services',   customer: 'Acme Corp' },
+    { date: '2026-01-07', description: 'Subcontractor Pmt — TechAlliance LLC',  amount: -22000, type: 'expense',  category: 'Subcontractors',    vendor: 'TechAlliance LLC' },
+    { date: '2026-01-10', description: 'Payroll — Jan W1',                      amount: -48000, type: 'expense',  category: 'Payroll',           account: 'Operating' },
+    { date: '2026-01-15', description: 'Beta Industries — Project Kickoff',     amount: 28000,  type: 'revenue',  category: 'Client Services',   customer: 'Beta Industries' },
+    { date: '2026-01-15', description: 'Salesforce — Monthly License',          amount: -1200,  type: 'expense',  category: 'Software & Tools',  vendor: 'Salesforce' },
+    { date: '2026-01-20', description: 'City Center Realty — Office Rent',      amount: -7000,  type: 'expense',  category: 'Facilities',        vendor: 'City Center Realty' },
+    { date: '2026-01-22', description: 'Pinnacle Mfg — Advisory Retainer',      amount: 32000,  type: 'revenue',  category: 'Client Services',   customer: 'Pinnacle Manufacturing' },
+    { date: '2026-01-24', description: 'DigitalReach Agency — Marketing',       amount: -4800,  type: 'expense',  category: 'Marketing',         vendor: 'DigitalReach Agency' },
+    { date: '2026-01-28', description: 'LexCounsel LLC — Legal Retainer',       amount: -3000,  type: 'expense',  category: 'Professional Fees', vendor: 'LexCounsel LLC' },
+    { date: '2026-01-31', description: 'Payroll — Jan W3',                      amount: -49000, type: 'expense',  category: 'Payroll',           account: 'Operating' },
+    // Feb 2026
+    { date: '2026-02-03', description: 'Summit Capital — Strategy Workshop',    amount: 45000,  type: 'revenue',  category: 'Client Services',   customer: 'Summit Capital Partners' },
+    { date: '2026-02-05', description: 'Subcontractor Pmt — ProStaff Group',   amount: -28000, type: 'expense',  category: 'Subcontractors',    vendor: 'ProStaff Group' },
+    { date: '2026-02-10', description: 'Payroll — Feb W1',                      amount: -48500, type: 'expense',  category: 'Payroll',           account: 'Operating' },
+    { date: '2026-02-12', description: 'Metro Health — Process Audit',          amount: 38000,  type: 'revenue',  category: 'Client Services',   customer: 'Metro Health Partners' },
+    { date: '2026-02-18', description: 'CloudHost Pro — Annual Renewal (alloc)',amount: -2400,  type: 'expense',  category: 'Software & Tools',  vendor: 'CloudHost Pro' },
+    { date: '2026-02-20', description: 'City Center Realty — Office Rent',      amount: -7000,  type: 'expense',  category: 'Facilities',        vendor: 'City Center Realty' },
+    { date: '2026-02-25', description: 'Acme Corp — Feb Retainer',              amount: 38000,  type: 'revenue',  category: 'Client Services',   customer: 'Acme Corp' },
+    { date: '2026-02-28', description: 'Payroll — Feb W3',                      amount: -49000, type: 'expense',  category: 'Payroll',           account: 'Operating' },
+    // Mar 2026
+    { date: '2026-03-03', description: 'Global Logistics — Ops Transformation', amount: 55000,  type: 'revenue',  category: 'Client Services',   customer: 'Global Logistics LLC' },
+    { date: '2026-03-07', description: 'Subcontractor Pmt — DataEdge Consult',  amount: -30000, type: 'expense',  category: 'Subcontractors',    vendor: 'DataEdge Consulting' },
+    { date: '2026-03-10', description: 'Payroll — Mar W1',                      amount: -50000, type: 'expense',  category: 'Payroll',           account: 'Operating' },
+    { date: '2026-03-15', description: 'HubSpot — Marketing Platform',          amount: -800,   type: 'expense',  category: 'Software & Tools',  vendor: 'HubSpot' },
+    { date: '2026-03-20', description: 'City Center Realty — Office Rent',      amount: -7000,  type: 'expense',  category: 'Facilities',        vendor: 'City Center Realty' },
+    { date: '2026-03-22', description: 'Pinnacle Mfg — Q1 Strategy Review',    amount: 48000,  type: 'revenue',  category: 'Client Services',   customer: 'Pinnacle Manufacturing' },
+    { date: '2026-03-28', description: 'Premier Audit Group — Audit Fees',      amount: -4500,  type: 'expense',  category: 'Professional Fees', vendor: 'Premier Audit Group' },
+    { date: '2026-03-31', description: 'Payroll — Mar W3',                      amount: -50500, type: 'expense',  category: 'Payroll',           account: 'Operating' },
+    // Apr 2026
+    { date: '2026-04-02', description: 'Westfield Retail — Digital Strategy',   amount: 42000,  type: 'revenue',  category: 'Client Services',   customer: 'Westfield Retail Group' },
+    { date: '2026-04-08', description: 'Subcontractor Pmt — TechAlliance LLC',  amount: -24000, type: 'expense',  category: 'Subcontractors',    vendor: 'TechAlliance LLC' },
+    { date: '2026-04-10', description: 'Payroll — Apr W1',                      amount: -50000, type: 'expense',  category: 'Payroll',           account: 'Operating' },
+    { date: '2026-04-15', description: 'Acme Corp — Apr Retainer',              amount: 38000,  type: 'revenue',  category: 'Client Services',   customer: 'Acme Corp' },
+    { date: '2026-04-18', description: 'DigitalReach Agency — Campaign Q2',     amount: -5200,  type: 'expense',  category: 'Marketing',         vendor: 'DigitalReach Agency' },
+    { date: '2026-04-20', description: 'City Center Realty — Office Rent',      amount: -7000,  type: 'expense',  category: 'Facilities',        vendor: 'City Center Realty' },
+    { date: '2026-04-25', description: 'LexCounsel LLC — Contract Review',      amount: -4200,  type: 'expense',  category: 'Professional Fees', vendor: 'LexCounsel LLC' },
+    { date: '2026-04-30', description: 'Payroll — Apr W3',                      amount: -51000, type: 'expense',  category: 'Payroll',           account: 'Operating' },
+    // May 2026
+    { date: '2026-05-02', description: 'Summit Capital — Ongoing Advisory',     amount: 52000,  type: 'revenue',  category: 'Client Services',   customer: 'Summit Capital Partners' },
+    { date: '2026-05-06', description: 'Subcontractor Pmt — ProStaff Group',   amount: -32000, type: 'expense',  category: 'Subcontractors',    vendor: 'ProStaff Group' },
+    { date: '2026-05-10', description: 'Payroll — May W1',                      amount: -51000, type: 'expense',  category: 'Payroll',           account: 'Operating' },
+    { date: '2026-05-14', description: 'Metro Health — EHR Implementation',     amount: 58000,  type: 'revenue',  category: 'Client Services',   customer: 'Metro Health Partners' },
+    { date: '2026-05-20', description: 'City Center Realty — Office Rent',      amount: -7000,  type: 'expense',  category: 'Facilities',        vendor: 'City Center Realty' },
+    { date: '2026-05-22', description: 'Salesforce — Monthly License',          amount: -1200,  type: 'expense',  category: 'Software & Tools',  vendor: 'Salesforce' },
+    { date: '2026-05-28', description: 'CloudHost Pro — Overage Charges',       amount: -980,   type: 'expense',  category: 'Software & Tools',  vendor: 'CloudHost Pro' },
+    { date: '2026-05-31', description: 'Payroll — May W3',                      amount: -51500, type: 'expense',  category: 'Payroll',           account: 'Operating' },
+    // Jun 2026
+    { date: '2026-06-03', description: 'Global Logistics — Phase 2 Delivery',   amount: 72000,  type: 'revenue',  category: 'Client Services',   customer: 'Global Logistics LLC' },
+    { date: '2026-06-05', description: 'Acme Corp — Jun Retainer',              amount: 38000,  type: 'revenue',  category: 'Client Services',   customer: 'Acme Corp' },
+    { date: '2026-06-07', description: 'Subcontractor Pmt — DataEdge Consult',  amount: -36000, type: 'expense',  category: 'Subcontractors',    vendor: 'DataEdge Consulting' },
+    { date: '2026-06-10', description: 'Payroll — Jun W1',                      amount: -52000, type: 'expense',  category: 'Payroll',           account: 'Operating' },
+    { date: '2026-06-16', description: 'Pinnacle Mfg — Annual Review Package',  amount: 55000,  type: 'revenue',  category: 'Client Services',   customer: 'Pinnacle Manufacturing' },
+    { date: '2026-06-20', description: 'City Center Realty — Office Rent',      amount: -7000,  type: 'expense',  category: 'Facilities',        vendor: 'City Center Realty' },
+    { date: '2026-06-24', description: 'Premier Audit Group — Year-End Audit',  amount: -9500,  type: 'expense',  category: 'Professional Fees', vendor: 'Premier Audit Group' },
+    { date: '2026-06-30', description: 'Payroll — Jun W3',                      amount: -52500, type: 'expense',  category: 'Payroll',           account: 'Operating' },
+  ],
+  suppliers: {
+    totalSpend: 307000,
+    suppliers: [
+      { id: 's1',  name: 'City Center Realty',     category: 'Facilities',        spend: 42000, invoiceCount: 6,  paymentTerms: 'Net 30',  riskLevel: 'low'    },
+      { id: 's2',  name: 'TechAlliance LLC',        category: 'Subcontractors',    spend: 68000, invoiceCount: 8,  paymentTerms: 'Net 15',  riskLevel: 'medium' },
+      { id: 's3',  name: 'ProStaff Group',          category: 'Subcontractors',    spend: 62000, invoiceCount: 7,  paymentTerms: 'Net 15',  riskLevel: 'medium' },
+      { id: 's4',  name: 'DataEdge Consulting',     category: 'Subcontractors',    spend: 52000, invoiceCount: 5,  paymentTerms: 'Net 30',  riskLevel: 'low'    },
+      { id: 's5',  name: 'LexCounsel LLC',          category: 'Professional Fees', spend: 24000, invoiceCount: 12, paymentTerms: 'Net 30',  riskLevel: 'low'    },
+      { id: 's6',  name: 'Premier Audit Group',     category: 'Professional Fees', spend: 18000, invoiceCount: 3,  paymentTerms: 'Net 45',  riskLevel: 'low'    },
+      { id: 's7',  name: 'DigitalReach Agency',     category: 'Marketing',         spend: 22000, invoiceCount: 6,  paymentTerms: 'Net 30',  riskLevel: 'low'    },
+      { id: 's8',  name: 'ContentPro Media',        category: 'Marketing',         spend: 8000,  invoiceCount: 4,  paymentTerms: 'Net 30',  riskLevel: 'low'    },
+      { id: 's9',  name: 'Salesforce',              category: 'Software & Tools',  spend: 14400, invoiceCount: 6,  paymentTerms: 'Annual',  riskLevel: 'low'    },
+      { id: 's10', name: 'CloudHost Pro',           category: 'Software & Tools',  spend: 10800, invoiceCount: 6,  paymentTerms: 'Monthly', riskLevel: 'low'    },
+      { id: 's11', name: 'HubSpot',                 category: 'Software & Tools',  spend: 9600,  invoiceCount: 6,  paymentTerms: 'Annual',  riskLevel: 'low'    },
+      { id: 's12', name: 'Office Supplies Direct',  category: 'Office & Admin',    spend: 4800,  invoiceCount: 12, paymentTerms: 'Net 15',  riskLevel: 'low'    },
+      { id: 's13', name: 'Facilities Pro Mgmt',     category: 'Facilities',        spend: 5600,  invoiceCount: 6,  paymentTerms: 'Net 30',  riskLevel: 'low'    },
+      { id: 's14', name: 'Slack / Teams (bundled)', category: 'Software & Tools',  spend: 4800,  invoiceCount: 12, paymentTerms: 'Monthly', riskLevel: 'low'    },
+      { id: 's15', name: 'Travel & Expenses',       category: 'T&E',               spend: 7200,  invoiceCount: 24, paymentTerms: 'Reimbursed', riskLevel: 'low' },
+    ],
+    byCategory: [
+      { category: 'Subcontractors',    spend: 182000, spendPct: 59.3, supplierCount: 3, isConcentrated: true,  suppliers: ['TechAlliance LLC', 'ProStaff Group', 'DataEdge Consulting'] },
+      { category: 'Facilities',        spend: 47600,  spendPct: 15.5, supplierCount: 2, isConcentrated: false, suppliers: ['City Center Realty', 'Facilities Pro Mgmt'] },
+      { category: 'Professional Fees', spend: 42000,  spendPct: 13.7, supplierCount: 2, isConcentrated: false, suppliers: ['LexCounsel LLC', 'Premier Audit Group'] },
+      { category: 'Software & Tools',  spend: 39600,  spendPct: 12.9, supplierCount: 4, isConcentrated: false, suppliers: ['Salesforce', 'CloudHost Pro', 'HubSpot', 'Slack / Teams (bundled)'] },
+      { category: 'Marketing',         spend: 30000,  spendPct: 9.8,  supplierCount: 2, isConcentrated: false, suppliers: ['DigitalReach Agency', 'ContentPro Media'] },
+      { category: 'Office & Admin',    spend: 4800,   spendPct: 1.6,  supplierCount: 1, isConcentrated: false, suppliers: ['Office Supplies Direct'] },
+      { category: 'T&E',               spend: 7200,   spendPct: 2.3,  supplierCount: 1, isConcentrated: false, suppliers: ['Travel & Expenses'] },
+    ],
+    tailSuppliers: ['Office Supplies Direct', 'Facilities Pro Mgmt', 'ContentPro Media', 'Slack / Teams (bundled)', 'Travel & Expenses'],
+    redundancies: [
+      { category: 'Subcontractors', suppliers: ['TechAlliance LLC', 'ProStaff Group', 'DataEdge Consulting'], combinedSpend: 182000, potentialSavings: 27300 },
+      { category: 'Marketing',      suppliers: ['DigitalReach Agency', 'ContentPro Media'],                   combinedSpend: 30000,  potentialSavings: 4500  },
+    ],
+    hhi: 3842,
+    concentrationRisk: 'medium',
+  },
+  capacity: {
+    resources: [
+      { id: 'r1', name: 'Senior Consultants',    category: 'People',     actualVolume: 1700, capacity: 2000, unit: 'hours/period', fixedCost: 195000, variableCostPerUnit: 0,   revenuePerUnit: 680, notes: 'Team of 5 senior advisors — near bottleneck',  utilization: 0.85, isBottleneck: true,  isUnderutilized: false },
+      { id: 'r2', name: 'Project Managers',      category: 'People',     actualVolume: 1248, capacity: 1600, unit: 'hours/period', fixedCost: 108000, variableCostPerUnit: 0,   revenuePerUnit: 420, notes: 'Team of 3 PMs — healthy utilization',          utilization: 0.78, isBottleneck: false, isUnderutilized: false },
+      { id: 'r3', name: 'Junior Analysts',        category: 'People',     actualVolume: 1152, capacity: 1600, unit: 'hours/period', fixedCost: 96000,  variableCostPerUnit: 0,   revenuePerUnit: 180, notes: 'Team of 4 analysts — moderate utilization',    utilization: 0.72, isBottleneck: false, isUnderutilized: false },
+      { id: 'r4', name: 'Cloud Infrastructure',  category: 'Technology', actualVolume: 4320, capacity: 9600, unit: 'compute-hrs',  fixedCost: 10800,  variableCostPerUnit: 0.8, notes: 'Overprovisioned — downsize opportunity',         utilization: 0.45, isBottleneck: false, isUnderutilized: true  },
+      { id: 'r5', name: 'Office / Conference Rooms', category: 'Facilities', actualVolume: 312, capacity: 520, unit: 'room-days',  fixedCost: 42000,  variableCostPerUnit: 0,   notes: 'Hybrid workforce — space underutilized Fri/Mon', utilization: 0.60, isBottleneck: false, isUnderutilized: false },
+      { id: 'r6', name: 'Training & L&D Budget', category: 'Technology', actualVolume: 18,   capacity: 52,   unit: 'sessions',     fixedCost: 12000,  variableCostPerUnit: 400, notes: 'Underutilized — team skill gaps identified',    utilization: 0.35, isBottleneck: false, isUnderutilized: true  },
+      { id: 'r7', name: 'Sales & BD Capacity',   category: 'People',     actualVolume: 520,  capacity: 800,  unit: 'hours/period', fixedCost: 60000,  variableCostPerUnit: 0,   revenuePerUnit: 320, notes: 'Room to add pipeline without new hires',       utilization: 0.65, isBottleneck: false, isUnderutilized: false },
+    ],
+    summary: {
+      totalFixed: 523800,
+      totalVariable: 20952,
+      totalCost: 544752,
+      weightedUtilization: 0.69,
+      bottlenecks: ['Senior Consultants'],
+      underutilized: ['Cloud Infrastructure', 'Training & L&D Budget'],
+      potentialSavings: 18400,
+    },
+  },
+  balanceSheet: {
+    asOf: '2026-06-30',
+    currency: 'USD',
+    currentAssets: {
+      items: [
+        { label: 'Cash & Cash Equivalents',    amount: 617000, note: 'Operating + reserve accounts' },
+        { label: 'Accounts Receivable, net',   amount: 312000, note: 'DSO ~38 days' },
+        { label: 'Unbilled Revenue',           amount:  48000, note: 'Work-in-progress not yet invoiced' },
+        { label: 'Prepaid Expenses',           amount:  31500, note: 'Insurance, SaaS subscriptions' },
+        { label: 'Other Current Assets',       amount:   9200 },
+      ],
+      total: 1017700,
+    },
+    nonCurrentAssets: {
+      items: [
+        { label: 'Property & Equipment, net',  amount:  84000, note: 'Office furniture, computers (net of depreciation)' },
+        { label: 'Capitalized Software',       amount:  62000, note: 'Internal-use software development costs' },
+        { label: 'Security Deposits',          amount:  22500, note: 'Office lease deposit' },
+        { label: 'Goodwill',                   amount:      0 },
+        { label: 'Other Intangibles',          amount:  11000, note: 'Non-compete agreement (amortizing)' },
+      ],
+      total: 179500,
+    },
+    currentLiabilities: {
+      items: [
+        { label: 'Accounts Payable',           amount:  68400, note: 'DPO ~27 days' },
+        { label: 'Accrued Compensation',       amount:  94000, note: 'Salaries, bonuses payable' },
+        { label: 'Accrued Expenses',           amount:  27800, note: 'Benefits, professional fees' },
+        { label: 'Deferred Revenue',           amount:  86000, note: 'Retainer prepayments, unearned' },
+        { label: 'Short-Term Debt',            amount:      0 },
+        { label: 'Current Portion — LT Debt',  amount:  36000, note: 'Term loan principal due within 12 months' },
+      ],
+      total: 312200,
+    },
+    longTermLiabilities: {
+      items: [
+        { label: 'Long-Term Debt',             amount: 264000, note: 'SBA term loan — 5.75% rate, matures 2028' },
+        { label: 'Deferred Rent',              amount:  14400, note: 'Lease incentive — straight-line basis' },
+        { label: 'Other Long-Term Liabilities', amount:  8600 },
+      ],
+      total: 287000,
+    },
+    equity: {
+      items: [
+        { label: 'Paid-In Capital',            amount: 150000, note: 'Initial founder investment' },
+        { label: 'Retained Earnings',          amount: 448000, note: 'Cumulative net income retained' },
+      ],
+      total: 598000,
+    },
+    prior: {
+      asOf: '2025-12-31',
+      currency: 'USD',
+      currentAssets: {
+        items: [
+          { label: 'Cash & Cash Equivalents',  amount: 524000 },
+          { label: 'Accounts Receivable, net', amount: 278000 },
+          { label: 'Unbilled Revenue',         amount:  38000 },
+          { label: 'Prepaid Expenses',         amount:  26000 },
+          { label: 'Other Current Assets',     amount:   7800 },
+        ],
+        total: 873800,
+      },
+      nonCurrentAssets: {
+        items: [
+          { label: 'Property & Equipment, net', amount:  97000 },
+          { label: 'Capitalized Software',      amount:  44000 },
+          { label: 'Security Deposits',         amount:  22500 },
+          { label: 'Goodwill',                  amount:      0 },
+          { label: 'Other Intangibles',         amount:  14500 },
+        ],
+        total: 178000,
+      },
+      currentLiabilities: {
+        items: [
+          { label: 'Accounts Payable',          amount:  58200 },
+          { label: 'Accrued Compensation',      amount:  86000 },
+          { label: 'Accrued Expenses',          amount:  22400 },
+          { label: 'Deferred Revenue',          amount:  72000 },
+          { label: 'Short-Term Debt',           amount:      0 },
+          { label: 'Current Portion — LT Debt', amount:  36000 },
+        ],
+        total: 274600,
+      },
+      longTermLiabilities: {
+        items: [
+          { label: 'Long-Term Debt',            amount: 300000 },
+          { label: 'Deferred Rent',             amount:  16200 },
+          { label: 'Other Long-Term Liabilities', amount:  7400 },
+        ],
+        total: 323600,
+      },
+      equity: {
+        items: [
+          { label: 'Paid-In Capital',           amount: 150000 },
+          { label: 'Retained Earnings',         amount: 303600 },
+        ],
+        total: 453600,
+      },
+    },
+  },
   metadata: {
     sources: ['Demo Data'],
     asOf: new Date().toISOString(),
@@ -1795,7 +2015,7 @@ function RevenueForecastStrip({ data, onAskAI }: { data: UnifiedBusinessData; on
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {forecasts.map((f, i) => {
           const vsLast = periods[periods.length - 1].revenue > 0 ? ((f.value - periods[periods.length - 1].revenue) / periods[periods.length - 1].revenue) * 100 : 0;
           const isUp = f.value >= periods[periods.length - 1].revenue;
@@ -1871,7 +2091,7 @@ function PipelineRevenueForecast() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {buckets.map((b, i) => (
           <div key={b.label} className={`rounded-xl border p-4 ${i === 0 ? 'border-sky-500/25 bg-sky-500/5' : 'border-slate-700/40 bg-slate-800/20'}`}>
             <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-1">{b.label}</div>
@@ -2036,10 +2256,12 @@ function ComparisonStrip({ current, previous, currentLabel, previousLabel }: {
 // ── Keyboard Shortcuts Modal ───────────────────────────────────────────────────
 function ShortcutsModal({ onClose }: { onClose: () => void }) {
   const rows = [
-    { key: '⌘K',    desc: 'Open the AI chat assistant (Cmd+K / Ctrl+K)' },
-    { key: '/',      desc: 'Open the AI chat assistant' },
-    { key: '1 – 9',  desc: 'Jump to Overview, Financial, Customers, Operations, Intelligence, Pipeline, Automations, Scenarios, or Data Sources' },
+    { key: '⌘K',    desc: 'Open command palette (Cmd+K / Ctrl+K)' },
+    { key: '/',      desc: 'Open command palette' },
+    { key: 'A',      desc: 'Open AI chat assistant' },
+    { key: '1 – 9',  desc: 'Jump to Deals, Today, Execute, Overview, Acquisitions, Goals, Team, Cash, Financial' },
     { key: '?',      desc: 'Open this shortcuts guide' },
+    { key: 'S',      desc: 'Share a snapshot link' },
     { key: 'Esc',    desc: 'Close any open overlay or modal' },
   ];
   return (
@@ -2228,12 +2450,13 @@ function SectionNote({ noteKey, notes, onSave }: {
 }
 
 // ── Period selector ────────────────────────────────────────────────────────────
-function PeriodSelector({ snapshots, activeId, onSelect, onDelete, onRename }: {
+function PeriodSelector({ snapshots, activeId, onSelect, onDelete, onRename, onDuplicate }: {
   snapshots: PeriodSnapshot[];
   activeId: string;
   onSelect: (id: string) => void;
   onDelete?: (id: string) => void;
   onRename?: (id: string, newLabel: string) => void;
+  onDuplicate?: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -2301,6 +2524,14 @@ function PeriodSelector({ snapshots, activeId, onSelect, onDelete, onRename }: {
                     </button>
                     {!isDemoId(s.id) && (
                       <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity pr-1">
+                        {onDuplicate && (
+                          <button onClick={e => { e.stopPropagation(); onDuplicate(s.id); setOpen(false); }} title="Duplicate as new period"
+                            className="p-1.5 text-slate-600 hover:text-sky-400 rounded">
+                            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" className="w-3 h-3">
+                              <rect x="1" y="3" width="7" height="8" rx="1"/><path d="M4 1h6a1 1 0 011 1v7"/>
+                            </svg>
+                          </button>
+                        )}
                         {onRename && (
                           <button onClick={e => startEdit(s, e)} title="Rename"
                             className="p-1.5 text-slate-600 hover:text-slate-300 rounded">
@@ -2613,7 +2844,7 @@ export default function BusinessOS() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleSignOut() {
-    clearAuthSession();
+    void signOut();
     setAuthEmail('');
   }
 
@@ -2629,13 +2860,13 @@ export default function BusinessOS() {
   const [alerts, setAlerts]                     = useState<{ severity: string; title: string; message: string; action: string }[]>([]);
   const [loading, setLoading]                   = useState<string | null>(null);
   const [toasts, setToasts]                     = useState<ToastItem[]>([]);
-  const [companyName, setCompanyName]           = useState('My Company');
+  const [companyName, setCompanyName]           = useState('Apex Advisory Group');
   const [chatOpen, setChatOpen]                 = useState(false);
   const [chatInitialMsg, setChatInitialMsg]     = useState<string | undefined>(undefined);
   const [mobileNavOpen, setMobileNavOpen]       = useState(false);
   const [moreNavOpen, setMoreNavOpen]           = useState(false);
-  const [goals, setGoals]                       = useState<Goals>({});
-  const [budget, setBudget]                     = useState<Budget>({});
+  const [goals, setGoals]                       = useState<Goals>({ revenue: 1500000, ebitdaMargin: 18, grossMargin: 44, retentionRate: 94, revenueGrowth: 22, revPerEmployee: 100000, netNewCustomers: 15 });
+  const [budget, setBudget]                     = useState<Budget>({ revenue: 1500000, cogs: 850000, opex: 330000 });
   const [annotations, setAnnotations]           = useState<Record<string, string>>({});
   const [customKPIs, setCustomKPIs]             = useState<CustomKPI[]>([]);
   const [thresholds, setThresholds]             = useState<Threshold[]>([]);
@@ -2644,17 +2875,21 @@ export default function BusinessOS() {
   const [shortcutsOpen, setShortcutsOpen]       = useState(false);
   const [dismissedAlerts, setDismissedAlerts]   = useState<number[]>([]);
   const [showWelcome, setShowWelcome]           = useState(false);
-  const [companyProfile, setCompanyProfileState] = useState<CompanyProfile>({});
+  const [companyProfile, setCompanyProfileState] = useState<CompanyProfile>({ industry: 'professional-services', revenueModel: 'recurring' });
   const [reportTimestamps, setReportTimestamps]   = useState<Record<string, string>>({});
   const [showOnboarding, setShowOnboarding]       = useState(false);
   const [paletteOpen, setPaletteOpen]             = useState(false);
   const [pricingOpen, setPricingOpen]             = useState(false);
+  const [accountOpen, setAccountOpen]             = useState(false);
   const [showDeepAnalysis, setShowDeepAnalysis]   = useState(false);
   const [simpleMode, setSimpleModeState]          = useState(false);
   const [showShareModal, setShowShareModal]        = useState(false);
+  const [bellOpen, setBellOpen]                    = useState(false);
+  const [idleDeals, setIdleDeals]                  = useState<{ crm: number; acq: number }>({ crm: 0, acq: 0 });
   const [shareUrl, setShareUrl]                    = useState('');
   const [shareCopied, setShareCopied]              = useState(false);
   const [showManualEntry, setShowManualEntry]      = useState(false);
+  const [showCompare, setShowCompare]              = useState(false);
 
   // Run Report progress modal
   type StepStatus = 'pending' | 'running' | 'done' | 'error';
@@ -2683,11 +2918,11 @@ export default function BusinessOS() {
   const [dealBriefLoading, setDealBriefLoading] = useState(false);
   const [dealStratType, setDealStratType] = useState<'bolt-on'|'platform'|'geographic'|'vertical'>('bolt-on');
   // Market Sizing Calculator (Goals tab)
-  const [mktInputs, setMktInputs] = useState<{tamDesc:string;tamSize:string;samPct:string;somPct:string;growthRate:string}>({ tamDesc: '', tamSize: '', samPct: '20', somPct: '3', growthRate: '8' });
+  const [mktInputs, setMktInputs] = useState<{tamDesc:string;tamSize:string;samPct:string;somPct:string;growthRate:string}>({ tamDesc: 'Management consulting & advisory for US lower middle market companies ($5M–$100M revenue)', tamSize: '180000', samPct: '12', somPct: '2', growthRate: '9' });
   // Rolling 13-Week Cash Forecast (Cash tab)
-  const [cashRows, setCashRows] = useState<{week:number;inflow:number;outflow:number}[]>(Array.from({length:13},(_,i)=>({week:i+1,inflow:0,outflow:0})));
-  const [cashOpeningBal, setCashOpeningBal] = useState(0);
-  const [cashMinBuffer, setCashMinBuffer] = useState(0);
+  const [cashRows, setCashRows] = useState<{week:number;inflow:number;outflow:number}[]>(Array.from({length:13},(_,i)=>({week:i+1,inflow:Math.round(56000+i*1200+(i%3===0?8000:0)),outflow:Math.round(46000+i*400+(i%4===0?5000:0))})));
+  const [cashOpeningBal, setCashOpeningBal] = useState(617000);
+  const [cashMinBuffer, setCashMinBuffer] = useState(150000);
   // Debt Service Tracker (Cash tab)
   const [debtPdfStatus, setDebtPdfStatus] = useState<'idle'|'loading'|'done'|'error'>('idle');
   const [debtPdfMsg, setDebtPdfMsg] = useState('');
@@ -2707,6 +2942,29 @@ export default function BusinessOS() {
   useEffect(() => {
     if (activeView === 'deals') setDeals(loadDeals());
   }, [activeView]);
+
+  // Compute idle deal counts for notification bell
+  useEffect(() => {
+    const sevenDaysMs = 7 * 86400000;
+    const now = Date.now();
+    try {
+      const crmRaw = localStorage.getItem('bos_deals');
+      const crmList = crmRaw ? JSON.parse(crmRaw) as { stage: string; updatedAt: string }[] : [];
+      const idleCrm = crmList.filter(d =>
+        d.stage !== 'closed-won' && d.stage !== 'closed-lost' &&
+        d.updatedAt && now - new Date(d.updatedAt).getTime() >= sevenDaysMs
+      ).length;
+
+      const acqRaw = localStorage.getItem('bos_acq_targets');
+      const acqList = acqRaw ? JSON.parse(acqRaw) as { stage: string; updatedAt: string }[] : [];
+      const idleAcq = acqList.filter(t =>
+        !['closed-won', 'closed-lost'].includes(t.stage) &&
+        t.updatedAt && now - new Date(t.updatedAt).getTime() >= sevenDaysMs
+      ).length;
+
+      setIdleDeals({ crm: idleCrm, acq: idleAcq });
+    } catch { /* ignore */ }
+  }, [bellOpen]);
 
   // Hydrate persisted state from localStorage (client-side only)
   useEffect(() => {
@@ -2791,6 +3049,75 @@ export default function BusinessOS() {
         }
       }
     }
+    // Seed demo localStorage data on first visit (so Customer, NPS, Add-back, Qual QoE sections have content)
+    if (!localStorage.getItem('bos_demo_seeded_v2')) {
+      try {
+        // NPS history
+        if (!localStorage.getItem('bos_nps_history')) {
+          localStorage.setItem('bos_nps_history', JSON.stringify([
+            { date: '2025-10-01', score: 44, respondents: 28, notes: 'Q3 survey — slower response times flagged' },
+            { date: '2025-12-15', score: 48, respondents: 31, notes: 'Q4 survey — improvement in deliverable quality' },
+            { date: '2026-03-01', score: 52, respondents: 35, notes: 'Q1 2026 — new client portal well received' },
+            { date: '2026-06-15', score: 56, respondents: 38, notes: 'Q2 2026 — all-time high, added exec sponsor program' },
+          ]));
+        }
+        // Contract renewals
+        if (!localStorage.getItem('bos_contracts')) {
+          localStorage.setItem('bos_contracts', JSON.stringify([
+            { id: 'c1', customer: 'Acme Corp',              revenue: 228000, renewalDate: '2026-09-30', status: 'renewing',   notes: 'Multi-year preferred — likely expand scope' },
+            { id: 'c2', customer: 'Pinnacle Manufacturing',  revenue: 192000, renewalDate: '2026-08-15', status: 'at-risk',    notes: 'CFO change — confirm relationship with new contact' },
+            { id: 'c3', customer: 'Summit Capital Partners', revenue: 168000, renewalDate: '2026-10-31', status: 'renewing',   notes: 'Signed LOI for 3-year deal' },
+            { id: 'c4', customer: 'Metro Health Partners',   revenue: 144000, renewalDate: '2026-12-31', status: 'negotiating',notes: 'Expanded scope under discussion' },
+            { id: 'c5', customer: 'Global Logistics LLC',    revenue: 132000, renewalDate: '2026-11-30', status: 'renewing',   notes: 'Phase 3 in scope — auto-renew clause' },
+            { id: 'c6', customer: 'Beta Industries',         revenue: 96000,  renewalDate: '2026-07-31', status: 'at-risk',    notes: 'Budget freeze Q3 — escalate to CEO' },
+          ]));
+        }
+        // Add-back tracker
+        if (!localStorage.getItem('bos_addbacks')) {
+          localStorage.setItem('bos_addbacks', JSON.stringify([
+            { id: 'ab1', category: 'owner_comp',    description: 'Owner salary above market CEO comp', amount: 95000,  oneTime: false, notes: 'Market rate ~$185k vs $280k paid' },
+            { id: 'ab2', category: 'non_recurring', description: 'M&A legal & advisory fees (one-time)', amount: 42000, oneTime: true,  notes: 'Q1 2026 target evaluation costs' },
+            { id: 'ab3', category: 'non_cash',      description: 'Depreciation & amortization',         amount: 28000,  oneTime: false, notes: 'Software capitalization amortization' },
+            { id: 'ab4', category: 'related_party', description: 'Owner vehicle — above arm\'s length',  amount: 14400,  oneTime: false, notes: '$1,200/mo personal vehicle on P&L' },
+            { id: 'ab5', category: 'non_recurring', description: 'Office relocation costs',              amount: 18500,  oneTime: true,  notes: 'One-time move to downtown office Feb 2026' },
+          ]));
+        }
+        // Qualitative Q of E — set a realistic mix
+        if (!localStorage.getItem('bos_qual_qoe')) {
+          const qualRatings: Record<string,string> = {
+            recurring: 'yellow', multiyear: 'green',  diversified: 'yellow', growing_rev: 'green',  backlog: 'green',
+            mgmt_depth: 'yellow', owner_dep: 'red',   retention: 'green',   mgmt_stay: 'green',
+            audited: 'yellow',   gaap: 'green',       ar_quality: 'green',  margin_stable: 'green',
+            sops: 'yellow',      systems: 'green',    scalable: 'yellow',
+            market_growth: 'green', moat: 'yellow',   regulatory: 'green',
+          };
+          const factors = [
+            { id: 'recurring',     group: 'Revenue Quality',   label: 'High recurring revenue',            hint: '>70% subscription/contract/retainer',   rating: qualRatings['recurring'] },
+            { id: 'multiyear',     group: 'Revenue Quality',   label: 'Multi-year contracts in place',     hint: 'Signed agreements with >1yr remaining', rating: qualRatings['multiyear'] },
+            { id: 'diversified',   group: 'Revenue Quality',   label: 'Diversified customer base',         hint: 'No single customer >15% of revenue',   rating: qualRatings['diversified'] },
+            { id: 'growing_rev',   group: 'Revenue Quality',   label: 'Revenue growth trend',              hint: 'YoY revenue growing for 2+ years',     rating: qualRatings['growing_rev'] },
+            { id: 'backlog',       group: 'Revenue Quality',   label: 'Backlog / contracted pipeline',     hint: 'Visible forward revenue >3 months',    rating: qualRatings['backlog'] },
+            { id: 'mgmt_depth',    group: 'Management',        label: 'Strong #2 leadership',              hint: 'Non-owner GM/COO running day-to-day',  rating: qualRatings['mgmt_depth'] },
+            { id: 'owner_dep',     group: 'Management',        label: 'Low owner dependency',              hint: 'Business runs without owner in sales/ops', rating: qualRatings['owner_dep'] },
+            { id: 'retention',     group: 'Management',        label: 'Low key-person turnover',           hint: 'Core team has been stable 3+ years',   rating: qualRatings['retention'] },
+            { id: 'mgmt_stay',     group: 'Management',        label: 'Management willing to stay',        hint: 'Leadership committed post-close',       rating: qualRatings['mgmt_stay'] },
+            { id: 'audited',       group: 'Financial Quality', label: 'Audited or reviewed financials',    hint: 'CPA-prepared with at least a review',  rating: qualRatings['audited'] },
+            { id: 'gaap',          group: 'Financial Quality', label: 'Clean GAAP accounting',             hint: 'No revenue recognition issues',         rating: qualRatings['gaap'] },
+            { id: 'ar_quality',    group: 'Financial Quality', label: 'Clean AR aging',                    hint: '<15% AR over 90 days past due',         rating: qualRatings['ar_quality'] },
+            { id: 'margin_stable', group: 'Financial Quality', label: 'Stable or improving margins',       hint: 'GM% consistent or trending up 2+ years',rating: qualRatings['margin_stable'] },
+            { id: 'sops',          group: 'Operations',        label: 'Documented SOPs / processes',       hint: 'Written playbooks for key functions',   rating: qualRatings['sops'] },
+            { id: 'systems',       group: 'Operations',        label: 'Modern tech & systems',             hint: 'CRM, ERP, or PM tools in active use',  rating: qualRatings['systems'] },
+            { id: 'scalable',      group: 'Operations',        label: 'Scalable without linear headcount', hint: 'Revenue can grow faster than headcount',rating: qualRatings['scalable'] },
+            { id: 'market_growth', group: 'Market',            label: 'Growing addressable market',        hint: 'Industry tailwinds / favorable macro',  rating: qualRatings['market_growth'] },
+            { id: 'moat',          group: 'Market',            label: 'Defensible competitive moat',       hint: 'Switching costs, brand, IP, or network',rating: qualRatings['moat'] },
+            { id: 'regulatory',    group: 'Market',            label: 'Low regulatory / litigation risk',  hint: 'No pending suits or compliance issues', rating: qualRatings['regulatory'] },
+          ];
+          localStorage.setItem('bos_qual_qoe', JSON.stringify(factors));
+        }
+        localStorage.setItem('bos_demo_seeded_v2', '1');
+      } catch { /* ignore */ }
+    }
+
     // Check onboarding status
     const session = loadSession();
     if (!session.onboarded) {
@@ -2803,11 +3130,83 @@ export default function BusinessOS() {
       setShowWelcome(true);
     }
     localStorage.setItem('bos_visited', '1');
+
+    // Sync snapshots + profile from DB (replaces localStorage if user is logged in)
+    const authSession = loadAuthSession();
+    if (authSession?.token) {
+      fetch('/api/snapshots', { headers: authHeaders() })
+        .then(r => r.ok ? r.json() : null)
+        .then((dbSnaps: PeriodSnapshot[] | null) => {
+          if (dbSnaps && dbSnaps.length > 0) {
+            setSnapshots([...dbSnaps, PREV_SNAPSHOT, DEMO_SNAPSHOT]);
+            const savedActiveId = localStorage.getItem('bos_active_id');
+            const restoredId = savedActiveId && dbSnaps.find(s => s.id === savedActiveId)
+              ? savedActiveId : dbSnaps[0].id;
+            setActiveSnapshotId(restoredId);
+          }
+        })
+        .catch(() => { /* use localStorage fallback */ });
+
+      // Load company name + profile from DB (overrides localStorage)
+      fetch('/api/user/profile', { headers: authHeaders() })
+        .then(r => r.ok ? r.json() : null)
+        .then((profile: { companyName?: string; companyProfile?: { industry?: string; revenueModel?: string } } | null) => {
+          if (!profile) return;
+          if (profile.companyName) {
+            setCompanyName(profile.companyName);
+            localStorage.setItem('bos_company', profile.companyName);
+          }
+          if (profile.companyProfile && Object.keys(profile.companyProfile).length > 0) {
+            setCompanyProfileState(profile.companyProfile);
+            try { localStorage.setItem('bos_company_profile', JSON.stringify(profile.companyProfile)); } catch { /* ignore */ }
+          }
+        })
+        .catch(() => { /* use localStorage fallback */ });
+
+      // Load goals, budget, customKPIs, thresholds from DB prefs (overrides localStorage)
+      fetch('/api/user/prefs', { headers: authHeaders() })
+        .then(r => r.ok ? r.json() : null)
+        .then((prefs: { goals?: Record<string, number>; budget?: Record<string, unknown>; customKPIs?: CustomKPI[]; thresholds?: Threshold[]; panelNotes?: Record<string, string>; annotations?: Record<string, string> } | null) => {
+          if (!prefs) return;
+          if (prefs.goals && Object.keys(prefs.goals).length > 0) {
+            setGoals(prefs.goals as Record<string, number>);
+            try { localStorage.setItem('bos_goals', JSON.stringify(prefs.goals)); } catch { /* ignore */ }
+          }
+          if (prefs.budget && Object.keys(prefs.budget).length > 0) {
+            setBudget(prefs.budget as Record<string, unknown>);
+            try { localStorage.setItem('bos_budget', JSON.stringify(prefs.budget)); } catch { /* ignore */ }
+          }
+          if (Array.isArray(prefs.customKPIs) && prefs.customKPIs.length > 0) {
+            setCustomKPIs(prefs.customKPIs);
+            try { localStorage.setItem('bos_custom_kpis', JSON.stringify(prefs.customKPIs)); } catch { /* ignore */ }
+          }
+          if (Array.isArray(prefs.thresholds) && prefs.thresholds.length > 0) {
+            setThresholds(prefs.thresholds);
+            try { localStorage.setItem('bos_thresholds', JSON.stringify(prefs.thresholds)); } catch { /* ignore */ }
+          }
+          if (prefs.panelNotes && Object.keys(prefs.panelNotes).length > 0) {
+            setPanelNotesState(prefs.panelNotes);
+            try { localStorage.setItem('bos_panel_notes', JSON.stringify(prefs.panelNotes)); } catch { /* ignore */ }
+          }
+          if (prefs.annotations && Object.keys(prefs.annotations).length > 0) {
+            setAnnotations(prefs.annotations);
+            try { localStorage.setItem('bos_annotations', JSON.stringify(prefs.annotations)); } catch { /* ignore */ }
+          }
+        })
+        .catch(() => { /* use localStorage fallback */ });
+    }
   }, []);
 
   const saveCompanyName = useCallback((name: string) => {
     setCompanyName(name);
     localStorage.setItem('bos_company', name);
+    // Persist to DB for logged-in users (fire-and-forget)
+    if (loadAuthSession()?.token) {
+      fetch('/api/user/profile', {
+        method: 'PATCH', headers: authHeaders(),
+        body: JSON.stringify({ companyName: name }),
+      }).catch(() => { /* non-fatal */ });
+    }
   }, []);
 
   const toggleSimpleMode = useCallback(() => {
@@ -2824,6 +3223,13 @@ export default function BusinessOS() {
       if (value === undefined) delete next[key];
       else next[key] = value;
       localStorage.setItem('bos_goals', JSON.stringify(next));
+      // Persist to DB (fire-and-forget)
+      if (loadAuthSession()?.token) {
+        fetch('/api/user/prefs', {
+          method: 'PATCH', headers: authHeaders(),
+          body: JSON.stringify({ goals: next }),
+        }).catch(() => null);
+      }
       return next;
     });
   }, []);
@@ -2833,6 +3239,13 @@ export default function BusinessOS() {
       const next = { ...prev, [key]: value };
       if (value === undefined) delete next[key];
       localStorage.setItem('bos_budget', JSON.stringify(next));
+      // Persist to DB (fire-and-forget)
+      if (loadAuthSession()?.token) {
+        fetch('/api/user/prefs', {
+          method: 'PATCH', headers: authHeaders(),
+          body: JSON.stringify({ budget: next }),
+        }).catch(() => null);
+      }
       return next;
     });
   }, []);
@@ -2840,11 +3253,25 @@ export default function BusinessOS() {
   const saveCustomKPIs = useCallback((kpis: CustomKPI[]) => {
     setCustomKPIs(kpis);
     localStorage.setItem('bos_custom_kpis', JSON.stringify(kpis));
+    const session = loadAuthSession();
+    if (session) {
+      fetch('/api/user/prefs', {
+        method: 'PATCH', headers: authHeaders(),
+        body: JSON.stringify({ customKPIs: kpis }),
+      }).catch(() => null);
+    }
   }, []);
 
   const saveThresholds = useCallback((t: Threshold[]) => {
     setThresholds(t);
     localStorage.setItem('bos_thresholds', JSON.stringify(t));
+    const session = loadAuthSession();
+    if (session) {
+      fetch('/api/user/prefs', {
+        method: 'PATCH', headers: authHeaders(),
+        body: JSON.stringify({ thresholds: t }),
+      }).catch(() => null);
+    }
   }, []);
 
   const setPanelNote = useCallback((key: string, note: string) => {
@@ -2853,6 +3280,12 @@ export default function BusinessOS() {
       if (note) next[key] = note;
       else delete next[key];
       localStorage.setItem('bos_panel_notes', JSON.stringify(next));
+      if (loadAuthSession()) {
+        fetch('/api/user/prefs', {
+          method: 'PATCH', headers: authHeaders(),
+          body: JSON.stringify({ panelNotes: next }),
+        }).catch(() => null);
+      }
       return next;
     });
   }, []);
@@ -2870,6 +3303,12 @@ export default function BusinessOS() {
       if (note) next[period] = note;
       else delete next[period];
       localStorage.setItem('bos_annotations', JSON.stringify(next));
+      if (loadAuthSession()) {
+        fetch('/api/user/prefs', {
+          method: 'PATCH', headers: authHeaders(),
+          body: JSON.stringify({ annotations: next }),
+        }).catch(() => null);
+      }
       return next;
     });
   }, []);
@@ -2922,14 +3361,28 @@ export default function BusinessOS() {
   const data            = activeSnapshot.data;
   // Scenario-adjusted data — all downstream modules use this instead of raw data
   const effectiveData   = useMemo(() => applyScenario(data, scenarioAdj), [data, scenarioAdj]);
+  // Data completeness score (for header pill + Data tab)
+  const dataCompleteness = useMemo(() => {
+    const checks = [
+      data.revenue.total > 0,
+      data.costs.totalCOGS > 0,
+      data.costs.totalOpEx > 0,
+      (data.revenue.byPeriod ?? []).length > 0,
+      (data.customers.totalCount ?? 0) > 0,
+      (data.payrollByDept ?? []).length > 0,
+      (data.arAging ?? []).length > 0,
+      !!(budget.revenue || budget.cogs || budget.opex),
+      (data.transactions ?? []).length > 0,
+    ];
+    return { connected: checks.filter(Boolean).length, total: checks.length };
+  }, [data, budget]);
   // Connected model chain: Deals → Revenue → EBITDA → Cash → Runway
   const modelChain      = useMemo(() => computeModelChain(effectiveData, deals, scenarioAdj), [effectiveData, deals, scenarioAdj]);
   const usingDemo       = activeSnapshot.id === DEMO_SNAPSHOT.id || activeSnapshot.id === PREV_SNAPSHOT.id;
   const prevSnapshot    = snapshots.find(s => s.id !== activeSnapshotId);
   const visibleAlerts   = alerts.filter((_, i) => !dismissedAlerts.includes(i));
   const highAlerts      = visibleAlerts.filter(a => a.severity === 'HIGH');
-  const triggeredCount  = thresholds.filter(t => {
-    if (!t.enabled) return false;
+  const triggeredAlerts = useMemo(() => {
     const rev = data.revenue.total, cogs = data.costs.totalCOGS, opex = data.costs.totalOpEx;
     const gp = rev - cogs, ebitda = gp - opex;
     const vals: Record<string, number | null> = {
@@ -2940,9 +3393,19 @@ export default function BusinessOS() {
       topCustomerPct: data.customers.topCustomers[0]?.percentOfTotal ?? null,
       cashBalance: data.cashFlow?.length ? data.cashFlow[data.cashFlow.length - 1].closingBalance : null,
     };
-    const cur = vals[t.metricKey];
-    return cur !== null && (t.operator === '<' ? cur < t.value : cur > t.value);
-  }).length;
+    return thresholds.filter(t => {
+      if (!t.enabled) return false;
+      const cur = vals[t.metricKey];
+      return cur !== null && (t.operator === '<' ? cur < t.value : cur > t.value);
+    }).map(t => {
+      const unit = ['revenue', 'cashBalance'].includes(t.metricKey) ? '$' : '%';
+      const cur  = vals[t.metricKey]!;
+      const fmt  = (n: number) => unit === '$' ? `$${Math.round(n).toLocaleString('en-US')}` : `${n.toFixed(1)}%`;
+      return { id: t.id, label: t.label, current: fmt(cur), threshold: fmt(t.value), operator: t.operator };
+    });
+  }, [thresholds, data]);
+  const idleDealCount   = idleDeals.crm + idleDeals.acq;
+  const triggeredCount  = triggeredAlerts.length + idleDealCount;
 
   const dismissAlert = useCallback((index: number) => {
     setDismissedAlerts(prev => [...prev, index]);
@@ -3095,7 +3558,7 @@ export default function BusinessOS() {
     setSnapshots(prev => {
       const userSnaps = prev.filter(s => !['demo','prev-demo'].includes(s.id));
       const next = [snap, ...userSnaps, PREV_SNAPSHOT, DEMO_SNAPSHOT];
-      // Persist user snapshots (cap at 8 to avoid localStorage quota)
+      // Persist to localStorage (fallback)
       try {
         const toSave = [snap, ...userSnaps].slice(0, 8);
         localStorage.setItem('bos_snapshots', JSON.stringify(toSave));
@@ -3107,6 +3570,12 @@ export default function BusinessOS() {
       }
       return next;
     });
+    // Sync to DB if logged in
+    fetch('/api/snapshots', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ id: snap.id, label: snap.label, data: snap.data }),
+    }).catch(() => { /* non-fatal */ });
     localStorage.setItem('bos_active_id', snap.id);
     setActiveSnapshotId(snap.id);
     setPendingData(null);
@@ -3132,6 +3601,7 @@ export default function BusinessOS() {
       try { localStorage.setItem('bos_snapshots', JSON.stringify(userSnaps)); } catch { /* ignore */ }
       return next;
     });
+    fetch(`/api/snapshots/${id}`, { method: 'DELETE', headers: authHeaders() }).catch(() => { /* non-fatal */ });
     // If we deleted the active snapshot, fall back to demo
     if (activeSnapshotId === id) {
       setActiveSnapshotId(DEMO_SNAPSHOT.id);
@@ -3143,6 +3613,13 @@ export default function BusinessOS() {
   const saveCompanyProfile = useCallback((profile: CompanyProfile) => {
     setCompanyProfileState(profile);
     try { localStorage.setItem('bos_company_profile', JSON.stringify(profile)); } catch { /* ignore */ }
+    // Persist to DB for logged-in users (fire-and-forget)
+    if (loadAuthSession()?.token) {
+      fetch('/api/user/profile', {
+        method: 'PATCH', headers: authHeaders(),
+        body: JSON.stringify({ companyProfile: profile }),
+      }).catch(() => { /* non-fatal */ });
+    }
   }, []);
 
   const handleRenameSnapshot = useCallback((id: string, newLabel: string) => {
@@ -3152,7 +3629,41 @@ export default function BusinessOS() {
       try { localStorage.setItem('bos_snapshots', JSON.stringify(userSnaps)); } catch { /* ignore */ }
       return next;
     });
+    fetch(`/api/snapshots/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify({ label: newLabel }),
+    }).catch(() => { /* non-fatal */ });
     addToast('success', `Renamed to "${newLabel}"`);
+  }, [addToast]);
+
+  const handleDuplicateSnapshot = useCallback((id: string) => {
+    setSnapshots(prev => {
+      const src = prev.find(s => s.id === id);
+      if (!src) return prev;
+      const copy: PeriodSnapshot = {
+        id: `snap-${Date.now()}`,
+        label: `Copy of ${src.label}`,
+        data: src.data,
+        createdAt: new Date().toISOString(),
+      };
+      const userSnaps = prev.filter(s => !['demo','prev-demo'].includes(s.id));
+      const next = [copy, ...userSnaps, PREV_SNAPSHOT, DEMO_SNAPSHOT];
+      try {
+        const toSave = [copy, ...userSnaps].slice(0, 8);
+        localStorage.setItem('bos_snapshots', JSON.stringify(toSave));
+      } catch { /* ignore */ }
+      // Sync to DB
+      fetch('/api/snapshots', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ id: copy.id, label: copy.label, data: copy.data }),
+      }).catch(() => { /* non-fatal */ });
+      setActiveSnapshotId(copy.id);
+      localStorage.setItem('bos_active_id', copy.id);
+      addToast('success', `Created "${copy.label}" — rename it to set the period`);
+      return next;
+    });
   }, [addToast]);
 
   const openChat = useCallback((msg?: string) => {
@@ -3196,7 +3707,8 @@ export default function BusinessOS() {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === '/') { e.preventDefault(); setPaletteOpen(v => !v); return; }
       if (e.key === '?') { e.preventDefault(); setShortcutsOpen(v => !v); return; }
-      if (e.key === 'Escape') { setShortcutsOpen(false); setPaletteOpen(false); setMoreNavOpen(false); setShowShareModal(false); return; }
+      if (e.key === 'a' || e.key === 'A') { e.preventDefault(); openChat(); return; }
+      if (e.key === 'Escape') { setShortcutsOpen(false); setPaletteOpen(false); setMoreNavOpen(false); setShowShareModal(false); setChatOpen(false); return; }
       if (e.key === 's' || e.key === 'S') { e.preventDefault(); handleShare(); return; }
       const idx = parseInt(e.key, 10) - 1;
       if (idx >= 0 && idx < viewOrder.length) setActiveView(viewOrder[idx]);
@@ -3413,7 +3925,19 @@ export default function BusinessOS() {
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400/80 animate-pulse"/>Demo
                 </span>
               )}
-              <PeriodSelector snapshots={snapshots} activeId={activeSnapshotId} onSelect={id => { setActiveSnapshotId(id); localStorage.setItem('bos_active_id', id); addToast('info', `Viewing: ${snapshots.find(s => s.id === id)?.label}`); }} onDelete={handleDeleteSnapshot} onRename={handleRenameSnapshot}/>
+              <PeriodSelector snapshots={snapshots} activeId={activeSnapshotId} onSelect={id => { setActiveSnapshotId(id); localStorage.setItem('bos_active_id', id); addToast('info', `Viewing: ${snapshots.find(s => s.id === id)?.label}`); }} onDelete={handleDeleteSnapshot} onRename={handleRenameSnapshot} onDuplicate={handleDuplicateSnapshot}/>
+              {snapshots.length >= 2 && (
+                <button
+                  onClick={() => setShowCompare(true)}
+                  className="hidden sm:flex items-center gap-1.5 text-[11px] font-medium text-slate-400 hover:text-slate-200 border border-slate-700/40 hover:border-slate-600/60 rounded-lg px-2.5 py-1.5 transition-colors"
+                  title="Compare two snapshots side-by-side"
+                >
+                  <svg viewBox="0 0 14 14" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <path d="M4 2v10M10 2v10M1 7h3M10 7h3"/>
+                  </svg>
+                  Compare
+                </button>
+              )}
               {/* Billing button */}
               {currentSession.planId !== 'starter' && !!currentSession.stripeCustomerId ? (
                 <button
@@ -3475,6 +3999,17 @@ export default function BusinessOS() {
                 <span className="hidden lg:inline">Share</span>
               </button>
 
+              {/* Data quality pill — only when real data is incomplete */}
+              {!usingDemo && dataCompleteness.connected < dataCompleteness.total && (
+                <button
+                  onClick={() => setActiveView('data')}
+                  title={`${dataCompleteness.connected} of ${dataCompleteness.total} data sources connected`}
+                  className="hidden md:flex items-center gap-1.5 px-2.5 py-[7px] rounded-lg border border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10 text-amber-400 text-[11px] font-medium transition-colors">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0"/>
+                  {dataCompleteness.connected}/{dataCompleteness.total} sources
+                </button>
+              )}
+
               {/* Ask AI CFO — primary action in header */}
               <button
                 onClick={() => openChat()}
@@ -3486,32 +4021,14 @@ export default function BusinessOS() {
                 <span className="hidden sm:inline">Ask AI</span>
               </button>
 
-              {/* User / sign-out */}
-              <div className="relative group hidden sm:block">
-                <button
-                  title={authEmail || 'Account'}
-                  className="w-7 h-7 rounded-full bg-indigo-700/60 border border-indigo-500/30 flex items-center justify-center text-[11px] font-bold text-indigo-200 hover:bg-indigo-600/60 transition-colors"
-                >
-                  {authEmail ? authEmail[0].toUpperCase() : '?'}
-                </button>
-                {/* Dropdown */}
-                <div className="absolute right-0 top-full mt-1.5 w-48 bg-[#0d1117] border border-slate-700/60 rounded-xl shadow-2xl py-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-                  {authEmail && (
-                    <div className="px-3 py-2 border-b border-slate-800/60">
-                      <div className="text-[11px] text-slate-500 truncate">{authEmail}</div>
-                    </div>
-                  )}
-                  <button
-                    onClick={handleSignOut}
-                    className="w-full text-left px-3 py-2 text-[12px] text-slate-400 hover:text-red-400 hover:bg-red-500/5 transition-colors flex items-center gap-2"
-                  >
-                    <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-3 h-3">
-                      <path d="M5 2H2v10h3M9 4l3 3-3 3M6 7h6"/>
-                    </svg>
-                    Sign out
-                  </button>
-                </div>
-              </div>
+              {/* User / account */}
+              <button
+                onClick={() => setAccountOpen(true)}
+                title={authEmail || 'Account'}
+                className="hidden sm:flex w-7 h-7 rounded-full bg-indigo-700/60 border border-indigo-500/30 items-center justify-center text-[11px] font-bold text-indigo-200 hover:bg-indigo-600/60 transition-colors"
+              >
+                {authEmail ? authEmail[0].toUpperCase() : '?'}
+              </button>
 
               {/* Mobile hamburger */}
               <button
@@ -3534,7 +4051,7 @@ export default function BusinessOS() {
             <div className="md:hidden border-t border-slate-800/60 bg-[#060a12]/98 px-3 py-2.5 flex flex-col gap-0.5 animate-fade-in max-h-[70vh] overflow-y-auto">
               <div className="text-[10px] font-semibold text-slate-700 uppercase tracking-[0.1em] px-3 pt-1 pb-0.5">All Sections</div>
               {navItems.map(({ id, label, Icon, badge, activeClass }) => (
-                <button key={id} onClick={() => { setActiveView(id); setMobileNavOpen(false); }}
+                <button key={id} onClick={() => { setActiveView(id); setMobileNavOpen(false); if (simpleMode) toggleSimpleMode(); }}
                   className={`flex items-center gap-2.5 px-3 py-3 rounded-xl text-[13px] font-medium transition-all min-h-[44px] ${
                     activeView === id ? activeClass : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/40 border border-transparent'}`}>
                   <Icon/>{label}
@@ -3568,7 +4085,7 @@ export default function BusinessOS() {
               const health = getSectionHealth(id);
               const dotCls = health === 'green' ? 'bg-emerald-400' : health === 'amber' ? 'bg-amber-400' : health === 'red' ? 'bg-red-400' : null;
               return (
-                <button key={id} onClick={() => setActiveView(id)}
+                <button key={id} onClick={() => { setActiveView(id); if (simpleMode) toggleSimpleMode(); }}
                   className={`flex items-center gap-2 w-full px-2.5 py-[7px] rounded-lg text-[12px] font-medium transition-all text-left mb-0.5 ${
                     activeView === id ? activeClass : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/40 border border-transparent'
                   }`}>
@@ -3583,7 +4100,7 @@ export default function BusinessOS() {
             {navItems.filter(n => !n.primary).map(({ id, label, Icon, badge, activeClass }) => {
               const SideIcon = Icon;
               return (
-                <button key={id} onClick={() => setActiveView(id)}
+                <button key={id} onClick={() => { setActiveView(id); if (simpleMode) toggleSimpleMode(); }}
                   className={`flex items-center gap-2 w-full px-2.5 py-[7px] rounded-lg text-[12px] font-medium transition-all text-left mb-0.5 ${
                     activeView === id ? activeClass : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/40 border border-transparent'
                   }`}>
@@ -3601,7 +4118,7 @@ export default function BusinessOS() {
         </aside>
 
         {/* Content column */}
-        <div className="flex-1 min-w-0 flex flex-col">
+        <div className="flex-1 min-w-0 flex flex-col" onClick={() => bellOpen && setBellOpen(false)}>
 
         {/* ── Breadcrumb / page bar ── */}
         <div className="border-b border-slate-800/40 bg-slate-900/15">
@@ -3624,6 +4141,85 @@ export default function BusinessOS() {
             </div>
             {/* Action buttons */}
             <div className="flex items-center gap-1.5 no-print">
+              {/* Notification bell */}
+              <div className="relative">
+                <button
+                  onClick={() => setBellOpen(o => !o)}
+                  title="Alerts & notifications"
+                  className={`relative flex items-center justify-center w-[30px] h-[30px] rounded-lg border transition-all ${
+                    triggeredCount > 0
+                      ? 'text-amber-400 border-amber-500/30 bg-amber-500/8 hover:bg-amber-500/15'
+                      : 'text-slate-500 border-slate-800/60 hover:text-slate-300 hover:border-slate-700'
+                  }`}>
+                  <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5">
+                    <path d="M7 1a1 1 0 00-1 1v.29A4 4 0 003 6.5v2.793L2 10.5h10l-1-1.207V6.5A4 4 0 008 2.29V2a1 1 0 00-1-1zm0 12a1.5 1.5 0 001.415-1H5.585A1.5 1.5 0 007 13z"/>
+                  </svg>
+                  {triggeredCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-amber-500 text-white text-[8px] font-black flex items-center justify-center leading-none">{triggeredCount}</span>
+                  )}
+                </button>
+                {/* Bell dropdown */}
+                {bellOpen && (
+                  <div
+                    className="absolute right-0 top-full mt-1.5 w-72 bg-[#0d1117] border border-slate-700/60 rounded-xl shadow-2xl shadow-black/50 z-[150] overflow-hidden"
+                    onClick={e => e.stopPropagation()}>
+                    <div className="px-3.5 py-2.5 border-b border-slate-800/50 flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-slate-300">Alerts</span>
+                      <button onClick={() => setBellOpen(false)} className="text-slate-600 hover:text-slate-400 text-lg leading-none">×</button>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      {triggeredAlerts.length === 0 && idleDealCount === 0 ? (
+                        <div className="px-3.5 py-4 text-[11px] text-slate-600 text-center">No active alerts</div>
+                      ) : (
+                        <>
+                          {triggeredAlerts.map(alert => (
+                            <div key={alert.id} className="px-3.5 py-2.5 border-b border-slate-800/30 last:border-0">
+                              <div className="flex items-center justify-between gap-2 mb-0.5">
+                                <span className="text-[11px] font-medium text-amber-300">{alert.label}</span>
+                                <span className="text-[10px] font-bold text-amber-400 tabular-nums">{alert.current}</span>
+                              </div>
+                              <div className="text-[10px] text-slate-600">
+                                Threshold: {alert.operator} {alert.threshold}
+                              </div>
+                            </div>
+                          ))}
+                          {idleDeals.crm > 0 && (
+                            <button
+                              onClick={() => { setActiveView('pipeline'); setBellOpen(false); }}
+                              className="w-full text-left px-3.5 py-2.5 border-b border-slate-800/30 hover:bg-slate-800/20 transition-colors">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <svg viewBox="0 0 10 10" fill="currentColor" className="w-2.5 h-2.5 text-amber-400 flex-shrink-0"><path d="M5 0a5 5 0 100 10A5 5 0 005 0zm0 2a.5.5 0 01.5.5v2.75l1 .58a.5.5 0 01-.5.87l-1.5-.87A.5.5 0 014.5 5.5V2.5A.5.5 0 015 2z"/></svg>
+                                <span className="text-[11px] font-medium text-amber-300">{idleDeals.crm} CRM deal{idleDeals.crm !== 1 ? 's' : ''} idle 7+ days</span>
+                              </div>
+                              <div className="text-[10px] text-slate-600">Go to CRM pipeline →</div>
+                            </button>
+                          )}
+                          {idleDeals.acq > 0 && (
+                            <button
+                              onClick={() => { setActiveView('acquisitions'); setBellOpen(false); }}
+                              className="w-full text-left px-3.5 py-2.5 border-b border-slate-800/30 last:border-0 hover:bg-slate-800/20 transition-colors">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <svg viewBox="0 0 10 10" fill="currentColor" className="w-2.5 h-2.5 text-amber-400 flex-shrink-0"><path d="M5 0a5 5 0 100 10A5 5 0 005 0zm0 2a.5.5 0 01.5.5v2.75l1 .58a.5.5 0 01-.5.87l-1.5-.87A.5.5 0 014.5 5.5V2.5A.5.5 0 015 2z"/></svg>
+                                <span className="text-[11px] font-medium text-amber-300">{idleDeals.acq} ACQ target{idleDeals.acq !== 1 ? 's' : ''} idle 7+ days</span>
+                              </div>
+                              <div className="text-[10px] text-slate-600">Go to Acquisitions →</div>
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                    {triggeredCount > 0 && (
+                      <div className="px-3.5 py-2 bg-amber-500/5 border-t border-amber-500/15">
+                        <button
+                          onClick={() => { setActiveView('overview'); setBellOpen(false); }}
+                          className="w-full text-center text-[10px] text-amber-400/70 hover:text-amber-400 transition-colors">
+                          View thresholds in Overview →
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
               {/* Compare — only if prior period exists */}
               {prevSnapshot && (
                 <button
@@ -3796,8 +4392,7 @@ export default function BusinessOS() {
           )}
 
           {/* ── Overview ── */}
-          {!simpleMode && (
-            <div className={activeView === 'overview' ? 'space-y-5' : 'hidden'}>
+          <div className={simpleMode ? 'hidden' : (activeView === 'overview' ? 'space-y-5' : 'hidden')}>
 
               {/* Connected model chain — always at the top of the overview */}
               <ConnectedModel chain={modelChain} onNavigate={v => setActiveView(v as ActiveView)}/>
@@ -4085,6 +4680,7 @@ export default function BusinessOS() {
                   <MonthlyTrendStrip data={data}/>
                   <BusinessHealthScore data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
                   <HealthScoreHistory snapshots={snapshots} activeId={activeSnapshotId}/>
+                  <SnapshotTrend snapshots={snapshots}/>
                   <ExecutiveSummary data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
                   {prevSnapshot && <BiggestMovers data={effectiveData} previous={prevSnapshot.data}/>}
                   <RevenueQuality data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
@@ -4111,9 +4707,8 @@ export default function BusinessOS() {
                 ))}
               </div>
             </div>
-          )}
 
-          {!simpleMode && (<>
+          <div className={simpleMode ? 'hidden' : 'contents'}>
           <div className={activeView === 'financial' ? 'space-y-4' : 'hidden'}>
               {usingDemo && (
                 <div className="flex items-center justify-between gap-4 bg-indigo-500/8 border border-indigo-500/20 rounded-xl px-4 py-3">
@@ -4186,8 +4781,12 @@ export default function BusinessOS() {
               {(() => {
                 const aging = data.arAging ?? [];
                 const overdue = aging.filter(b => b.days60 + b.days90 + b.over90 > 0);
+                // All hooks must be unconditional — declared before any early return
                 const [generated, setGenerated] = React.useState(false);
                 const [taskCount, setTaskCount] = React.useState(0);
+                const [emailTarget, setEmailTarget] = React.useState('');
+                const [emailText, setEmailText] = React.useState('');
+                const [emailLoading, setEmailLoading] = React.useState(false);
 
                 if (overdue.length === 0) return null;
 
@@ -4248,11 +4847,10 @@ export default function BusinessOS() {
                             Generate Follow-up Tasks
                           </button>
                         )}
+                        {/* Email drafter — state (emailTarget, emailText, emailLoading) hoisted to outer IIFE */}
                         {(() => {
-                          const [emailTarget, setEmailTarget] = React.useState(overdue[0]?.customer ?? '');
-                          const [emailText, setEmailText] = React.useState('');
-                          const [emailLoading, setEmailLoading] = React.useState(false);
-                          const selectedBucket = overdue.find(b => b.customer === emailTarget) ?? overdue[0];
+                          const effectiveTarget = emailTarget || overdue[0]?.customer || '';
+                          const selectedBucket = overdue.find(b => b.customer === effectiveTarget) ?? overdue[0];
                           const draftEmail = async () => {
                             if (!selectedBucket) return;
                             setEmailLoading(true);
@@ -4269,7 +4867,7 @@ export default function BusinessOS() {
                           return (
                             <div className="space-y-2">
                               <div className="flex items-center gap-2">
-                                <select value={emailTarget} onChange={e => { setEmailTarget(e.target.value); setEmailText(''); }}
+                                <select value={effectiveTarget} onChange={e => { setEmailTarget(e.target.value); setEmailText(''); }}
                                   className="flex-1 bg-slate-800/60 border border-amber-700/40 rounded-lg px-2 py-1.5 text-[11px] text-slate-300 focus:outline-none">
                                   {overdue.map(b => <option key={b.customer} value={b.customer}>{b.customer}</option>)}
                                 </select>
@@ -4621,6 +5219,94 @@ Respond with: (1) Recommended price increase % and rationale, (2) How to frame i
                       {pricingAnswer && (
                         <div className="bg-indigo-950/20 border border-indigo-500/20 rounded-lg p-4 text-[12px] text-slate-300 leading-relaxed whitespace-pre-wrap">{pricingAnswer}</div>
                       )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Pricing Impact Calculator ── */}
+              {(() => {
+                // Hooks MUST come before any early return (React rules of hooks)
+                const [pricePct, setPricePct] = React.useState(5);
+                const [churnPct, setChurnPct] = React.useState(3);
+                const [costPassPct, setCostPassPct] = React.useState(0);
+
+                const rev   = effectiveData.revenue.total;
+                const cogs  = effectiveData.costs.totalCOGS;
+                const opex  = effectiveData.costs.totalOpEx;
+                const gp    = rev - cogs;
+                const ebitda = gp - opex;
+                if (rev <= 0) return null;
+                const fmtV = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n).toLocaleString()}`;
+                const fmtD = (n: number) => `${n >= 0 ? '+' : ''}${fmtV(n)}`;
+
+                // New revenue = rev × (1 + price%) × (1 - churn%)
+                const newRev   = rev * (1 + pricePct / 100) * (1 - churnPct / 100);
+                // COGS scales with volume (net of churn), not price
+                const newCOGS  = cogs * (1 - churnPct / 100) * (1 + costPassPct / 100);
+                const newGP    = newRev - newCOGS;
+                const newGM    = newRev > 0 ? newGP / newRev : 0;
+                const newEBITDA = newGP - opex; // opex is fixed
+                const revDelta  = newRev - rev;
+                const ebitdaDelta = newEBITDA - ebitda;
+                const gmDelta = newGM - (gp / rev);
+                const flowThrough = revDelta !== 0 ? ebitdaDelta / revDelta : 0;
+
+                const sentiment = ebitdaDelta > 0 && newRev > rev
+                  ? { label: 'Accretive', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20' }
+                  : ebitdaDelta > 0
+                  ? { label: 'Profitable trade-off', color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20' }
+                  : { label: 'Value-destructive', color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20' };
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Pricing Impact Calculator</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Model the P&L effect of a price change — accounts for customer churn and cost pass-through</div>
+                      </div>
+                      <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border ${sentiment.bg} ${sentiment.color}`}>{sentiment.label}</span>
+                    </div>
+
+                    {/* Sliders */}
+                    <div className="px-5 py-4 grid grid-cols-1 sm:grid-cols-3 gap-4 border-b border-slate-800/30">
+                      {[
+                        { label: 'Price increase', val: pricePct, set: setPricePct, min: -20, max: 50, step: 0.5, unit: '%', hint: 'Across your entire book' },
+                        { label: 'Expected churn', val: churnPct, set: setChurnPct, min: 0, max: 40, step: 0.5, unit: '%', hint: 'Customers who leave due to price' },
+                        { label: 'COGS pass-through', val: costPassPct, set: setCostPassPct, min: 0, max: 100, step: 5, unit: '%', hint: 'Cost increase that accompanies price rise' },
+                      ].map(({ label, val, set, min, max, step, unit, hint }) => (
+                        <div key={label}>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <div className="text-[10px] font-semibold text-slate-500">{label}</div>
+                            <div className="text-[13px] font-bold text-slate-200">{val > 0 ? '+' : ''}{val}{unit}</div>
+                          </div>
+                          <input type="range" min={min} max={max} step={step} value={val}
+                            onChange={e => set(parseFloat(e.target.value))}
+                            className="w-full accent-indigo-500 h-1.5 cursor-pointer"/>
+                          <div className="text-[9px] text-slate-700 mt-1">{hint}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Impact metrics */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-slate-800/40">
+                      {[
+                        { label: 'New Revenue',    base: fmtV(rev),    after: fmtV(newRev),    delta: fmtD(revDelta),    pos: revDelta >= 0 },
+                        { label: 'Gross Margin',   base: `${(gp/rev*100).toFixed(1)}%`, after: `${(newGM*100).toFixed(1)}%`, delta: `${gmDelta >= 0 ? '+' : ''}${(gmDelta*100).toFixed(1)}pp`, pos: gmDelta >= 0 },
+                        { label: 'New EBITDA',     base: fmtV(ebitda), after: fmtV(newEBITDA), delta: fmtD(ebitdaDelta), pos: ebitdaDelta >= 0 },
+                        { label: 'Flow-through',   base: '—', after: `${(flowThrough*100).toFixed(0)}%`, delta: 'of rev delta → EBITDA', pos: flowThrough >= 0 },
+                      ].map(m => (
+                        <div key={m.label} className="px-4 py-3">
+                          <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider mb-1">{m.label}</div>
+                          <div className="text-[14px] font-bold text-slate-100">{m.after}</div>
+                          <div className="text-[10px] text-slate-600 mt-0.5">was {m.base}</div>
+                          <div className={`text-[10px] font-semibold mt-0.5 ${m.pos ? 'text-emerald-400' : 'text-red-400'}`}>{m.delta}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="px-5 py-2.5 border-t border-slate-800/30 text-[10px] text-slate-700">
+                      EBITDA change assumes fixed OpEx (${fmtV(opex)}). Model reflects volume loss from churn before price uplift is applied.
                     </div>
                   </div>
                 );
@@ -5062,6 +5748,102 @@ Be specific, use the actual names. 200 words max.`;
                   </div>
                 );
               })()}
+              {/* ── Customer Cohort Retention ── */}
+              {(() => {
+                const retention = effectiveData.customers.retentionRate ?? 0.88;
+                const periods   = effectiveData.revenue.byPeriod.slice(-8);
+                if (periods.length < 3) return null;
+
+                const MONTHS = 6; // show 6 retention months per cohort
+                // Build synthetic cohort table: each period = one cohort, size = new customers
+                const totalCustomers = effectiveData.customers.totalCount || 100;
+                const newPerPeriod   = effectiveData.customers.newThisPeriod || Math.round(totalCustomers * (1 - retention));
+
+                const cohorts = periods.slice(-5).map((p, pi) => {
+                  const cohortSize = Math.max(1, Math.round(newPerPeriod * (0.8 + pi * 0.1)));
+                  const monthRetention = Array.from({ length: MONTHS }, (_, m) => {
+                    if (m === 0) return 1.0;
+                    return Math.pow(retention, m) * (0.95 + Math.random() * 0.04 - 0.02);
+                  });
+                  // Only show months that have "elapsed"
+                  const elapsed = periods.length - pi;
+                  return { period: p.period, size: cohortSize, monthRetention, elapsed };
+                });
+
+                const cellColor = (r: number) =>
+                  r >= 0.90 ? 'bg-emerald-500/25 text-emerald-300' :
+                  r >= 0.75 ? 'bg-emerald-500/12 text-emerald-400' :
+                  r >= 0.60 ? 'bg-amber-500/15 text-amber-400' :
+                  r >= 0.40 ? 'bg-amber-500/8 text-amber-500' :
+                              'bg-red-500/10 text-red-400';
+
+                const avgRetentionM3 = cohorts.reduce((s, c) => s + (c.monthRetention[3] ?? 0), 0) / cohorts.length;
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-2xl overflow-hidden">
+                    <div className="px-5 py-4 border-b border-slate-800/40 flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-[13px] font-bold text-slate-100">Cohort Retention</div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">Month-over-month retention by acquisition cohort</div>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <div className={`text-[18px] font-bold tabular-nums ${avgRetentionM3 >= 0.80 ? 'text-emerald-400' : avgRetentionM3 >= 0.60 ? 'text-amber-400' : 'text-red-400'}`}>
+                          {(avgRetentionM3 * 100).toFixed(1)}%
+                        </div>
+                        <div className="text-[10px] text-slate-600 mt-0.5">avg M3 retention</div>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-[11px] min-w-[480px]">
+                        <thead>
+                          <tr className="border-b border-slate-800/40">
+                            <th className="text-left px-5 py-2.5 text-slate-600 font-medium w-32">Cohort</th>
+                            <th className="text-right px-3 py-2.5 text-slate-600 font-medium">Size</th>
+                            {Array.from({ length: MONTHS }, (_, m) => (
+                              <th key={m} className="text-center px-3 py-2.5 text-slate-600 font-medium">M{m}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {cohorts.map(c => (
+                            <tr key={c.period} className="border-b border-slate-800/20 last:border-0 hover:bg-slate-800/10">
+                              <td className="px-5 py-2.5 text-slate-400 text-[11px] whitespace-nowrap">{c.period}</td>
+                              <td className="px-3 py-2.5 text-right text-slate-400 font-medium tabular-nums">{c.size}</td>
+                              {c.monthRetention.map((r, m) => {
+                                const hasData = m < c.elapsed;
+                                return (
+                                  <td key={m} className="px-1.5 py-2 text-center">
+                                    {hasData ? (
+                                      <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold tabular-nums ${cellColor(r)}`}>
+                                        {(r * 100).toFixed(0)}%
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-800 text-[10px]">—</span>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="px-5 py-3 border-t border-slate-800/30 flex items-center gap-4 flex-wrap text-[10px] text-slate-600">
+                      <span>Modeled from {(retention * 100).toFixed(1)}% retention rate</span>
+                      <div className="flex items-center gap-2 ml-auto">
+                        {[['≥90%', 'bg-emerald-500/25'], ['≥75%', 'bg-emerald-500/12'], ['≥60%', 'bg-amber-500/15'], ['<60%', 'bg-red-500/10']].map(([label, bg]) => (
+                          <div key={label} className="flex items-center gap-1">
+                            <div className={`w-3 h-3 rounded ${bg}`}/>
+                            <span>{label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
               </ErrorBoundary>
             </div>
           <div className={activeView === 'operations' ? 'space-y-4' : 'hidden'}>
@@ -5394,6 +6176,204 @@ Be specific, use the actual names. 200 words max.`;
                         )}
                       </div>
                     )}
+                  </div>
+                );
+              })()}
+              {/* ── Vendor Scorecard ── */}
+              {(() => {
+                const VEND_KEY = 'bos_vendor_scorecard';
+                type Vendor = { id: string; name: string; category: string; annualSpend: number; rating: number; renewalDate: string; status: 'active'|'at-risk'|'reviewing'|'terminated'; notes: string };
+                const CATS = ['Software','Professional Services','Facilities','Marketing','Logistics','Staffing','Insurance','Other'];
+
+                const [vendors, setVendors] = React.useState<Vendor[]>(() => {
+                  try { const s = localStorage.getItem(VEND_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
+                });
+                const [showAdd, setShowAdd] = React.useState(false);
+                const [blank, setBlank] = React.useState<Omit<Vendor,'id'>>({ name:'', category:'Software', annualSpend:0, rating:4, renewalDate:'', status:'active', notes:'' });
+
+                const save = (v: Vendor[]) => { setVendors(v); try { localStorage.setItem(VEND_KEY, JSON.stringify(v)); } catch { /* ignore */ } };
+                const add = () => { if (!blank.name.trim()) return; save([...vendors, { ...blank, id: `v${Date.now()}` }]); setBlank({ name:'', category:'Software', annualSpend:0, rating:4, renewalDate:'', status:'active', notes:'' }); setShowAdd(false); };
+                const remove = (id: string) => save(vendors.filter(v => v.id !== id));
+                const cycleRating = (id: string, dir: 1|-1) => save(vendors.map(v => v.id === id ? { ...v, rating: Math.min(5, Math.max(1, v.rating + dir)) } : v));
+                const cycleStatus = (id: string) => {
+                  const cycle: Vendor['status'][] = ['active','reviewing','at-risk','terminated'];
+                  save(vendors.map(v => v.id === id ? { ...v, status: cycle[(cycle.indexOf(v.status)+1)%4] } : v));
+                };
+
+                const totalSpend = vendors.filter(v => v.status !== 'terminated').reduce((s, v) => s + v.annualSpend, 0);
+                const rev = effectiveData.revenue.total;
+                const fmtV = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n)}`;
+                const now = new Date();
+                const soon = (d: string) => { if (!d) return false; const dd = new Date(d); return dd > now && (dd.getTime()-now.getTime()) < 90*86400000; };
+                const statusCfg: Record<Vendor['status'],{cls:string;label:string}> = {
+                  active:     { cls:'bg-emerald-500/10 text-emerald-400 border-emerald-500/20', label:'Active' },
+                  reviewing:  { cls:'bg-sky-500/10 text-sky-400 border-sky-500/20', label:'Reviewing' },
+                  'at-risk':  { cls:'bg-amber-500/10 text-amber-400 border-amber-500/20', label:'At-risk' },
+                  terminated: { cls:'bg-slate-800/40 text-slate-600 border-slate-700/30', label:'Off' },
+                };
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Vendor Scorecard</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">
+                          {vendors.filter(v=>v.status!=='terminated').length} active vendors · {fmtV(totalSpend)} annual spend{rev > 0 ? ` · ${((totalSpend/rev)*100).toFixed(1)}% of revenue` : ''}
+                        </div>
+                      </div>
+                      <button onClick={() => setShowAdd(v => !v)} className="text-[11px] px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-600/40 text-cyan-300 rounded-lg transition-colors">+ Add Vendor</button>
+                    </div>
+
+                    {showAdd && (
+                      <div className="px-5 py-3 border-b border-slate-800/30 bg-slate-800/10 space-y-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          <input value={blank.name} onChange={e => setBlank(p=>({...p,name:e.target.value}))} placeholder="Vendor name"
+                            className="col-span-2 bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/50"/>
+                          <select value={blank.category} onChange={e => setBlank(p=>({...p,category:e.target.value}))}
+                            className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-300 focus:outline-none">
+                            {CATS.map(c=><option key={c}>{c}</option>)}
+                          </select>
+                          <div className="relative">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-[11px]">$</span>
+                            <input type="number" value={blank.annualSpend||''} onChange={e=>setBlank(p=>({...p,annualSpend:+e.target.value}))} placeholder="Annual spend"
+                              className="w-full bg-slate-800/60 border border-slate-700/60 rounded-lg pl-5 pr-2 py-1.5 text-[12px] text-slate-200 focus:outline-none focus:border-cyan-500/50"/>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          <input type="date" value={blank.renewalDate} onChange={e=>setBlank(p=>({...p,renewalDate:e.target.value}))}
+                            className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-300 focus:outline-none"/>
+                          <input value={blank.notes} onChange={e=>setBlank(p=>({...p,notes:e.target.value}))} placeholder="Notes (optional)"
+                            className="col-span-2 bg-slate-800/60 border border-slate-700/60 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/50"/>
+                          <div className="flex gap-2">
+                            <button onClick={add} className="flex-1 px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-[12px] font-semibold rounded-lg">Add</button>
+                            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-slate-500 hover:text-slate-300 text-[12px]">✕</button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {vendors.length === 0 ? (
+                      <div className="px-5 py-6 text-center text-[12px] text-slate-500">No vendors yet — track key vendor relationships and renewal dates</div>
+                    ) : (
+                      <div className="divide-y divide-slate-800/30">
+                        {vendors.map(v => {
+                          const renewingSoon = soon(v.renewalDate);
+                          return (
+                            <div key={v.id} className={`px-5 py-3 flex items-center gap-3 flex-wrap hover:bg-slate-800/10 transition-colors ${v.status==='terminated' ? 'opacity-50' : ''}`}>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-[12px] font-semibold text-slate-200">{v.name}</span>
+                                  <span className="text-[10px] text-slate-600 bg-slate-800/40 px-1.5 py-0.5 rounded">{v.category}</span>
+                                  {renewingSoon && <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">Renews soon</span>}
+                                </div>
+                                <div className="flex items-center gap-3 mt-0.5">
+                                  <span className="text-[11px] text-slate-400 font-semibold">{fmtV(v.annualSpend)}/yr</span>
+                                  {v.renewalDate && <span className="text-[10px] text-slate-600">Renewal: {new Date(v.renewalDate+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span>}
+                                  {v.notes && <span className="text-[10px] text-slate-600 truncate max-w-[160px]">{v.notes}</span>}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                {/* Star rating */}
+                                <div className="flex items-center gap-0.5">
+                                  {[1,2,3,4,5].map(star => (
+                                    <button key={star} onClick={() => save(vendors.map(x => x.id===v.id ? {...x,rating:star} : x))}
+                                      className={`text-[12px] transition-colors ${star<=v.rating ? 'text-amber-400' : 'text-slate-700 hover:text-slate-500'}`}>★</button>
+                                  ))}
+                                </div>
+                                <button onClick={() => cycleStatus(v.id)} className={`text-[9px] font-bold px-2 py-1 rounded border cursor-pointer transition-all ${statusCfg[v.status].cls}`}>{statusCfg[v.status].label}</button>
+                                <button onClick={() => remove(v.id)} className="text-[10px] text-slate-700 hover:text-red-400 transition-colors">✕</button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {vendors.length > 0 && (
+                      <div className="px-5 py-2.5 border-t border-slate-800/30 grid grid-cols-3 gap-4 text-center text-[10px]">
+                        <div><div className="text-[13px] font-bold text-slate-300">{vendors.filter(v=>v.status==='at-risk').length}</div><div className="text-slate-600">At-risk</div></div>
+                        <div><div className="text-[13px] font-bold text-amber-400">{vendors.filter(v=>soon(v.renewalDate)&&v.status!=='terminated').length}</div><div className="text-slate-600">Renewing within 90d</div></div>
+                        <div><div className="text-[13px] font-bold text-slate-300">{vendors.filter(v=>v.rating<=2&&v.status!=='terminated').length}</div><div className="text-slate-600">Low-rated</div></div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ── Hiring Cost Calculator ── */}
+              {(() => {
+                const rev = effectiveData.revenue.total;
+                const cogs = effectiveData.costs.totalCOGS;
+                const opex = effectiveData.costs.totalOpEx;
+                const ebitda = rev - cogs - opex;
+                const gmPct = rev > 0 ? (rev - cogs) / rev : 0;
+                const fmtV = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n).toLocaleString()}`;
+
+                const [salary, setSalary] = React.useState(80000);
+                const [benefits, setBenefits] = React.useState(25); // % of salary
+                const [overhead, setOverhead] = React.useState(10); // % of salary
+
+                const fullyLoaded = salary * (1 + benefits/100 + overhead/100);
+                const revenueNeeded = gmPct > 0 ? fullyLoaded / gmPct : 0;
+                const ebitdaImpact = ebitda - fullyLoaded;
+                const marginAfter = rev > 0 ? (ebitdaImpact / rev) * 100 : 0;
+                const breakEvenRev = rev > 0 && revenueNeeded > 0 ? ((revenueNeeded / rev) * 100) : 0;
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50">
+                      <div className="text-[12px] font-semibold text-slate-100">Hiring Cost Calculator</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">Fully-loaded cost of a new hire and the revenue needed to cover it at your current margins</div>
+                    </div>
+                    <div className="p-5 space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                          <div className="text-[10px] font-semibold text-slate-500 mb-1.5">Base salary</div>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-[12px]">$</span>
+                            <input type="number" value={salary} onChange={e => setSalary(parseFloat(e.target.value)||0)}
+                              className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg pl-6 pr-3 py-2 text-[12px] text-slate-200 focus:outline-none focus:border-indigo-500/50"/>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-semibold text-slate-500 mb-1.5">Benefits burden</div>
+                          <div className="relative">
+                            <input type="number" value={benefits} onChange={e => setBenefits(parseFloat(e.target.value)||0)}
+                              className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg pl-3 pr-6 py-2 text-[12px] text-slate-200 focus:outline-none focus:border-indigo-500/50"/>
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-[12px]">%</span>
+                          </div>
+                          <div className="text-[9px] text-slate-600 mt-0.5">Typical: 20–30% (FICA, health, 401k)</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-semibold text-slate-500 mb-1.5">Overhead / equipment</div>
+                          <div className="relative">
+                            <input type="number" value={overhead} onChange={e => setOverhead(parseFloat(e.target.value)||0)}
+                              className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg pl-3 pr-6 py-2 text-[12px] text-slate-200 focus:outline-none focus:border-indigo-500/50"/>
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-[12px]">%</span>
+                          </div>
+                          <div className="text-[9px] text-slate-600 mt-0.5">Desk, laptop, software, management time</div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {[
+                          { label: 'Fully-loaded cost',    value: fmtV(fullyLoaded),                      color: 'text-amber-300',    hint: 'All-in annual cost' },
+                          { label: 'Revenue to cover',     value: fmtV(revenueNeeded),                    color: 'text-indigo-300',   hint: `At ${(gmPct*100).toFixed(0)}% gross margin` },
+                          { label: 'Additional revenue %', value: `${breakEvenRev.toFixed(1)}% more rev`, color: 'text-slate-300',    hint: 'vs. current revenue' },
+                          { label: 'EBITDA after hire',    value: fmtV(ebitdaImpact),                     color: ebitdaImpact >= 0 ? 'text-emerald-400' : 'text-red-400', hint: `Margin: ${marginAfter.toFixed(1)}%` },
+                        ].map(m => (
+                          <div key={m.label} className="bg-slate-800/40 border border-slate-700/30 rounded-xl px-3 py-2.5">
+                            <div className="text-[10px] font-semibold text-slate-500 mb-1">{m.label}</div>
+                            <div className={`text-[15px] font-bold tabular-nums ${m.color}`}>{m.value}</div>
+                            <div className="text-[9px] text-slate-600 mt-0.5">{m.hint}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="text-[10px] text-slate-600 bg-slate-800/20 rounded-lg px-3 py-2">
+                        Rule of thumb: a hire should generate 3× their fully-loaded cost in revenue. At your margin, this hire needs to create {fmtV(fullyLoaded * 3)} in incremental revenue to be accretive.
+                      </div>
+                    </div>
                   </div>
                 );
               })()}
@@ -5834,6 +6814,129 @@ Produce a structured diagnostic in EXACTLY this format. Be brutally specific. Ev
                 );
               })()}
 
+              {/* ── Competitor Tracker ── */}
+              {(() => {
+                const COMP_KEY = 'bos_competitors';
+                type Competitor = { id: string; name: string; estRevenue: number; pricing: string; strengths: string; weaknesses: string; notes: string };
+                const [competitors, setCompetitors] = React.useState<Competitor[]>(() => {
+                  try { const s = localStorage.getItem(COMP_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
+                });
+                const [showAdd, setShowAdd] = React.useState(false);
+                const [draft, setDraft] = React.useState<Omit<Competitor,'id'>>({ name: '', estRevenue: 0, pricing: '', strengths: '', weaknesses: '', notes: '' });
+
+                const save = (next: Competitor[]) => { setCompetitors(next); try { localStorage.setItem(COMP_KEY, JSON.stringify(next)); } catch { /* ignore */ } };
+                const add = () => { if (!draft.name.trim()) return; save([...competitors, { ...draft, id: `c${Date.now()}` }]); setDraft({ name: '', estRevenue: 0, pricing: '', strengths: '', weaknesses: '', notes: '' }); setShowAdd(false); };
+                const remove = (id: string) => save(competitors.filter(c => c.id !== id));
+
+                const myRev = effectiveData.revenue.total;
+                const fmtV = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(1)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n)}`;
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Competitor Tracker</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Log named competitors, estimated revenue, and positioning intelligence</div>
+                      </div>
+                      <button onClick={() => setShowAdd(v => !v)} className="text-[11px] px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-600/40 text-indigo-300 rounded-lg transition-colors">
+                        + Competitor
+                      </button>
+                    </div>
+
+                    {showAdd && (
+                      <div className="px-5 py-4 border-b border-slate-800/40 bg-slate-800/20 space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <div className="text-[10px] font-semibold text-slate-500 mb-1">Company name</div>
+                            <input value={draft.name} onChange={e => setDraft(d => ({...d,name:e.target.value}))} placeholder="Acme Corp"
+                              className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50"/>
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-semibold text-slate-500 mb-1">Est. annual revenue ($)</div>
+                            <input type="number" value={draft.estRevenue || ''} onChange={e => setDraft(d => ({...d,estRevenue:parseFloat(e.target.value)||0}))} placeholder="5000000"
+                              className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50"/>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-semibold text-slate-500 mb-1">Pricing model</div>
+                          <input value={draft.pricing} onChange={e => setDraft(d => ({...d,pricing:e.target.value}))} placeholder="e.g. $2,500/mo SaaS or project-based $25k–$150k"
+                            className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50"/>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <div className="text-[10px] font-semibold text-slate-500 mb-1">Key strengths</div>
+                            <input value={draft.strengths} onChange={e => setDraft(d => ({...d,strengths:e.target.value}))} placeholder="e.g. Brand, distribution, tech"
+                              className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50"/>
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-semibold text-slate-500 mb-1">Key weaknesses</div>
+                            <input value={draft.weaknesses} onChange={e => setDraft(d => ({...d,weaknesses:e.target.value}))} placeholder="e.g. Poor support, high churn"
+                              className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50"/>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={add} className="px-4 py-2 text-[12px] font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors">Add</button>
+                          <button onClick={() => setShowAdd(false)} className="px-3 py-2 text-[12px] text-slate-500 hover:text-slate-300">Cancel</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {competitors.length === 0 ? (
+                      <div className="px-5 py-8 text-center text-[11px] text-slate-600">
+                        No competitors tracked — add named rivals to compare revenue, pricing, and positioning
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-[11px] min-w-[600px]">
+                          <thead>
+                            <tr className="border-b border-slate-800/50">
+                              <th className="text-left px-5 py-2.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Company</th>
+                              <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Est. Revenue</th>
+                              <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">vs. You</th>
+                              <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Pricing</th>
+                              <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Strengths / Weaknesses</th>
+                              <th className="px-3 py-2.5"/>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {/* Your own row */}
+                            <tr className="border-b border-slate-800/30 bg-indigo-500/5">
+                              <td className="px-5 py-2.5 font-semibold text-indigo-300">{companyName || 'You'} <span className="text-[9px] text-indigo-500 ml-1">YOU</span></td>
+                              <td className="px-4 py-2.5 text-right font-semibold text-slate-100">{fmtV(myRev)}</td>
+                              <td className="px-4 py-2.5 text-right text-slate-500">—</td>
+                              <td className="px-4 py-2.5 text-slate-400">—</td>
+                              <td className="px-4 py-2.5 text-slate-500">—</td>
+                              <td className="px-3 py-2.5"/>
+                            </tr>
+                            {competitors.map(c => {
+                              const ratio = myRev > 0 && c.estRevenue > 0 ? c.estRevenue / myRev : null;
+                              const ratioLabel = ratio === null ? '—' : ratio > 1.5 ? `${ratio.toFixed(1)}× larger` : ratio < 0.67 ? `${(1/ratio).toFixed(1)}× smaller` : 'Similar size';
+                              const ratioCls = ratio === null ? 'text-slate-600' : ratio > 1 ? 'text-amber-400' : 'text-emerald-400';
+                              return (
+                                <tr key={c.id} className="border-b border-slate-800/20 hover:bg-slate-800/20 transition-colors">
+                                  <td className="px-5 py-2.5 font-medium text-slate-200">{c.name}</td>
+                                  <td className="px-4 py-2.5 text-right text-slate-300 tabular-nums">{c.estRevenue > 0 ? fmtV(c.estRevenue) : '—'}</td>
+                                  <td className={`px-4 py-2.5 text-right text-[10px] font-semibold ${ratioCls}`}>{ratioLabel}</td>
+                                  <td className="px-4 py-2.5 text-slate-500 max-w-[140px] truncate">{c.pricing || '—'}</td>
+                                  <td className="px-4 py-2.5 text-slate-500 max-w-[160px]">
+                                    {c.strengths && <span className="text-emerald-400/70">+{c.strengths}</span>}
+                                    {c.strengths && c.weaknesses && <span className="text-slate-700"> · </span>}
+                                    {c.weaknesses && <span className="text-red-400/70">−{c.weaknesses}</span>}
+                                  </td>
+                                  <td className="px-3 py-2.5">
+                                    <button onClick={() => remove(c.id)} className="text-slate-700 hover:text-red-400 transition-colors text-[10px]">✕</button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* ── Investor Update Drafter (uses component-level state) ── */}
               {(() => {
                 // investorDraft, setInvestorDraft, investorDraftLoading, setInvestorDraftLoading, investorAudience, setInvestorAudience — lifted to component level
@@ -5955,6 +7058,113 @@ Rules: Every bullet has a number. No "we are pleased to report." No "it is worth
                     )}
                     {!updateDraft && !updateLoading && (
                       <div className="px-5 py-8 text-center text-[11px] text-slate-600">Select audience and click Draft Update — pulls live financial data automatically</div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ── AI SWOT Analyzer ── */}
+              {(() => {
+                const SWOT_KEY = 'bos_swot';
+                const [swotResult, setSwotResult] = React.useState<{ strengths: string[]; weaknesses: string[]; opportunities: string[]; threats: string[] } | null>(() => {
+                  try { const s = localStorage.getItem(SWOT_KEY); return s ? JSON.parse(s) : null; } catch { return null; }
+                });
+                const [swotLoading, setSwotLoading] = React.useState(false);
+
+                const runSwot = async () => {
+                  setSwotLoading(true);
+                  const rev   = effectiveData.revenue.total;
+                  const cogs  = effectiveData.costs.totalCOGS;
+                  const opex  = effectiveData.costs.totalOpEx;
+                  const ebitda = rev - cogs - opex;
+                  const gm    = rev > 0 ? ((rev - cogs) / rev * 100).toFixed(1) : 'N/A';
+                  const f = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(1)}M` : `$${(n/1e3).toFixed(0)}k`;
+                  const topCust = effectiveData.customers.topCustomers[0];
+                  const periods = effectiveData.revenue.byPeriod ?? [];
+                  const growth = periods.length >= 2 && periods[periods.length-2].revenue > 0
+                    ? ((periods[periods.length-1].revenue - periods[periods.length-2].revenue) / periods[periods.length-2].revenue * 100).toFixed(1)
+                    : null;
+
+                  const prompt = `You are an experienced lower middle market business advisor. Perform a SWOT analysis for ${companyName ?? 'this company'} based on the following data:
+
+Revenue: ${f(rev)} | Gross Margin: ${gm}% | EBITDA: ${f(ebitda)}
+Customers: ${effectiveData.customers.totalCount} total | Retention: ${((effectiveData.customers.retentionRate ?? 0.88)*100).toFixed(0)}%
+${topCust ? `Top customer: ${topCust.name} at ${topCust.percentOfTotal.toFixed(1)}% of revenue` : ''}
+${growth ? `Revenue growth: ${growth}%` : ''}
+${effectiveData.operations.headcount ? `Headcount: ${effectiveData.operations.headcount}` : ''}
+
+Return ONLY valid JSON (no markdown, no commentary):
+{
+  "strengths": ["2-4 specific, data-backed strengths"],
+  "weaknesses": ["2-4 specific, data-backed weaknesses or risks"],
+  "opportunities": ["2-4 concrete market/operational opportunities to pursue"],
+  "threats": ["2-4 realistic external or competitive threats to monitor"]
+}
+
+Each item should be one sentence, specific to the data above, and actionable. No generic MBA boilerplate.`;
+
+                  try {
+                    const r = await fetch('/api/chat', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ message: prompt, data: effectiveData, companyName, planId: 'pro', maxTokens: 600 }),
+                    });
+                    const j = await r.json() as { reply?: string };
+                    const raw = j.reply ?? '';
+                    const match = raw.match(/\{[\s\S]*\}/);
+                    if (match) {
+                      const parsed = JSON.parse(match[0]) as typeof swotResult;
+                      setSwotResult(parsed);
+                      try { localStorage.setItem(SWOT_KEY, JSON.stringify(parsed)); } catch { /* ignore */ }
+                    }
+                  } catch { /* ignore */ }
+                  setSwotLoading(false);
+                };
+
+                const quadrants: { key: keyof NonNullable<typeof swotResult>; label: string; color: string; bg: string; border: string }[] = [
+                  { key: 'strengths',    label: 'Strengths',    color: 'text-emerald-400', bg: 'bg-emerald-500/5',  border: 'border-emerald-500/20' },
+                  { key: 'weaknesses',   label: 'Weaknesses',   color: 'text-red-400',     bg: 'bg-red-500/5',      border: 'border-red-500/20'     },
+                  { key: 'opportunities',label: 'Opportunities', color: 'text-sky-400',     bg: 'bg-sky-500/5',      border: 'border-sky-500/20'     },
+                  { key: 'threats',      label: 'Threats',      color: 'text-amber-400',   bg: 'bg-amber-500/5',    border: 'border-amber-500/20'   },
+                ];
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">AI SWOT Analysis</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Data-driven strengths, weaknesses, opportunities, threats · generated from your live financials</div>
+                      </div>
+                      <button
+                        onClick={runSwot}
+                        disabled={swotLoading}
+                        className="text-[11px] px-4 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-600/40 text-indigo-300 rounded-lg disabled:opacity-40 transition-colors"
+                      >
+                        {swotLoading ? 'Analyzing…' : swotResult ? 'Regenerate' : 'Generate SWOT →'}
+                      </button>
+                    </div>
+                    {swotResult ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-0 divide-y divide-x-0 sm:divide-y-0 sm:divide-x divide-slate-800/40">
+                        {quadrants.map(q => (
+                          <div key={q.key} className={`p-5 ${q.bg}`}>
+                            <div className={`text-[10px] font-bold uppercase tracking-[0.1em] mb-3 ${q.color}`}>{q.label}</div>
+                            <ul className="space-y-2">
+                              {(swotResult[q.key] ?? []).map((item, i) => (
+                                <li key={i} className="flex items-start gap-2">
+                                  <div className={`w-1 h-1 rounded-full mt-1.5 flex-shrink-0 ${q.color.replace('text-', 'bg-')}`}/>
+                                  <span className="text-[11px] text-slate-300 leading-relaxed">{item}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    ) : !swotLoading ? (
+                      <div className="px-5 py-8 text-center text-[11px] text-slate-600">
+                        Click Generate SWOT — uses your live revenue, margin, customer, and cost data
+                      </div>
+                    ) : (
+                      <div className="px-5 py-8 text-center text-[11px] text-slate-500 animate-pulse">Analyzing your business data…</div>
                     )}
                   </div>
                 );
@@ -6329,6 +7539,165 @@ Rules: Every bullet has a number. No "we are pleased to report." No "it is worth
                 );
               })()}
 
+              {/* ── Sales Commission Calculator ── */}
+              {(() => {
+                const COMM_KEY = 'bos_commission_settings';
+                type LocalDeal = { id: string; name: string; company: string; value: number; stage: string; probability: number; owner?: string; createdAt: string };
+                let allDeals: LocalDeal[] = [];
+                try { const s = localStorage.getItem('bos_deals'); if (s) allDeals = JSON.parse(s); } catch { /* ignore */ }
+
+                const [quota, setQuota] = React.useState<number>(() => { try { return JSON.parse(localStorage.getItem(COMM_KEY) ?? '{}').quota ?? 500000; } catch { return 500000; } });
+                const [commRate, setCommRate] = React.useState<number>(() => { try { return JSON.parse(localStorage.getItem(COMM_KEY) ?? '{}').commRate ?? 8; } catch { return 8; } });
+                const [accelRate, setAccelRate] = React.useState<number>(() => { try { return JSON.parse(localStorage.getItem(COMM_KEY) ?? '{}').accelRate ?? 12; } catch { return 12; } });
+
+                const saveCfg = (q: number, r: number, a: number) => {
+                  try { localStorage.setItem(COMM_KEY, JSON.stringify({ quota: q, commRate: r, accelRate: a })); } catch { /* ignore */ }
+                };
+
+                const wonDeals = allDeals.filter(d => d.stage === 'closed-won');
+                const activeDeals = allDeals.filter(d => d.stage !== 'closed-won' && d.stage !== 'closed-lost');
+                const wonRev = wonDeals.reduce((s, d) => s + d.value, 0);
+                const weightedPipe = activeDeals.reduce((s, d) => s + d.value * (d.probability / 100), 0);
+
+                const quotaAttained = quota > 0 ? wonRev / quota : 0;
+                const isAccel = quotaAttained >= 1;
+
+                // Commission calculation with accelerator at 100% quota
+                const baseComm = Math.min(wonRev, quota) * (commRate / 100);
+                const overQuota = Math.max(0, wonRev - quota);
+                const accelComm = overQuota * (accelRate / 100);
+                const totalComm = baseComm + accelComm;
+
+                // Projected if pipeline closes at weighted value
+                const projectedRev = wonRev + weightedPipe;
+                const projBase = Math.min(projectedRev, quota) * (commRate / 100);
+                const projOver = Math.max(0, projectedRev - quota) * (accelRate / 100);
+                const projComm = projBase + projOver;
+
+                const fmtV = (n: number) => n >= 1e6 ? `$${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n / 1e3).toFixed(0)}k` : `$${Math.round(n).toLocaleString()}`;
+                const attPct = Math.min(quotaAttained * 100, 150);
+                const barColor = quotaAttained >= 1 ? 'bg-emerald-500' : quotaAttained >= 0.7 ? 'bg-amber-500' : 'bg-red-500/70';
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Sales Commission Calculator</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Quota attainment · earned commission · accelerator tracking</div>
+                      </div>
+                      <div className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border ${isAccel ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : quotaAttained >= 0.7 ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' : 'text-slate-400 bg-slate-800/40 border-slate-700/40'}`}>
+                        {(quotaAttained * 100).toFixed(0)}% to quota{isAccel ? ' · Accelerator active' : ''}
+                      </div>
+                    </div>
+
+                    {/* Settings row */}
+                    <div className="px-5 py-3 border-b border-slate-800/30 bg-slate-800/10 grid grid-cols-3 gap-3">
+                      <div>
+                        <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider mb-1">Annual Quota</div>
+                        <div className="relative">
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-[11px]">$</span>
+                          <input type="number" value={quota} onChange={e => { const v = +e.target.value || 0; setQuota(v); saveCfg(v, commRate, accelRate); }}
+                            className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg pl-5 pr-2 py-1.5 text-[12px] text-slate-200 focus:outline-none focus:border-indigo-500/50"/>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider mb-1">Base Rate</div>
+                        <div className="relative">
+                          <input type="number" value={commRate} step="0.5" onChange={e => { const v = +e.target.value || 0; setCommRate(v); saveCfg(quota, v, accelRate); }}
+                            className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg pl-2.5 pr-5 py-1.5 text-[12px] text-slate-200 focus:outline-none focus:border-indigo-500/50"/>
+                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-[11px]">%</span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider mb-1">Accelerator (100%+)</div>
+                        <div className="relative">
+                          <input type="number" value={accelRate} step="0.5" onChange={e => { const v = +e.target.value || 0; setAccelRate(v); saveCfg(quota, commRate, v); }}
+                            className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg pl-2.5 pr-5 py-1.5 text-[12px] text-slate-200 focus:outline-none focus:border-indigo-500/50"/>
+                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-[11px]">%</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-5 space-y-4">
+                      {/* Quota progress bar */}
+                      <div>
+                        <div className="flex items-center justify-between text-[11px] mb-1.5">
+                          <span className="text-slate-500">Closed: <span className="text-slate-200 font-semibold">{fmtV(wonRev)}</span></span>
+                          <span className="text-slate-500">Quota: <span className="text-slate-400">{fmtV(quota)}</span></span>
+                        </div>
+                        <div className="h-3 bg-slate-800/60 rounded-full overflow-hidden relative">
+                          <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${Math.min(attPct, 100)}%` }}/>
+                          {/* Quota line at 100% */}
+                          <div className="absolute top-0 bottom-0 w-px bg-slate-400/40" style={{ left: `${Math.min(100, (quota / Math.max(quota, wonRev + 1)) * 100)}%` }}/>
+                        </div>
+                        {weightedPipe > 0 && (
+                          <div className="text-[10px] text-slate-600 mt-1">
+                            + {fmtV(weightedPipe)} weighted pipeline → projected {fmtV(projectedRev)} ({((projectedRev / quota) * 100).toFixed(0)}% of quota)
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Commission metrics */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {[
+                          { label: 'Earned (Closed)',    value: fmtV(totalComm),  color: 'text-emerald-400', hint: `${commRate}% of ${fmtV(Math.min(wonRev, quota))}${isAccel ? ` + ${accelRate}% accel` : ''}` },
+                          { label: 'Remaining to Quota', value: fmtV(Math.max(0, quota - wonRev)), color: quotaAttained >= 1 ? 'text-slate-500 line-through' : 'text-amber-400', hint: isAccel ? 'Quota exceeded!' : `${((1 - quotaAttained) * 100).toFixed(0)}% left` },
+                          { label: 'Projected Earned',   value: fmtV(projComm),   color: 'text-indigo-300',  hint: 'If pipeline closes at weighted %' },
+                          { label: 'Projected Attain.',  value: `${Math.min(((projectedRev / Math.max(quota, 1)) * 100), 999).toFixed(0)}%`, color: projectedRev >= quota ? 'text-emerald-400' : 'text-amber-400', hint: 'With weighted pipeline' },
+                        ].map(m => (
+                          <div key={m.label} className="bg-slate-800/30 border border-slate-700/30 rounded-xl px-3.5 py-3">
+                            <div className="text-[10px] font-semibold text-slate-600 mb-1">{m.label}</div>
+                            <div className={`text-[17px] font-bold tabular-nums ${m.color}`}>{m.value}</div>
+                            <div className="text-[9px] text-slate-600 mt-0.5">{m.hint}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Deal-by-deal breakdown */}
+                      {wonDeals.length > 0 && (
+                        <div>
+                          <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-2">Closed Won Breakdown</div>
+                          <div className="space-y-1.5">
+                            {wonDeals.map((d, i) => {
+                              const cumRev = wonDeals.slice(0, i + 1).reduce((s, x) => s + x.value, 0);
+                              const prevRev = wonDeals.slice(0, i).reduce((s, x) => s + x.value, 0);
+                              const inAccel = prevRev >= quota;
+                              const crossesQuota = prevRev < quota && cumRev > quota;
+                              let dealComm = 0;
+                              if (inAccel) {
+                                dealComm = d.value * (accelRate / 100);
+                              } else if (crossesQuota) {
+                                const baseSlice = quota - prevRev;
+                                const accelSlice = d.value - baseSlice;
+                                dealComm = baseSlice * (commRate / 100) + accelSlice * (accelRate / 100);
+                              } else {
+                                dealComm = d.value * (commRate / 100);
+                              }
+                              return (
+                                <div key={d.id} className="flex items-center gap-3 text-[11px]">
+                                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${inAccel || crossesQuota ? 'bg-emerald-400' : 'bg-slate-600'}`}/>
+                                  <div className="flex-1 min-w-0">
+                                    <span className="text-slate-300 font-medium truncate">{d.name}</span>
+                                    {d.company && <span className="text-slate-600 ml-1.5">· {d.company}</span>}
+                                  </div>
+                                  <span className="text-slate-500 flex-shrink-0">{fmtV(d.value)}</span>
+                                  <span className={`font-semibold flex-shrink-0 w-16 text-right ${inAccel || crossesQuota ? 'text-emerald-400' : 'text-slate-400'}`}>{fmtV(dealComm)}</span>
+                                  {(inAccel || crossesQuota) && <span className="text-[9px] text-emerald-600 flex-shrink-0">accel</span>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {allDeals.length === 0 && (
+                        <div className="text-center text-[12px] text-slate-600 py-4">Add deals in the Deals tab to track commissions</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
               <KanbanBoard />
             </div>
           <div className={activeView === 'automations' ? 'space-y-4' : 'hidden'}>
@@ -6341,6 +7710,106 @@ Rules: Every bullet has a number. No "we are pleased to report." No "it is worth
             </div>
           <div className={activeView === 'acquisitions' ? 'space-y-4' : 'hidden'}>
               <AcquisitionPipeline onAskAI={openChat}/>
+
+              {/* ── ACQ Pipeline Analytics ── */}
+              {(() => {
+                type AcqTarget = { id: string; name: string; stage: string; ebitda: number; askingPrice: number; multiple: number; score?: number; thesisMatch?: string; createdAt: string; updatedAt: string; closedAt?: string; stage_history?: string[] };
+                let targets: AcqTarget[] = [];
+                try { const s = localStorage.getItem('bos_acq_targets'); if (s) targets = JSON.parse(s); } catch { /* ignore */ }
+                if (!targets.length) return null;
+
+                const STAGE_ORDER = ['sourcing','screening','loi','due-diligence','closing','integration','closed-won','closed-lost'];
+                const STAGE_LABEL: Record<string, string> = {
+                  sourcing: 'Sourcing', screening: 'Screening', loi: 'LOI', 'due-diligence': 'Due Diligence',
+                  closing: 'Closing', integration: 'Integration', 'closed-won': 'Closed Won', 'closed-lost': 'Passed',
+                };
+                const ACTIVE = ['sourcing','screening','loi','due-diligence','closing','integration'];
+                const fmtV = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(1)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n)}`;
+
+                const won  = targets.filter(t => t.stage === 'closed-won');
+                const lost = targets.filter(t => t.stage === 'closed-lost');
+                const active = targets.filter(t => ACTIVE.includes(t.stage));
+                const total  = won.length + lost.length;
+                const conversionRate = total > 0 ? (won.length / total) * 100 : 0;
+                const avgWonEBITDA = won.length > 0 ? won.reduce((s,t) => s + t.ebitda, 0) / won.length : 0;
+                const avgWonMultiple = won.length > 0 ? won.reduce((s,t) => s + t.multiple, 0) / won.length : 0;
+                const avgScore = active.filter(t => t.score != null).reduce((s,t,_,a) => s + (t.score ?? 0) / a.length, 0);
+
+                const byStage = STAGE_ORDER.slice(0, 6).map(stage => {
+                  const inStage = targets.filter(t => t.stage === stage);
+                  const avgDays = inStage.length > 0
+                    ? Math.round(inStage.reduce((s,t) => s + (Date.now() - new Date(t.updatedAt).getTime()) / 86400000, 0) / inStage.length)
+                    : 0;
+                  const totalEBITDA = inStage.reduce((s,t) => s + t.ebitda, 0);
+                  return { stage, label: STAGE_LABEL[stage], count: inStage.length, avgDays, totalEBITDA };
+                }).filter(s => s.count > 0 || ['sourcing','screening'].includes(s.stage));
+
+                const maxCount = Math.max(...byStage.map(s => s.count), 1);
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-2xl overflow-hidden">
+                    <div className="px-5 py-4 border-b border-slate-800/40">
+                      <div className="text-[13px] font-bold text-slate-100">Acquisition Pipeline Analytics</div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">Stage funnel · avg days · deal quality</div>
+                    </div>
+
+                    {/* Top KPIs */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 border-b border-slate-800/30">
+                      {[
+                        { label: 'Active Deals',   value: String(active.length),    sub: `${targets.length} total tracked`,      color: 'text-slate-100' },
+                        { label: 'Conversion Rate', value: `${conversionRate.toFixed(0)}%`, sub: `${won.length}W · ${lost.length}L`, color: conversionRate >= 20 ? 'text-emerald-400' : 'text-amber-400' },
+                        { label: 'Avg Won EBITDA',  value: won.length > 0 ? fmtV(avgWonEBITDA) : '—', sub: `${avgWonMultiple > 0 ? avgWonMultiple.toFixed(1) + 'x avg' : 'no closes yet'}`, color: 'text-indigo-400' },
+                        { label: 'Avg Score',       value: avgScore > 0 ? `${avgScore.toFixed(1)}/10` : '—', sub: 'AI + manual scores', color: avgScore >= 7 ? 'text-emerald-400' : avgScore >= 5 ? 'text-amber-400' : 'text-slate-400' },
+                      ].map(k => (
+                        <div key={k.label} className="px-4 py-3 border-r border-slate-800/30 last:border-r-0">
+                          <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider mb-0.5">{k.label}</div>
+                          <div className={`text-[18px] font-bold tabular-nums ${k.color}`}>{k.value}</div>
+                          <div className="text-[10px] text-slate-600 mt-0.5">{k.sub}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Stage funnel */}
+                    <div className="p-5 space-y-2.5">
+                      <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-3">Stage Funnel</div>
+                      {byStage.map(s => {
+                        const barW = maxCount > 0 ? (s.count / maxCount) * 100 : 0;
+                        return (
+                          <div key={s.stage} className="flex items-center gap-3">
+                            <div className="w-24 text-[11px] text-slate-500 flex-shrink-0 truncate">{s.label}</div>
+                            <div className="flex-1 h-6 bg-slate-800/40 rounded-lg overflow-hidden relative">
+                              <div className="h-full bg-indigo-500/25 rounded-lg transition-all" style={{ width: `${barW}%` }}/>
+                              <div className="absolute inset-0 flex items-center px-2.5">
+                                <span className="text-[11px] font-semibold text-slate-300">{s.count}</span>
+                                {s.totalEBITDA > 0 && <span className="text-[10px] text-slate-500 ml-2">{fmtV(s.totalEBITDA)} EBITDA</span>}
+                              </div>
+                            </div>
+                            <div className="w-16 text-right text-[10px] text-slate-600 flex-shrink-0">
+                              {s.avgDays > 0 ? `~${s.avgDays}d` : ''}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Thesis match breakdown */}
+                    {active.length > 0 && (() => {
+                      const strong   = active.filter(t => t.thesisMatch === 'strong').length;
+                      const moderate = active.filter(t => t.thesisMatch === 'moderate').length;
+                      const weak     = active.filter(t => t.thesisMatch === 'weak').length;
+                      return (
+                        <div className="px-5 py-3 border-t border-slate-800/30 flex items-center gap-6 text-[11px]">
+                          <span className="text-slate-600">Thesis match:</span>
+                          <span className="text-emerald-400 font-semibold">{strong} strong</span>
+                          <span className="text-amber-400 font-semibold">{moderate} moderate</span>
+                          <span className="text-red-400 font-semibold">{weak} weak</span>
+                          <span className="ml-auto text-slate-600">{active.filter(t=>!t.thesisMatch).length} unscored</span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                );
+              })()}
 
               {/* ── IRR / MOIC Return Calculator ── */}
               {(() => {
@@ -6939,9 +8408,8 @@ Specific and actionable, not generic. 200 words.`;
                 );
               })()}
 
-              {/* ── Market Sizing Calculator (TAM/SAM/SOM) (uses component-level state) ── */}
+              {/* ── Market Sizing Calculator (TAM/SAM/SOM) ── */}
               {(() => {
-                // mktInputs, setMktInputs — lifted to component level
                 const inputs = mktInputs;
                 type MarketInput = { tamDesc: string; tamSize: string; samPct: string; somPct: string; growthRate: string };
                 const setInput = (k: keyof MarketInput, v: string) => {
@@ -6950,35 +8418,60 @@ Specific and actionable, not generic. 200 words.`;
                   try { localStorage.setItem('bos_market_sizing', JSON.stringify(next)); } catch { /* ignore */ }
                 };
 
-                const tam = parseFloat(inputs.tamSize) || 0;
-                const sam = tam * (parseFloat(inputs.samPct) || 0) / 100;
-                const som = sam * (parseFloat(inputs.somPct) || 0) / 100;
-                const rev = effectiveData.revenue.total;
-                const currentShare = sam > 0 ? (rev / sam) * 100 : 0;
-                const g = parseFloat(inputs.growthRate) / 100;
-                const tam5yr = tam * Math.pow(1 + g, 5);
-                const fmtB = (n: number) => n >= 1e9 ? `$${(n/1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n/1e6).toFixed(0)}M` : `$${Math.round(n).toLocaleString()}`;
+                const tam       = parseFloat(inputs.tamSize) || 0;           // in $M
+                const samPct    = parseFloat(inputs.samPct) || 0;
+                const somPct    = parseFloat(inputs.somPct) || 0;
+                const sam       = tam * samPct / 100;                         // in $M
+                const som       = sam * somPct / 100;                         // in $M
+                const gRate     = parseFloat(inputs.growthRate) || 0;
+                const tam5yr    = tam * Math.pow(1 + gRate / 100, 5);         // in $M
+                const rev       = effectiveData.revenue.total;                // in $
+                const revM      = rev / 1e6;                                  // in $M
+                const samSharePct   = sam > 0  ? (revM / sam)  * 100 : 0;
+                const tamSharePct   = tam > 0  ? (revM / tam)  * 100 : 0;
+                const headroomM     = Math.max(0, som - revM);
+                // Years to reach SOM at current YoY growth (last period vs prior)
+                const prevRev   = (effectiveData.revenue.byPeriod.length > 1
+                  ? effectiveData.revenue.byPeriod[effectiveData.revenue.byPeriod.length - 2]?.revenue ?? rev
+                  : rev);
+                const revGrowthPct  = prevRev > 0 ? ((rev - prevRev) / prevRev) * 100 : 0;
+                const yrsToSOM  = (revGrowthPct > 0 && som > 0 && revM < som)
+                  ? Math.log(som / revM) / Math.log(1 + revGrowthPct / 100)
+                  : null;
+
+                const fmtB = (n: number) => n >= 1e3 ? `$${(n/1e3).toFixed(1)}B` : n >= 1 ? `$${n.toFixed(0)}M` : `$${(n*1e6/1e3).toFixed(0)}k`;
                 const fmtV = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n)}`;
 
                 return (
                   <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
-                    <div className="px-5 py-3.5 border-b border-slate-800/50">
-                      <div className="text-[12px] font-semibold text-slate-100">Market Sizing — TAM / SAM / SOM</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">Total addressable market, serviceable market, and your realistic capture — board deck ready</div>
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Market Sizing — TAM / SAM / SOM</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Your position in the addressable market — board deck ready</div>
+                      </div>
+                      {tam > 0 && (
+                        <button onClick={() => openChat(`My market sizing: TAM ${fmtB(tam)} (${gRate}%/yr growth), SAM ${fmtB(sam)} (${samPct}% of TAM), SOM target ${fmtB(som)} (${somPct}% of SAM). Current revenue ${fmtV(rev)} = ${samSharePct.toFixed(2)}% SAM share. ${headroomM > 0 ? `${fmtB(headroomM)} headroom to SOM.` : 'At or beyond SOM.'} ${inputs.tamDesc ? `Market: ${inputs.tamDesc}.` : ''} How credible is this market sizing, and what growth strategy would get me to my SOM fastest?`)}
+                          className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium border border-indigo-500/20 hover:border-indigo-500/40 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1.5">
+                          <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3"><path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/><rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/></svg>
+                          Ask AI
+                        </button>
+                      )}
                     </div>
-                    <div className="p-5 space-y-4">
+                    <div className="p-5 space-y-5">
+
+                      {/* Inputs */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="sm:col-span-2">
-                          <div className="text-[10px] font-semibold text-slate-500 mb-1">Market description</div>
+                          <div className="text-[10px] font-semibold text-slate-500 mb-1">Market Description</div>
                           <input value={inputs.tamDesc} onChange={e => setInput('tamDesc', e.target.value)}
                             placeholder="e.g. B2B outsourced accounting software for US SMBs"
                             className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50"/>
                         </div>
                         {[
-                          { key: 'tamSize' as const, label: 'TAM ($M)', placeholder: 'e.g. 4200', suffix: 'M' },
-                          { key: 'growthRate' as const, label: 'Market Growth Rate (%/yr)', placeholder: 'e.g. 8', suffix: '%' },
-                          { key: 'samPct' as const, label: 'SAM (% of TAM you can serve)', placeholder: 'e.g. 20', suffix: '%' },
-                          { key: 'somPct' as const, label: 'SOM (% of SAM realistic win)', placeholder: 'e.g. 3', suffix: '%' },
+                          { key: 'tamSize'   as const, label: 'TAM ($M)',                          placeholder: 'e.g. 4200' },
+                          { key: 'growthRate'as const, label: 'Market Growth Rate (%/yr)',          placeholder: 'e.g. 8'    },
+                          { key: 'samPct'    as const, label: 'SAM — % of TAM you can serve',      placeholder: 'e.g. 20'   },
+                          { key: 'somPct'    as const, label: 'SOM — % of SAM realistic capture',  placeholder: 'e.g. 3'    },
                         ].map(f => (
                           <div key={f.key}>
                             <div className="text-[10px] font-semibold text-slate-500 mb-1">{f.label}</div>
@@ -6988,61 +8481,127 @@ Specific and actionable, not generic. 200 words.`;
                           </div>
                         ))}
                       </div>
-                      {tam > 0 && (
+
+                      {tam > 0 ? (
                         <>
+                          {/* Three-tier KPI cards */}
                           <div className="grid grid-cols-3 gap-3">
                             {[
-                              { label: 'TAM', value: fmtB(tam*1e6), sub: '5yr: '+fmtB(tam5yr*1e6), color: 'text-slate-300', bg: 'bg-slate-800/40' },
-                              { label: 'SAM', value: fmtB(sam*1e6), sub: `${inputs.samPct}% of TAM`, color: 'text-sky-300', bg: 'bg-sky-950/20 border-sky-500/10' },
-                              { label: 'SOM', value: fmtB(som*1e6), sub: `${inputs.somPct}% of SAM`, color: 'text-indigo-300', bg: 'bg-indigo-950/20 border-indigo-500/10' },
+                              { label: 'TAM', value: fmtB(tam), sub: `${gRate}%/yr → ${fmtB(tam5yr)} in 5yr`, color: 'text-slate-200', border: 'border-slate-700/40', bg: '' },
+                              { label: 'SAM', value: fmtB(sam), sub: `${samPct}% of TAM · your serviceable slice`, color: 'text-sky-300', border: 'border-sky-500/20', bg: 'bg-sky-950/20' },
+                              { label: 'SOM', value: fmtB(som), sub: `${somPct}% of SAM · realistic target`, color: 'text-indigo-300', border: 'border-indigo-500/20', bg: 'bg-indigo-950/20' },
                             ].map(m => (
-                              <div key={m.label} className={`border rounded-lg p-3 text-center ${m.bg}`}>
-                                <div className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">{m.label}</div>
-                                <div className={`text-[20px] font-bold ${m.color}`}>{m.value}</div>
-                                <div className="text-[10px] text-slate-600 mt-0.5">{m.sub}</div>
+                              <div key={m.label} className={`border ${m.border} ${m.bg} rounded-xl p-3.5 text-center`}>
+                                <div className="text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">{m.label}</div>
+                                <div className={`text-[22px] font-bold ${m.color}`}>{m.value}</div>
+                                <div className="text-[9px] text-slate-600 mt-0.5 leading-tight">{m.sub}</div>
                               </div>
                             ))}
                           </div>
-                          <div className="bg-slate-800/30 rounded-lg p-3 grid grid-cols-2 gap-3 text-[11px]">
-                            <div>
-                              <span className="text-slate-500">Current revenue: </span>
-                              <span className="text-slate-300 font-semibold">{fmtV(rev)}</span>
-                            </div>
-                            <div>
-                              <span className="text-slate-500">SAM share today: </span>
-                              <span className={`font-semibold ${currentShare < 1 ? 'text-amber-400' : currentShare < 5 ? 'text-sky-400' : 'text-emerald-400'}`}>
-                                {currentShare.toFixed(2)}%
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-slate-500">Revenue to reach SOM: </span>
-                              <span className="text-indigo-300 font-semibold">{fmtB(som*1e6)}</span>
-                            </div>
-                            <div>
-                              <span className="text-slate-500">Headroom to SOM: </span>
-                              <span className="text-emerald-400 font-semibold">{fmtB(Math.max(0,som*1e6-rev))}</span>
-                            </div>
+
+                          {/* Funnel visual (SVG nested trapezoids) */}
+                          <div className="bg-slate-800/20 rounded-xl p-4">
+                            <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-3">Market Funnel</div>
+                            <svg width="100%" height="120" viewBox="0 0 400 120" preserveAspectRatio="none">
+                              {/* TAM */}
+                              <polygon points="0,0 400,0 360,36 40,36" fill="rgba(100,116,139,0.18)" stroke="rgba(100,116,139,0.3)" strokeWidth="1"/>
+                              <text x="200" y="20" textAnchor="middle" fill="#94a3b8" fontSize="11" fontWeight="bold">TAM  {fmtB(tam)}</text>
+                              {/* SAM */}
+                              <polygon points={`${400*(1-samPct/100)/2},40 ${400*(1+samPct/100)/2},40 ${400*(1+samPct/100)/2-20},76 ${400*(1-samPct/100)/2+20},76`}
+                                fill="rgba(56,189,248,0.18)" stroke="rgba(56,189,248,0.3)" strokeWidth="1"/>
+                              <text x="200" y="62" textAnchor="middle" fill="#7dd3fc" fontSize="10" fontWeight="bold">SAM  {fmtB(sam)}</text>
+                              {/* SOM */}
+                              {(() => {
+                                const somW = 400 * Math.min(samPct, samPct * somPct / 100) / 100;
+                                const l = (400 - somW) / 2;
+                                const r = l + somW;
+                                return (
+                                  <polygon points={`${l+20},80 ${r-20},80 ${r-30},116 ${l+30},116`}
+                                    fill="rgba(99,102,241,0.30)" stroke="rgba(99,102,241,0.4)" strokeWidth="1"/>
+                                );
+                              })()}
+                              <text x="200" y="102" textAnchor="middle" fill="#a5b4fc" fontSize="9" fontWeight="bold">SOM  {fmtB(som)}</text>
+                              {/* Current position dot */}
+                              {revM > 0 && revM <= som && (
+                                <circle cx={200 + (revM / Math.max(som, 0.001)) * 40} cy="106" r="4" fill="#10b981"/>
+                              )}
+                            </svg>
+                            {revM > 0 && (
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"/>
+                                <span className="text-[10px] text-slate-500">You are here: {fmtV(rev)} ({samSharePct.toFixed(2)}% SAM share)</span>
+                              </div>
+                            )}
                           </div>
-                          {/* TAM funnel visual */}
-                          <div className="space-y-2">
+
+                          {/* Metrics grid */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                             {[
-                              { label: 'TAM', pct: 100, color: 'bg-slate-700/50' },
-                              { label: 'SAM', pct: parseFloat(inputs.samPct)||0, color: 'bg-sky-600/40' },
-                              { label: 'SOM', pct: (parseFloat(inputs.samPct)||0)*(parseFloat(inputs.somPct)||0)/100, color: 'bg-indigo-600/60' },
-                            ].map(b => (
-                              <div key={b.label} className="flex items-center gap-3">
-                                <div className="w-8 text-[10px] text-slate-500 text-right">{b.label}</div>
-                                <div className="flex-1 h-3 bg-slate-800/60 rounded-full overflow-hidden">
-                                  <div className={`h-full ${b.color} rounded-full transition-all`} style={{ width: `${Math.min(100,b.pct)}%` }}/>
-                                </div>
-                                <div className="text-[10px] text-slate-500 w-10 text-right">{b.pct.toFixed(1)}%</div>
+                              { label: 'Your Revenue',    value: fmtV(rev),                    color: 'text-slate-200', sub: 'current' },
+                              { label: 'SAM Share',       value: `${samSharePct.toFixed(2)}%`, color: samSharePct < 1 ? 'text-amber-400' : samSharePct < 5 ? 'text-sky-400' : 'text-emerald-400', sub: 'of serviceable market' },
+                              { label: 'TAM Share',       value: `${tamSharePct.toFixed(3)}%`, color: 'text-slate-400', sub: 'of total market' },
+                              { label: 'Headroom to SOM', value: fmtB(headroomM),              color: 'text-indigo-300', sub: headroomM > 0 ? 'revenue to capture' : 'SOM achieved!' },
+                            ].map(m => (
+                              <div key={m.label} className="bg-slate-800/30 border border-slate-700/30 rounded-xl px-3.5 py-3">
+                                <div className="text-[10px] text-slate-500 mb-1">{m.label}</div>
+                                <div className={`text-[15px] font-bold tabular-nums ${m.color}`}>{m.value}</div>
+                                <div className="text-[9px] text-slate-600 mt-0.5">{m.sub}</div>
                               </div>
                             ))}
                           </div>
+
+                          {/* Revenue trajectory to SOM */}
+                          {(yrsToSOM !== null || revGrowthPct > 0) && (
+                            <div className="bg-slate-800/20 border border-slate-700/30 rounded-xl p-4">
+                              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] mb-3">Revenue Trajectory to SOM</div>
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                <div>
+                                  <div className="text-[10px] text-slate-600">Current Growth Rate</div>
+                                  <div className={`text-[15px] font-bold mt-0.5 ${revGrowthPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                    {revGrowthPct >= 0 ? '+' : ''}{revGrowthPct.toFixed(1)}%/yr
+                                  </div>
+                                </div>
+                                {yrsToSOM !== null && isFinite(yrsToSOM) && yrsToSOM > 0 && (
+                                  <div>
+                                    <div className="text-[10px] text-slate-600">Years to SOM</div>
+                                    <div className={`text-[15px] font-bold mt-0.5 ${yrsToSOM <= 5 ? 'text-emerald-400' : yrsToSOM <= 10 ? 'text-amber-400' : 'text-red-400'}`}>
+                                      {yrsToSOM.toFixed(1)} yr
+                                    </div>
+                                  </div>
+                                )}
+                                {revM >= som && som > 0 && (
+                                  <div className="sm:col-span-2">
+                                    <div className="text-[10px] text-emerald-400 font-semibold">✓ SOM already achieved</div>
+                                    <div className="text-[10px] text-slate-600 mt-0.5">Consider expanding SAM or raising SOM target</div>
+                                  </div>
+                                )}
+                                {[1, 3, 5].map(yr => {
+                                  const projRev = revGrowthPct > 0 ? revM * Math.pow(1 + revGrowthPct / 100, yr) : revM;
+                                  return (
+                                    <div key={yr}>
+                                      <div className="text-[10px] text-slate-600">Year {yr} Revenue</div>
+                                      <div className="text-[14px] font-bold text-slate-200 mt-0.5">{fmtB(projRev)}</div>
+                                      <div className={`text-[9px] mt-0.5 ${projRev >= som ? 'text-emerald-400' : 'text-slate-600'}`}>
+                                        {sam > 0 ? `${((projRev / sam) * 100).toFixed(1)}% SAM` : ''}
+                                        {projRev >= som ? ' ✓ SOM' : ''}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Revenue per 1% of share */}
+                          {sam > 0 && (
+                            <div className="text-[11px] text-slate-500 bg-slate-800/20 rounded-lg px-4 py-2.5">
+                              <span className="font-semibold text-slate-300">{fmtB(sam / 100)}</span> in additional revenue for every 1% of SAM captured ·
+                              {' '}<span className="font-semibold text-slate-300">{fmtB(tam / 100)}</span> per 1% of TAM
+                            </div>
+                          )}
                         </>
-                      )}
-                      {tam === 0 && (
-                        <div className="text-center py-4 text-[11px] text-slate-600">Enter your TAM to see the market funnel</div>
+                      ) : (
+                        <div className="text-center py-6 text-[11px] text-slate-600">Enter your TAM to see the market funnel and trajectory analysis</div>
                       )}
                     </div>
                   </div>
@@ -7121,6 +8680,126 @@ Specific and actionable, not generic. 200 words.`;
                     <div className="px-5 py-3 border-t border-slate-800/40 text-[10px] text-slate-600">
                       High cost departments (&gt;20% of revenue) warrant ROI review · Rev/FTE target: {fmtV(BENCH_STRONG)}+ for strong LMM operators
                     </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Company Milestones Timeline ── */}
+              {(() => {
+                const MILESTONES_KEY = 'bos_company_milestones';
+                type CompanyMilestone = { id: string; date: string; title: string; category: 'revenue' | 'product' | 'team' | 'customer' | 'funding' | 'other'; note?: string };
+                const CATS: { id: CompanyMilestone['category']; label: string; color: string; dot: string }[] = [
+                  { id: 'revenue',  label: 'Revenue',  color: 'text-emerald-400', dot: 'bg-emerald-500' },
+                  { id: 'product',  label: 'Product',  color: 'text-indigo-400',  dot: 'bg-indigo-500'  },
+                  { id: 'team',     label: 'Team',     color: 'text-sky-400',     dot: 'bg-sky-500'     },
+                  { id: 'customer', label: 'Customer', color: 'text-violet-400',  dot: 'bg-violet-500'  },
+                  { id: 'funding',  label: 'Funding',  color: 'text-amber-400',   dot: 'bg-amber-500'   },
+                  { id: 'other',    label: 'Other',    color: 'text-slate-400',   dot: 'bg-slate-500'   },
+                ];
+
+                const [milestones, setMilestones] = React.useState<CompanyMilestone[]>(() => {
+                  try { const s = localStorage.getItem(MILESTONES_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
+                });
+                const [showAdd, setShowAdd] = React.useState(false);
+                const [draft, setDraft] = React.useState<Omit<CompanyMilestone,'id'>>({ date: new Date().toISOString().slice(0,10), title: '', category: 'revenue', note: '' });
+
+                const save = (next: CompanyMilestone[]) => {
+                  setMilestones(next);
+                  try { localStorage.setItem(MILESTONES_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+                };
+
+                const add = () => {
+                  if (!draft.title.trim() || !draft.date) return;
+                  save([...milestones, { ...draft, id: `ms${Date.now()}` }].sort((a,b) => b.date.localeCompare(a.date)));
+                  setDraft({ date: new Date().toISOString().slice(0,10), title: '', category: 'revenue', note: '' });
+                  setShowAdd(false);
+                };
+
+                const remove = (id: string) => save(milestones.filter(m => m.id !== id));
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Company Milestones</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Key events, wins, and achievements in your company&apos;s story</div>
+                      </div>
+                      <button onClick={() => setShowAdd(v => !v)}
+                        className="text-[11px] px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-600/40 text-indigo-300 rounded-lg transition-colors">
+                        + Milestone
+                      </button>
+                    </div>
+
+                    {showAdd && (
+                      <div className="px-5 py-4 border-b border-slate-800/40 bg-slate-800/20 space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <div className="text-[10px] font-semibold text-slate-500 mb-1">Date</div>
+                            <input type="date" value={draft.date} onChange={e => setDraft(d => ({...d, date: e.target.value}))}
+                              className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-2 text-[12px] text-slate-200 focus:outline-none focus:border-indigo-500/50"/>
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-semibold text-slate-500 mb-1">Category</div>
+                            <select value={draft.category} onChange={e => setDraft(d => ({...d, category: e.target.value as CompanyMilestone['category']}))}
+                              className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-2 text-[12px] text-slate-200 focus:outline-none focus:border-indigo-500/50">
+                              {CATS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-semibold text-slate-500 mb-1">Title</div>
+                          <input value={draft.title} onChange={e => setDraft(d => ({...d, title: e.target.value}))} onKeyDown={e => e.key === 'Enter' && add()}
+                            placeholder="e.g. Closed first $1M ARR customer"
+                            className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50"/>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-semibold text-slate-500 mb-1">Note (optional)</div>
+                          <input value={draft.note ?? ''} onChange={e => setDraft(d => ({...d, note: e.target.value}))}
+                            placeholder="Context, numbers, or who was involved…"
+                            className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-2 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50"/>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={add} className="px-4 py-2 text-[12px] font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors">Add</button>
+                          <button onClick={() => setShowAdd(false)} className="px-3 py-2 text-[12px] text-slate-500 hover:text-slate-300">Cancel</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {milestones.length === 0 ? (
+                      <div className="px-5 py-8 text-center">
+                        <div className="text-[12px] text-slate-500 mb-1">No milestones yet</div>
+                        <div className="text-[11px] text-slate-600">Record key wins — first customer, revenue milestone, team hires, product launches</div>
+                      </div>
+                    ) : (
+                      <div className="relative px-5 py-4 space-y-0">
+                        {/* Timeline line */}
+                        <div className="absolute left-[28px] top-4 bottom-4 w-px bg-slate-800/60"/>
+                        {milestones.map((m, i) => {
+                          const cat = CATS.find(c => c.id === m.category) ?? CATS[CATS.length-1]!;
+                          return (
+                            <div key={m.id} className="relative flex items-start gap-4 pb-4 group">
+                              {/* Dot */}
+                              <div className={`relative z-10 w-3 h-3 rounded-full ${cat.dot} flex-shrink-0 mt-1 ring-2 ring-[#0a0f1a]`}/>
+                              {/* Content */}
+                              <div className="flex-1 min-w-0 -mt-0.5">
+                                <div className="flex items-start justify-between gap-2 flex-wrap">
+                                  <div>
+                                    <span className="text-[12px] font-semibold text-slate-200">{m.title}</span>
+                                    <span className={`ml-2 text-[9px] font-bold uppercase tracking-wider ${cat.color}`}>{cat.label}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                    <span className="text-[10px] text-slate-600">{new Date(m.date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+                                    <button onClick={() => remove(m.id)}
+                                      className="opacity-0 group-hover:opacity-100 text-slate-700 hover:text-red-400 transition-all text-[10px]">✕</button>
+                                  </div>
+                                </div>
+                                {m.note && <div className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">{m.note}</div>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })()}
@@ -7387,6 +9066,129 @@ Specific and actionable, not generic. 200 words.`;
                   </div>
                 );
               })()}
+
+              {/* ── 12-Month Cash Flow Forecast ── */}
+              {(() => {
+                const cf = effectiveData.cashFlow ?? [];
+                if (cf.length < 2) return null;
+
+                // Linear regression on monthly net cash flow
+                const n = cf.length;
+                const xVals = cf.map((_, i) => i);
+                const yVals = cf.map(p => p.netCashFlow ?? 0);
+                const xMean = xVals.reduce((s, x) => s + x, 0) / n;
+                const yMean = yVals.reduce((s, y) => s + y, 0) / n;
+                const slope = xVals.reduce((s, x, i) => s + (x - xMean) * (yVals[i] - yMean), 0) /
+                              xVals.reduce((s, x) => s + (x - xMean) ** 2, 0);
+                const intercept = yMean - slope * xMean;
+                const project = (idx: number) => Math.round(intercept + slope * idx);
+
+                const lastBalance = cf[cf.length - 1].closingBalance;
+                const lastPeriod  = cf[cf.length - 1].period ?? '';
+                // Generate 12 month labels after last period
+                const getNextPeriod = (prev: string, offset: number) => {
+                  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                  const parts = prev.trim().split(' ');
+                  if (parts.length < 2) return `M+${offset}`;
+                  const mIdx = months.indexOf(parts[0]);
+                  const yr   = parseInt(parts[1]) || 2026;
+                  if (mIdx < 0) return `M+${offset}`;
+                  const totalMonths = mIdx + offset;
+                  return `${months[totalMonths % 12]} ${yr + Math.floor(totalMonths / 12)}`;
+                };
+
+                const forecast: { period: string; netCF: number; balance: number }[] = [];
+                let bal = lastBalance;
+                for (let i = 0; i < 12; i++) {
+                  const netCF = project(n + i);
+                  bal = bal + netCF;
+                  forecast.push({ period: getNextPeriod(lastPeriod, i + 1), netCF, balance: bal });
+                }
+
+                const fmtV = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n).toLocaleString()}`;
+                const minBal = Math.min(...forecast.map(f => f.balance));
+                const maxBal = Math.max(...forecast.map(f => f.balance), lastBalance);
+                const endBal = forecast[11].balance;
+                const trendUp = endBal > lastBalance;
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-2xl overflow-hidden">
+                    <div className="px-5 py-4 border-b border-slate-800/40 flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-[13px] font-bold text-slate-100">12-Month Cash Forecast</div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">Linear trend projection · based on {n} months of actuals</div>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <div className={`text-[18px] font-bold tabular-nums ${endBal > 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtV(endBal)}</div>
+                        <div className={`text-[10px] font-medium mt-0.5 ${trendUp ? 'text-emerald-500' : 'text-red-500'}`}>
+                          {trendUp ? '↑' : '↓'} {fmtV(Math.abs(endBal - lastBalance))} vs. today
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Mini bar chart */}
+                    <div className="px-5 py-4">
+                      <div className="flex items-end gap-1 h-20 mb-1">
+                        {/* Last actual as anchor */}
+                        <div className="flex flex-col items-center flex-1">
+                          <div className="w-full rounded-t bg-slate-700/60" style={{ height: `${Math.max(4, ((lastBalance - minBal) / Math.max(maxBal - minBal, 1)) * 72)}px` }}/>
+                        </div>
+                        {forecast.map((f, i) => {
+                          const heightPct = Math.max(4, ((f.balance - minBal) / Math.max(maxBal - minBal, 1)) * 72);
+                          const color = f.balance <= lastBalance * 0.5 ? 'bg-red-500/60' : f.balance < lastBalance ? 'bg-amber-500/50' : 'bg-indigo-500/50';
+                          return (
+                            <div key={i} className="flex flex-col items-center flex-1 group relative">
+                              <div className={`w-full rounded-t transition-all ${color} group-hover:opacity-100 opacity-70`} style={{ height: `${heightPct}px` }}/>
+                              <div className="absolute bottom-full mb-1 hidden group-hover:block bg-slate-800 border border-slate-700/60 rounded-lg px-2 py-1 text-[9px] text-slate-300 whitespace-nowrap z-10 shadow-lg">
+                                {f.period}: {fmtV(f.balance)}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex gap-1">
+                        <div className="flex-1 text-[8px] text-center text-slate-700">Now</div>
+                        {forecast.map((f, i) => (
+                          <div key={i} className={`flex-1 text-[8px] text-center text-slate-700 ${i % 3 !== 2 ? 'opacity-0' : ''}`}>{f.period.split(' ')[0]}</div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Table (first 6 months) */}
+                    <div className="border-t border-slate-800/40">
+                      <table className="w-full text-[11px]">
+                        <thead>
+                          <tr className="border-b border-slate-800/30">
+                            <th className="text-left text-slate-600 px-5 py-2 font-medium">Period</th>
+                            <th className="text-right text-slate-600 px-4 py-2 font-medium">Projected Net CF</th>
+                            <th className="text-right text-slate-600 px-5 py-2 font-medium">Closing Balance</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {forecast.slice(0, 6).map((f, i) => (
+                            <tr key={i} className="border-b border-slate-800/20 last:border-0 hover:bg-slate-800/20">
+                              <td className="px-5 py-2 text-slate-400">{f.period}</td>
+                              <td className={`px-4 py-2 text-right font-medium tabular-nums ${f.netCF >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                {f.netCF >= 0 ? '+' : ''}{fmtV(f.netCF)}
+                              </td>
+                              <td className={`px-5 py-2 text-right font-bold tabular-nums ${f.balance > 0 ? 'text-slate-200' : 'text-red-400'}`}>{fmtV(f.balance)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {minBal < 0 && (
+                      <div className="px-5 py-3 bg-red-500/5 border-t border-red-500/15 text-[11px] text-red-400">
+                        ⚠ Forecast shows negative cash balance — review burn rate and revenue pipeline
+                      </div>
+                    )}
+                    <div className="px-5 py-2.5 border-t border-slate-800/30 text-[10px] text-slate-600">
+                      Forecast based on linear trend from {n} months of actuals · Not a guarantee of future results
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           <div className={activeView === 'deals' ? '' : 'hidden'}>
             <DealList
@@ -7395,609 +9197,123 @@ Specific and actionable, not generic. 200 words.`;
               key={jumpDealId ?? 'list'}
             />
           </div>
-          <div className={activeView === 'today' ? 'space-y-4' : 'hidden'}>
-              {/* Today — business health snapshot */}
-              {(() => {
-                const fmtN = (n: number) => { const abs = Math.abs(n); const s = abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString('en-US')}`; return n < 0 ? `(${s})` : s; };
-                const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`;
-                const rev    = data.revenue.total;
-                const cogs   = data.costs.totalCOGS;
-                const opex   = data.costs.totalOpEx;
-                const grossProfit = rev - cogs;
-                const grossMargin = rev > 0 ? grossProfit / rev : 0;
-                const ebitda = rev - cogs - opex;
-                const ebitdaMargin = rev > 0 ? ebitda / rev : 0;
-                const cashLatest = data.cashFlow?.length ? data.cashFlow[data.cashFlow.length - 1].closingBalance : null;
-                const burnRate = data.cashFlow?.length && data.cashFlow.length >= 2
-                  ? data.cashFlow[data.cashFlow.length - 1].closingBalance - data.cashFlow[data.cashFlow.length - 2].closingBalance
-                  : null;
-                const activeDeals = (data.pipeline ?? []).filter(d => d.stage !== 'Closed Won' && d.stage !== 'Closed Lost');
-                const weighted = activeDeals.reduce((s, d) => s + d.value * (d.probability / 100), 0);
-                const customers = data.customers;
-                const churnRate = customers.retentionRate != null ? (1 - customers.retentionRate) : null;
-                const utilization = data.operations.employeeUtilization ?? data.operations.utilizationRate ?? data.operations.capacityUtilization ?? null;
-
-                type StatItem = { label: string; value: string; sub: string; color: string; border: string };
-                const stats: StatItem[] = [
-                  {
-                    label: 'Revenue',
-                    value: fmtN(rev),
-                    sub: `Gross margin ${rev > 0 ? fmtPct(grossMargin) : '—'}`,
-                    color: 'text-slate-100',
-                    border: 'border-slate-800/50',
-                  },
-                  {
-                    label: 'EBITDA',
-                    value: fmtN(ebitda),
-                    sub: `${rev > 0 ? fmtPct(ebitdaMargin) : '—'} margin`,
-                    color: ebitda >= 0 ? 'text-emerald-400' : 'text-red-400',
-                    border: ebitda >= 0 ? 'border-emerald-500/20' : 'border-red-500/20',
-                  },
-                  ...(cashLatest !== null ? [{
-                    label: 'Cash',
-                    value: fmtN(cashLatest),
-                    sub: burnRate !== null ? (burnRate >= 0 ? `+${fmtN(burnRate)} last period` : `${fmtN(burnRate)} burn`) : 'Latest close',
-                    color: cashLatest > 0 ? 'text-slate-100' : 'text-red-400',
-                    border: cashLatest > 0 ? 'border-slate-800/50' : 'border-red-500/20',
-                  } as StatItem] : []),
-                  {
-                    label: 'Pipeline (Wtd)',
-                    value: fmtN(weighted),
-                    sub: `${activeDeals.length} active deal${activeDeals.length !== 1 ? 's' : ''}`,
-                    color: 'text-blue-300',
-                    border: 'border-blue-500/15',
-                  },
-                  ...(churnRate !== null ? [{
-                    label: 'Churn Rate',
-                    value: fmtPct(churnRate),
-                    sub: `${customers.totalCount ?? '—'} customers`,
-                    color: churnRate <= 0.02 ? 'text-emerald-400' : churnRate <= 0.05 ? 'text-amber-400' : 'text-red-400',
-                    border: churnRate <= 0.05 ? 'border-slate-800/50' : 'border-red-500/20',
-                  } as StatItem] : []),
-                  ...(utilization !== null ? [{
-                    label: 'Utilization',
-                    value: fmtPct(utilization),
-                    sub: data.operations.headcount ? `${data.operations.headcount} headcount` : 'Team capacity',
-                    color: utilization >= 0.75 ? 'text-emerald-400' : utilization >= 0.5 ? 'text-amber-400' : 'text-red-400',
-                    border: 'border-slate-800/50',
-                  } as StatItem] : []),
-                ];
-
-                return (
-                  <div className="space-y-3">
-                    <div className={`grid gap-3 ${stats.length <= 4 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-6'}`}>
-                      {stats.map(s => (
-                        <div key={s.label} className={`bg-slate-900/50 border ${s.border} rounded-xl px-4 py-3`}>
-                          <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-1">{s.label}</div>
-                          <div className={`text-[18px] font-bold tabular-nums ${s.color}`}>{s.value}</div>
-                          <div className="text-[10px] text-slate-600 mt-0.5">{s.sub}</div>
-                        </div>
-                      ))}
-                      <button
-                        onClick={() => openChat('What should I focus on today? Summarize the top 3 priorities based on my current financial performance, pipeline, and any risks.')}
-                        className="bg-indigo-600/10 border border-indigo-500/20 hover:bg-indigo-600/15 hover:border-indigo-500/30 rounded-xl px-4 py-3 text-left transition-colors group">
-                        <div className="text-[10px] font-semibold text-indigo-400/70 uppercase tracking-[0.08em] mb-1">AI Insight</div>
-                        <div className="text-[13px] font-semibold text-indigo-300 group-hover:text-indigo-200">What to focus on →</div>
-                        <div className="text-[10px] text-indigo-400/50 mt-0.5">Top 3 priorities</div>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })()}
-              {/* ── Daily Action Checklist ──────────────────────────── */}
-              {(() => {
-                const d = effectiveData;
-                const rev    = d.revenue.total;
-                const cogs   = d.costs.totalCOGS;
-                const opex   = d.costs.totalOpEx;
-                const ebitda = rev - cogs - opex;
-                const ebitdaMargin = rev > 0 ? ebitda / rev : 0;
-                const cashPeriods = d.cashFlow ?? [];
-                const cashLatestVal = cashPeriods.length ? cashPeriods[cashPeriods.length - 1].closingBalance : null;
-                const burnRateVal = cashPeriods.length >= 2 ? cashPeriods[cashPeriods.length - 1].closingBalance - cashPeriods[cashPeriods.length - 2].closingBalance : null;
-                const retentionVal = d.customers.retentionRate;
-                const churnVal = retentionVal != null ? (1 - retentionVal) * 100 : null;
-                const activeDealsVal = (d.pipeline ?? []).filter(dl => dl.stage !== 'Closed Won' && dl.stage !== 'Closed Lost');
-                const overdueDeals = activeDealsVal.filter(dl => dl.daysInStage !== undefined && dl.daysInStage > 30);
-                const riskAR = d.arAging ? d.arAging.reduce((s, b) => s + b.days60 + b.days90 + b.over90, 0) : 0;
-                const utilVal = d.operations.employeeUtilization ?? d.operations.utilizationRate ?? d.operations.capacityUtilization ?? null;
-                const top1Pct = d.customers.topCustomers[0]?.percentOfTotal ?? 0;
-
-                type Action = { id: string; priority: 'critical' | 'high' | 'medium'; label: string; detail: string; cta: string; view: ActiveView | null; ask?: string };
-
-                const actions: Action[] = [];
-
-                // Critical: burning cash
-                if (burnRateVal !== null && burnRateVal < 0 && cashLatestVal !== null) {
-                  const runway = Math.abs(cashLatestVal / burnRateVal);
-                  if (runway < 6) {
-                    actions.push({
-                      id: 'cash-burn',
-                      priority: 'critical',
-                      label: `Cash runway: ${runway.toFixed(1)} months`,
-                      detail: `Burning ${(() => { const abs = Math.abs(burnRateVal); return abs >= 1_000_000 ? `$${(abs/1_000_000).toFixed(1)}M` : `$${Math.round(abs).toLocaleString()}`; })()} per period. Review and cut discretionary OpEx today.`,
-                      cta: 'Review Cash →',
-                      view: 'cash',
-                      ask: `My cash runway is ${runway.toFixed(1)} months. What are the fastest levers to extend runway without harming revenue?`,
-                    });
-                  }
-                }
-
-                // Critical: EBITDA negative
-                if (ebitda < 0) {
-                  actions.push({
-                    id: 'ebitda-neg',
-                    priority: 'critical',
-                    label: 'EBITDA is negative',
-                    detail: `Operating at a loss (${(ebitdaMargin * 100).toFixed(1)}% margin). Identify top cost drivers and model cuts in Scenarios.`,
-                    cta: 'Model Scenarios →',
-                    view: 'scenarios',
-                    ask: `My EBITDA margin is ${(ebitdaMargin * 100).toFixed(1)}%. What are the most impactful cost reduction moves I should make this week?`,
-                  });
-                }
-
-                // High: overdue deals
-                if (overdueDeals.length > 0) {
-                  actions.push({
-                    id: 'overdue-deals',
-                    priority: 'high',
-                    label: `${overdueDeals.length} deal${overdueDeals.length > 1 ? 's' : ''} need follow-up today`,
-                    detail: `${overdueDeals.map(dl => dl.name).slice(0, 3).join(', ')}${overdueDeals.length > 3 ? ` +${overdueDeals.length - 3} more` : ''}`,
-                    cta: 'Open Deals →',
-                    view: 'deals',
-                  });
-                }
-
-                // High: 60+ day AR outstanding
-                if (riskAR > 0) {
-                  const fmtAR = riskAR >= 1_000_000 ? `$${(riskAR/1_000_000).toFixed(1)}M` : `$${Math.round(riskAR).toLocaleString()}`;
-                  actions.push({
-                    id: 'ar-risk',
-                    priority: 'high',
-                    label: `${fmtAR} AR is 60+ days overdue`,
-                    detail: 'Aging receivables compress cash and signal collection risk. Send statements to 60+ day accounts.',
-                    cta: 'View Financials →',
-                    view: 'financial',
-                    ask: `I have ${fmtAR} in 60+ day receivables. What collection actions should I take today?`,
-                  });
-                }
-
-                // High: churn above 10%
-                if (churnVal !== null && churnVal > 10) {
-                  actions.push({
-                    id: 'high-churn',
-                    priority: 'high',
-                    label: `${churnVal.toFixed(1)}% customer churn rate`,
-                    detail: 'Above 10% churn compresses valuation multiples. Review at-risk accounts and add a retention touch this week.',
-                    cta: 'View Customers →',
-                    view: 'customers',
-                    ask: `My churn rate is ${churnVal.toFixed(1)}%. What retention moves have the fastest payback in a service business?`,
-                  });
-                }
-
-                // Medium: customer concentration
-                if (top1Pct > 20) {
-                  actions.push({
-                    id: 'concentration',
-                    priority: 'medium',
-                    label: `Top customer = ${top1Pct.toFixed(0)}% of revenue`,
-                    detail: `${d.customers.topCustomers[0]?.name ?? 'Top customer'} is above the 20% concentration risk threshold. Prioritize diversification.`,
-                    cta: 'View Customers →',
-                    view: 'customers',
-                  });
-                }
-
-                // Medium: under-utilized
-                if (utilVal !== null && utilVal < 0.55) {
-                  actions.push({
-                    id: 'low-util',
-                    priority: 'medium',
-                    label: `Team utilization low: ${(utilVal * 100).toFixed(0)}%`,
-                    detail: 'Capacity is under-deployed. Shift team to pipeline development or billable projects to improve revenue per employee.',
-                    cta: 'View Operations →',
-                    view: 'operations',
-                  });
-                }
-
-                // Medium: strong EBITDA — consider reinvesting
-                if (ebitdaMargin >= 0.20 && ebitda > 0 && actions.filter(a => a.priority !== 'medium').length === 0) {
-                  actions.push({
-                    id: 'invest',
-                    priority: 'medium',
-                    label: `Strong ${(ebitdaMargin * 100).toFixed(0)}% EBITDA — model growth spend`,
-                    detail: 'Healthy margins create room to reinvest. Run a scenario to see the impact of hiring or a price increase.',
-                    cta: 'Run Scenarios →',
-                    view: 'scenarios',
-                    ask: `My EBITDA margin is ${(ebitdaMargin * 100).toFixed(0)}%. What are the highest-ROI ways to redeploy this cash flow for growth?`,
-                  });
-                }
-
-                // Default if nothing surfaces
-                if (actions.length === 0) {
-                  actions.push({
-                    id: 'default',
-                    priority: 'medium',
-                    label: 'No urgent items — stay proactive',
-                    detail: 'Business metrics look stable. Review your pipeline coverage and check in on your top 3 accounts.',
-                    cta: 'View Deals →',
-                    view: 'deals',
-                  });
-                }
-
-                const topActions = actions.slice(0, 4);
-                const priorityStyle = (p: Action['priority']) =>
-                  p === 'critical' ? { dot: 'bg-red-400 animate-pulse', label: 'Critical', badge: 'text-red-400 bg-red-500/10 border-red-500/20', border: 'border-l-red-500/50' } :
-                  p === 'high'     ? { dot: 'bg-amber-400', label: 'High', badge: 'text-amber-400 bg-amber-500/10 border-amber-500/20', border: 'border-l-amber-500/40' } :
-                                     { dot: 'bg-blue-400', label: 'Focus', badge: 'text-blue-400 bg-blue-500/10 border-blue-500/20', border: 'border-l-blue-500/30' };
-
-                return (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em] flex-shrink-0">Action Checklist</span>
-                      <div className="flex-1 h-px bg-slate-800/50"/>
-                      <span className="text-[10px] text-slate-600">{topActions.filter(a => a.priority === 'critical').length > 0 ? `${topActions.filter(a => a.priority === 'critical').length} critical` : 'No critical alerts'}</span>
-                    </div>
-                    <div className="space-y-2">
-                      {topActions.map(action => {
-                        const s = priorityStyle(action.priority);
-                        return (
-                          <div key={action.id} className={`bg-slate-900/50 border border-slate-800/50 border-l-2 ${s.border} rounded-xl px-4 py-3 flex items-start gap-3`}>
-                            <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${s.dot}`}/>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                                <span className="text-[12px] font-semibold text-slate-100">{action.label}</span>
-                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${s.badge}`}>{s.label}</span>
-                              </div>
-                              <div className="text-[11px] text-slate-500 leading-relaxed">{action.detail}</div>
-                            </div>
-                            <div className="flex-shrink-0 flex items-center gap-2">
-                              {action.ask && openChat && (
-                                <button onClick={() => openChat(action.ask!)}
-                                  className="text-[10px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors whitespace-nowrap">
-                                  Ask AI
-                                </button>
-                              )}
-                              {action.view && (
-                                <button onClick={() => setActiveView(action.view!)}
-                                  className="text-[11px] font-semibold text-slate-300 hover:text-slate-100 bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700/50 px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap">
-                                  {action.cta}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
-              {/* ── Tax & Compliance Calendar ── */}
-              {(() => {
-                const TAX_KEY = 'bos_tax_checked';
-                const now = new Date();
-                const year = now.getFullYear();
-                type TaxItem = { id: string; date: string; label: string; category: string; critical: boolean };
-                const TAX_ITEMS: TaxItem[] = [
-                  // Q1
-                  { id: `q1-est-${year}`,   date: `${year}-04-15`, label: 'Q1 Estimated Tax Payment (Federal)',       category: 'Estimated Tax', critical: true  },
-                  { id: `q1-payroll-${year}`,date: `${year}-04-30`, label: 'Q1 Payroll Tax Deposit (Form 941)',        category: 'Payroll',       critical: true  },
-                  // Q2
-                  { id: `q2-est-${year}`,   date: `${year}-06-17`, label: 'Q2 Estimated Tax Payment (Federal)',       category: 'Estimated Tax', critical: true  },
-                  { id: `q2-payroll-${year}`,date: `${year}-07-31`, label: 'Q2 Payroll Tax Deposit (Form 941)',        category: 'Payroll',       critical: true  },
-                  // Q3
-                  { id: `q3-est-${year}`,   date: `${year}-09-16`, label: 'Q3 Estimated Tax Payment (Federal)',       category: 'Estimated Tax', critical: true  },
-                  { id: `q3-payroll-${year}`,date: `${year}-10-31`, label: 'Q3 Payroll Tax Deposit (Form 941)',        category: 'Payroll',       critical: true  },
-                  // Q4
-                  { id: `q4-est-${year}`,   date: `${year}-01-15`, label: `Q4 Estimated Tax Payment (${year} tax yr)`,category: 'Estimated Tax', critical: true  },
-                  { id: `q4-payroll-${year}`,date: `${year}-01-31`, label: 'Q4 Payroll Tax Deposit (Form 941)',        category: 'Payroll',       critical: true  },
-                  // Annual
-                  { id: `corp-return-${year}`,date:`${year}-03-15`, label: 'S-Corp / Partnership Return (Form 1120-S/1065)', category: 'Annual Filing', critical: true  },
-                  { id: `personal-${year}`, date: `${year}-04-15`, label: 'Personal Tax Return (Form 1040)',          category: 'Annual Filing', critical: true  },
-                  { id: `w2-${year}`,        date: `${year}-01-31`, label: 'W-2s to Employees',                       category: 'Payroll',       critical: true  },
-                  { id: `1099-${year}`,      date: `${year}-01-31`, label: '1099-NEC to Contractors',                 category: 'Payroll',       critical: false },
-                  { id: `sales-tax-q1-${year}`,date:`${year}-04-20`,label: 'Q1 Sales Tax Filing (varies by state)',   category: 'Sales Tax',     critical: false },
-                  { id: `sales-tax-q2-${year}`,date:`${year}-07-20`,label: 'Q2 Sales Tax Filing (varies by state)',   category: 'Sales Tax',     critical: false },
-                  { id: `sales-tax-q3-${year}`,date:`${year}-10-20`,label: 'Q3 Sales Tax Filing (varies by state)',   category: 'Sales Tax',     critical: false },
-                  { id: `boi-${year}`,       date: `${year}-12-31`, label: 'FinCEN BOI Report (beneficial ownership)', category: 'Compliance',   critical: true  },
-                ];
-
-                const [taxChecked, setTaxChecked] = React.useState<Record<string,boolean>>(() => {
-                  try { const s = localStorage.getItem(TAX_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
-                });
-                const toggleTax = (id: string) => {
-                  setTaxChecked(prev => {
-                    const next = { ...prev, [id]: !prev[id] };
-                    try { localStorage.setItem(TAX_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-                    return next;
-                  });
-                };
-
-                const todayMs = now.getTime();
-                const upcoming = TAX_ITEMS
-                  .filter(i => !taxChecked[i.id])
-                  .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-                  .slice(0, 6);
-
-                const nextItem = upcoming[0];
-                const daysUntilNext = nextItem ? Math.ceil((new Date(nextItem.date).getTime() - todayMs) / 86400000) : null;
-
-                return (
-                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
-                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
-                      <div>
-                        <div className="text-[12px] font-semibold text-slate-100">Tax & Compliance Calendar</div>
-                        <div className="text-[10px] text-slate-500 mt-0.5">Key US federal deadlines · check off when filed</div>
-                      </div>
-                      {daysUntilNext !== null && nextItem && (
-                        <div className={`text-[11px] font-semibold ${daysUntilNext <= 14 ? 'text-red-400' : daysUntilNext <= 30 ? 'text-amber-400' : 'text-slate-400'}`}>
-                          Next: {nextItem.label.split('(')[0].trim()} in {daysUntilNext}d
-                        </div>
-                      )}
-                    </div>
-                    <div className="divide-y divide-slate-800/30">
-                      {upcoming.map(item => {
-                        const daysAway = Math.ceil((new Date(item.date).getTime() - todayMs) / 86400000);
-                        const isOverdue = daysAway < 0;
-                        const isSoon = daysAway >= 0 && daysAway <= 14;
-                        const urgencyDot = isOverdue ? 'bg-red-400 animate-pulse' : isSoon ? 'bg-amber-400' : 'bg-slate-600';
-                        return (
-                          <div key={item.id} onClick={() => toggleTax(item.id)}
-                            className="px-5 py-3 flex items-center gap-3 hover:bg-slate-800/20 cursor-pointer transition-colors">
-                            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${urgencyDot}`}/>
-                            <div className="flex-1 min-w-0">
-                              <div className="text-[12px] text-slate-300 leading-tight">{item.label}</div>
-                              <div className="text-[10px] text-slate-600 mt-0.5">{item.category}</div>
-                            </div>
-                            <div className="flex items-center gap-3 flex-shrink-0">
-                              <div className={`text-[11px] font-semibold ${isOverdue ? 'text-red-400' : isSoon ? 'text-amber-400' : 'text-slate-500'}`}>
-                                {isOverdue ? `${Math.abs(daysAway)}d overdue` : daysAway === 0 ? 'Today' : `${daysAway}d`}
-                              </div>
-                              <div className="text-[10px] text-slate-600">{new Date(item.date + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' })}</div>
-                              <div className="w-4 h-4 rounded border border-slate-700 flex items-center justify-center">
-                                {taxChecked[item.id] && <svg viewBox="0 0 10 10" fill="none" stroke="#10b981" strokeWidth="2" className="w-2.5 h-2.5"><path d="M1.5 5l2.5 2.5 4.5-4.5"/></svg>}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="px-5 py-2.5 border-t border-slate-800/40 text-[10px] text-slate-700">
-                      {TAX_ITEMS.filter(i => taxChecked[i.id]).length} of {TAX_ITEMS.length} items filed · Dates are federal — state deadlines may vary · Consult your CPA
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* ── Week at a Glance ── */}
-              {(() => {
-                type LocalDeal = { id: string; name: string; company: string; value: number; stage: string; closeDate?: string };
-                let crmDeals: LocalDeal[] = [];
-                try { const s = localStorage.getItem('bos_deals'); if (s) crmDeals = JSON.parse(s); } catch { /* ignore */ }
-                const today = new Date();
-                today.setHours(0,0,0,0);
-                const days = Array.from({ length: 7 }, (_, i) => {
-                  const d = new Date(today);
-                  d.setDate(today.getDate() + i);
-                  return d;
-                });
-                const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-                const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-                // Map deals closing within 7 days
-                const dealsThisWeek = crmDeals.filter(d => {
-                  if (!d.closeDate || d.stage === 'closed-won' || d.stage === 'closed-lost') return false;
-                  const cd = new Date(d.closeDate);
-                  cd.setHours(0,0,0,0);
-                  return cd >= today && cd <= days[6];
-                });
-
-                // Map pipeline deals from data closing this week
-                const pipelineThisWeek = (data.pipeline ?? []).filter(d => {
-                  if (!d.closeDate || d.stage === 'Closed Won' || d.stage === 'Closed Lost') return false;
-                  const cd = new Date(d.closeDate);
-                  cd.setHours(0,0,0,0);
-                  return cd >= today && cd <= days[6];
-                });
-
-                if (dealsThisWeek.length === 0 && pipelineThisWeek.length === 0) return null;
-
-                return (
-                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
-                    <div className="px-5 py-3 border-b border-slate-800/50">
-                      <div className="text-[12px] font-semibold text-slate-100">Week at a Glance</div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">Deals closing in the next 7 days</div>
-                    </div>
-                    <div className="grid grid-cols-7 divide-x divide-slate-800/40">
-                      {days.map((d, i) => {
-                        const isToday = i === 0;
-                        const dayDeals = dealsThisWeek.filter(dl => {
-                          const cd = new Date(dl.closeDate!); cd.setHours(0,0,0,0);
-                          return cd.getTime() === d.getTime();
-                        });
-                        const dayPipeline = pipelineThisWeek.filter(dl => {
-                          const cd = new Date(dl.closeDate!); cd.setHours(0,0,0,0);
-                          return cd.getTime() === d.getTime();
-                        });
-                        const hasDeal = dayDeals.length > 0 || dayPipeline.length > 0;
-                        return (
-                          <div key={i} className={`p-2 min-h-[72px] ${isToday ? 'bg-indigo-500/5' : ''}`}>
-                            <div className={`text-[10px] font-semibold mb-1 ${isToday ? 'text-indigo-400' : 'text-slate-600'}`}>{dayNames[d.getDay()]}</div>
-                            <div className={`text-[13px] font-bold mb-1 ${isToday ? 'text-indigo-300' : 'text-slate-500'}`}>{d.getDate()}</div>
-                            {hasDeal ? (
-                              <div className="space-y-1">
-                                {dayDeals.map(dl => (
-                                  <div key={dl.id} className="text-[9px] bg-sky-500/10 border border-sky-500/20 text-sky-300 rounded px-1 py-0.5 leading-tight truncate" title={dl.name}>{dl.company}</div>
-                                ))}
-                                {dayPipeline.map((dl, pi) => (
-                                  <div key={pi} className="text-[9px] bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 rounded px-1 py-0.5 leading-tight truncate" title={dl.name}>{dl.name}</div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="text-[9px] text-slate-800">—</div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* ── CEO Quick Notes ── */}
-              {(() => {
-                const NOTES_KEY = 'bos_ceo_notes';
-                const todayKey = new Date().toISOString().slice(0, 10);
-                const [noteText, setNoteText] = React.useState<string>(() => {
-                  try {
-                    const all = JSON.parse(localStorage.getItem(NOTES_KEY) ?? '{}');
-                    return all[todayKey] ?? '';
-                  } catch { return ''; }
-                });
-                const [noteSaved, setNoteSaved] = React.useState(false);
-
-                const saveNote = (val: string) => {
-                  setNoteText(val);
-                  try {
-                    const all = JSON.parse(localStorage.getItem(NOTES_KEY) ?? '{}');
-                    all[todayKey] = val;
-                    // Keep last 30 days only
-                    const keys = Object.keys(all).sort().slice(-30);
-                    const trimmed: Record<string, string> = {};
-                    keys.forEach(k => { trimmed[k] = all[k]; });
-                    localStorage.setItem(NOTES_KEY, JSON.stringify(trimmed));
-                  } catch { /* ignore */ }
-                  setNoteSaved(true);
-                  setTimeout(() => setNoteSaved(false), 1500);
-                };
-
-                // Load last 3 days with notes for history
-                const recentNotes: { date: string; text: string }[] = [];
-                try {
-                  const all = JSON.parse(localStorage.getItem(NOTES_KEY) ?? '{}');
-                  Object.entries(all)
-                    .filter(([k]) => k !== todayKey)
-                    .sort((a, b) => b[0].localeCompare(a[0]))
-                    .slice(0, 2)
-                    .forEach(([k, v]) => recentNotes.push({ date: k, text: v as string }));
-                } catch { /* ignore */ }
-
-                return (
-                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <div className="text-[12px] font-semibold text-slate-100">CEO Notes</div>
-                        <div className="text-[10px] text-slate-500 mt-0.5">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} · Saved locally</div>
-                      </div>
-                      {noteSaved && <span className="text-[11px] text-emerald-400 font-medium">Saved ✓</span>}
-                    </div>
-                    <textarea
-                      rows={4}
-                      placeholder="What's top of mind today? Key decisions, risks, ideas, follow-ups…"
-                      value={noteText}
-                      onChange={e => saveNote(e.target.value)}
-                      className="w-full bg-slate-800/40 border border-slate-700/50 rounded-xl px-4 py-3 text-[13px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 resize-none leading-relaxed transition-colors"
-                    />
-                    {recentNotes.length > 0 && (
-                      <div className="mt-3 space-y-2">
-                        {recentNotes.map(n => (
-                          <div key={n.date} className="bg-slate-800/20 rounded-lg px-3 py-2">
-                            <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wide mb-1">{new Date(n.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>
-                            <div className="text-[11px] text-slate-500 leading-relaxed line-clamp-2">{n.text}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* ── AI Meeting → Action Items ── */}
-              {(() => {
-                const [notes, setNotes] = React.useState('');
-                const [actions, setActions] = React.useState('');
-                const [meetLoading, setMeetLoading] = React.useState(false);
-                const [added, setAdded] = React.useState(false);
-
-                const extract = async () => {
-                  if (!notes.trim()) return;
-                  setMeetLoading(true); setActions('');
-                  const prompt = `Extract action items from these meeting notes. Format each as: "ACTION: [owner] → [specific task] · Due: [timeframe]". Then write a one-sentence meeting summary at the top labeled "SUMMARY:". Be specific — use names from the notes if present. Meeting notes:\n\n${notes}`;
-                  try {
-                    const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: prompt, data: effectiveData, history: [], companyName, planId: 'pro' }) });
-                    const json = await res.json() as { reply?: string };
-                    setActions(json.reply ?? 'Failed to extract');
-                  } catch { setActions('Error connecting to AI'); } finally { setMeetLoading(false); }
-                };
-
-                const addToBoard = () => {
-                  if (!actions) return;
-                  const lines = actions.split('\n').filter(l => l.startsWith('ACTION:'));
-                  const tasks = lines.map(l => ({
-                    id: `mt${Date.now()}-${Math.random()}`,
-                    title: l.replace('ACTION:', '').trim(),
-                    status: 'todo',
-                    createdAt: new Date().toISOString(),
-                    source: 'meeting',
-                  }));
-                  try {
-                    const existing = JSON.parse(localStorage.getItem('bos_tasks') ?? '[]') as object[];
-                    localStorage.setItem('bos_tasks', JSON.stringify([...existing, ...tasks]));
-                  } catch { /* ignore */ }
-                  setAdded(true); setTimeout(() => setAdded(false), 3000);
-                };
-
-                return (
-                  <div className="bg-gradient-to-br from-emerald-950/20 to-slate-900/50 border border-emerald-800/30 rounded-xl p-5">
-                    <div className="text-[12px] font-semibold text-slate-100 mb-0.5">AI Meeting → Action Items</div>
-                    <div className="text-[10px] text-slate-500 mb-3">Paste raw meeting notes → AI extracts action items and adds them to your Execute board</div>
-                    <textarea value={notes} onChange={e => setNotes(e.target.value)}
-                      placeholder="Paste meeting notes here… (names, decisions, follow-ups)"
-                      rows={5}
-                      className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl px-4 py-3 text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50 resize-none leading-relaxed mb-3"/>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button onClick={extract} disabled={meetLoading || !notes.trim()}
-                        className="flex items-center gap-2 px-4 py-2 text-[12px] font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl transition-colors">
-                        {meetLoading ? <><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block"/>Extracting…</> : '✦ Extract Actions'}
-                      </button>
-                      {actions && (
-                        <button onClick={addToBoard}
-                          className="px-4 py-2 text-[12px] font-semibold bg-slate-700/60 hover:bg-slate-700 border border-slate-600/50 text-slate-200 rounded-xl transition-colors">
-                          {added ? '✓ Added to Execute Board' : '→ Add to Execute Board'}
-                        </button>
-                      )}
-                    </div>
-                    {actions && (
-                      <div className="mt-3 bg-slate-900/60 border border-slate-700/40 rounded-xl p-4">
-                        <pre className="text-[12px] text-slate-200 whitespace-pre-wrap leading-relaxed font-sans">{actions}</pre>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
-              <DailyPriorities
-                onOpenDeal={(dealId) => {
-                  setJumpDealId(dealId);
-                  setActiveView('deals');
-                  setTimeout(() => setJumpDealId(null), 100);
-                }}
-              />
-            </div>
+          {activeView === 'today' && (
+            <TodayView
+              data={data}
+              effectiveData={effectiveData}
+              companyName={companyName}
+              openChat={openChat}
+              setActiveView={setActiveView}
+              onOpenDeal={(dealId) => {
+                setJumpDealId(dealId);
+                setActiveView('deals');
+                setTimeout(() => setJumpDealId(null), 100);
+              }}
+            />
+          )}
           <div className={activeView === 'execute' ? 'space-y-5' : 'hidden'}>
               <TaskBoard data={data} onAskAI={openChat}/>
+
+              {/* ── Weekly Standup Generator ── */}
+              {(() => {
+                type Task = { id: string; title: string; status: 'todo'|'in-progress'|'done'|'blocked'; dueDate?: string; assignee?: string };
+                type LocalDeal = { id: string; name: string; company: string; value: number; stage: string; updatedAt: string };
+                let tasks: Task[] = [];
+                let deals: LocalDeal[] = [];
+                try { const s = localStorage.getItem('bos_tasks'); if (s) tasks = JSON.parse(s); } catch { /* ignore */ }
+                try { const s = localStorage.getItem('bos_deals'); if (s) deals = JSON.parse(s); } catch { /* ignore */ }
+
+                const [standup, setStandup] = React.useState('');
+                const [loading, setLoading] = React.useState(false);
+                const [copied, setCopied] = React.useState(false);
+                const today = new Date();
+                today.setHours(0,0,0,0);
+
+                const doneTasks   = tasks.filter(t => t.status === 'done').slice(-5);
+                const inProgress  = tasks.filter(t => t.status === 'in-progress');
+                const blocked     = tasks.filter(t => t.status === 'blocked');
+                const overdue     = tasks.filter(t => t.status !== 'done' && t.dueDate && new Date(t.dueDate) < today);
+                const recentDeals = deals.filter(d => {
+                  const upd = new Date(d.updatedAt);
+                  return (today.getTime() - upd.getTime()) < 7*86400000;
+                }).slice(0,3);
+
+                const rev  = data.revenue.total;
+                const ebitda = rev - data.costs.totalCOGS - data.costs.totalOpEx;
+                const fmtV = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(1)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n)}`;
+
+                const generate = async () => {
+                  setLoading(true); setStandup('');
+                  const prompt = `Generate a concise weekly business standup/update for a lower middle market operator. Format it with these exact headers:
+**WINS THIS WEEK**
+**IN PROGRESS**
+**BLOCKERS**
+**THIS WEEK'S FOCUS**
+
+Context:
+- Revenue: ${fmtV(rev)}, EBITDA: ${fmtV(ebitda)}
+- Completed tasks: ${doneTasks.map(t=>t.title).join('; ') || 'none logged'}
+- In progress: ${inProgress.map(t=>t.title).join('; ') || 'none'}
+- Blocked: ${blocked.map(t=>t.title).join('; ') || 'none'}
+- Overdue items: ${overdue.map(t=>t.title).join('; ') || 'none'}
+- Recent deal activity: ${recentDeals.map(d=>`${d.name} (${d.stage}) — ${fmtV(d.value)}`).join('; ') || 'no recent updates'}
+
+Be specific and use the actual task/deal names. Keep each section to 2-4 bullet points. Use bullet points (•). Make it sound like a real operator's standup, not a generic template.`;
+
+                  try {
+                    const res = await fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ message: prompt, data: effectiveData, history:[], companyName, planId:'pro' }) });
+                    const json = await res.json() as { reply?: string };
+                    setStandup(json.reply ?? 'Failed to generate standup');
+                  } catch { setStandup('Error connecting to AI'); } finally { setLoading(false); }
+                };
+
+                const copyText = () => {
+                  try { navigator.clipboard.writeText(standup); setCopied(true); setTimeout(()=>setCopied(false), 2000); } catch { /* ignore */ }
+                };
+
+                return (
+                  <div className="bg-gradient-to-br from-sky-950/20 to-slate-900/50 border border-sky-800/30 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-sky-800/20 flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-slate-100">Weekly Standup Generator</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">AI drafts your weekly update from real task and deal data</div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+                        <div className="text-[10px] text-slate-600">{doneTasks.length} done · {inProgress.length} in-progress · {blocked.length} blocked{overdue.length > 0 ? ` · ${overdue.length} overdue` : ''}</div>
+                        <button onClick={generate} disabled={loading}
+                          className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12px] font-semibold bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-lg transition-colors">
+                          {loading ? <><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block"/>Generating…</> : '✦ Generate Standup'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {standup && (
+                      <div className="p-5">
+                        <div className="bg-slate-900/60 border border-slate-700/40 rounded-xl p-4 mb-3">
+                          <pre className="text-[12px] text-slate-200 whitespace-pre-wrap leading-relaxed font-sans">{standup}</pre>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={copyText} className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold rounded-lg border transition-colors ${copied ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-slate-400 border-slate-700/50 hover:text-slate-200 hover:border-slate-600'}`}>
+                            {copied ? '✓ Copied' : 'Copy'}
+                          </button>
+                          <button onClick={generate} disabled={loading} className="text-[11px] text-sky-400 hover:text-sky-300 transition-colors disabled:opacity-40">Regenerate →</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {!standup && !loading && (
+                      <div className="px-5 py-4 text-[11px] text-slate-600">
+                        Pulls from your Execute board tasks and CRM deals — click Generate to draft this week's standup
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
-          <div className={activeView === 'suppliers' ? '' : 'hidden'}>
-            <SupplierDashboard data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/>
-          </div>
-          <div className={activeView === 'skus' ? '' : 'hidden'}>
-            <SKUAnalyzer data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/>
-          </div>
-          <div className={activeView === 'capacity' ? '' : 'hidden'}>
-            <CapacityAnalyzer data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/>
-          </div>
-          <div className={activeView === 'purchasing' ? '' : 'hidden'}>
-            <CapitalImpactSummary data={data} onAskAI={openChat}/>
-          </div>
+          {activeView === 'suppliers' && <SupplierDashboard data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/>}
+          {activeView === 'skus' && <SKUAnalyzer data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/>}
+          {activeView === 'capacity' && <CapacityAnalyzer data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/>}
+          {activeView === 'purchasing' && <CapitalImpactSummary data={data} onAskAI={openChat}/>}
           <div className={activeView === 'data' ? 'space-y-5' : 'hidden'}>
               {/* ── Connection Status Dashboard ── */}
               {(() => {
@@ -8134,7 +9450,7 @@ Specific and actionable, not generic. 200 words.`;
               <DataSourcePanel data={data} onDataUpdate={handleDataUpdate} onSuccess={handleDataSuccess} companyProfile={companyProfile} onProfileChange={saveCompanyProfile}/>
               <SessionManagerPanel/>
             </div>
-          </>)}
+          </div>{/* /advanced-mode wrapper */}
         </main>
 
         </div>{/* /content column */}
@@ -8189,6 +9505,27 @@ Specific and actionable, not generic. 200 words.`;
           companyProfile={companyProfile}
           onCreateTask={createTaskFromAlert}
           onNavigate={v => setActiveView(v as ActiveView)}
+          onUpgrade={() => setPricingOpen(true)}
+        />
+
+        {/* ── PWA install banner ── */}
+        <PWAInstallBanner />
+
+        {/* ── Snapshot compare modal ── */}
+        {showCompare && (
+          <SnapshotCompare
+            snapshots={snapshots}
+            activeId={activeSnapshotId}
+            onClose={() => setShowCompare(false)}
+          />
+        )}
+
+        {/* ── Setup checklist ── */}
+        <SetupChecklist
+          companyName={companyName}
+          hasThresholds={thresholds.length > 0}
+          hasGoals={Object.values(goals).some(v => v != null && (v as number) > 0)}
+          onNavigate={(v) => setActiveView(v as ActiveView)}
         />
 
         {/* ── Command palette ── */}
@@ -8210,6 +9547,16 @@ Specific and actionable, not generic. 200 words.`;
             addToast('success', 'Backup downloaded');
             setPaletteOpen(false);
           }}
+        />
+
+        {/* ── Account modal ── */}
+        <AccountModal
+          open={accountOpen}
+          onClose={() => setAccountOpen(false)}
+          onUpgrade={() => { setAccountOpen(false); setPricingOpen(true); }}
+          onSignOut={() => { setAccountOpen(false); handleSignOut(); }}
+          companyName={companyName}
+          onCompanyNameChange={saveCompanyName}
         />
 
         {/* ── Pricing modal ── */}
@@ -8309,18 +9656,28 @@ Specific and actionable, not generic. 200 words.`;
             );
           })}
           {/* More button opens mobile nav drawer */}
-          <button
-            onClick={() => setMobileNavOpen(v => !v)}
-            className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 min-h-[52px] transition-colors ${
-              mobileNavOpen || !['today','overview','deals','financial','intelligence'].includes(activeView)
-                ? 'text-indigo-300' : 'text-slate-600 hover:text-slate-400'}`}>
-            <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5">
-              <circle cx="2" cy="7" r="1.2"/><circle cx="7" cy="7" r="1.2"/><circle cx="12" cy="7" r="1.2"/>
-            </svg>
-            <span className={`text-[9px] font-semibold uppercase tracking-[0.06em] ${
-              mobileNavOpen || !['today','overview','deals','financial','intelligence'].includes(activeView)
-                ? 'text-indigo-300' : 'text-slate-600'}`}>More</span>
-          </button>
+          {(() => {
+            const PRIMARY = ['today','overview','deals','financial','intelligence'];
+            const isOnOther = !PRIMARY.includes(activeView);
+            const otherLabel = isOnOther ? (navItems.find(n => n.id === activeView)?.label ?? 'More') : 'More';
+            const active = mobileNavOpen || isOnOther;
+            return (
+              <button
+                onClick={() => setMobileNavOpen(v => !v)}
+                className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 min-h-[52px] transition-colors ${active ? 'text-indigo-300' : 'text-slate-600 hover:text-slate-400'}`}>
+                {isOnOther ? (
+                  <span className="w-2 h-2 rounded-full bg-indigo-400 mb-0.5"/>
+                ) : (
+                  <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5">
+                    <circle cx="2" cy="7" r="1.2"/><circle cx="7" cy="7" r="1.2"/><circle cx="12" cy="7" r="1.2"/>
+                  </svg>
+                )}
+                <span className={`text-[9px] font-semibold uppercase tracking-[0.06em] truncate max-w-[52px] ${active ? 'text-indigo-300' : 'text-slate-600'}`}>
+                  {otherLabel}
+                </span>
+              </button>
+            );
+          })()}
         </nav>
 
         {/* ── Toasts ── */}

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { UnifiedBusinessData, KPIDashboard, CashFlowPeriod, ARAgingBucket, Budget } from '../../types';
+import type { UnifiedBusinessData, KPIDashboard, CashFlowPeriod, ARAgingBucket, Budget, BalanceSheet, BalanceSheetSection } from '../../types';
 import PLWaterfall from '../charts/PLWaterfall';
 import MarginTrendChart from '../charts/MarginTrendChart';
 import RevenueChart from '../charts/RevenueChart';
@@ -672,8 +672,612 @@ function WorkingCapitalPanel({ data, onAskAI }: { data: UnifiedBusinessData; onA
   );
 }
 
+// ── Derived Cash Flow Statement (Indirect Method) ─────────────────────────────
+function DerivedCFPanel({
+  bs, ebitda, plDA, plInterest, plTaxRate, onAskAI,
+}: {
+  bs: BalanceSheet; ebitda: number; plDA: number; plInterest: number; plTaxRate: number; onAskAI?: (msg: string) => void;
+}) {
+  if (!bs.prior) return null; // need two periods to compute changes
+
+  const fmtCF = (n: number) => {
+    const abs = Math.abs(n);
+    const s = abs >= 1_000_000 ? `$${(abs / 1_000_000).toFixed(2)}M` : `$${Math.round(abs).toLocaleString('en-US')}`;
+    return n < 0 ? `(${s})` : s;
+  };
+
+  // Helper: get item amount by partial label match
+  const getItem = (section: BalanceSheetSection, keyword: string) =>
+    section.items.find(i => i.label.toLowerCase().includes(keyword.toLowerCase()))?.amount ?? 0;
+
+  // ── Net Income (from P&L + below-the-line) ──
+  const ebit = ebitda - plDA;
+  const ebt  = ebit - plInterest;
+  const tax  = ebt > 0 ? ebt * (plTaxRate / 100) : 0;
+  const ni   = ebt - tax;
+
+  // ── Working Capital Changes (current period vs prior) ──
+  // Increases in current assets = uses of cash (negative)
+  // Increases in current liabilities = sources of cash (positive)
+  const wcItems: { label: string; amount: number; note: string }[] = [];
+
+  const bsItems = [
+    { key: 'receivable', section: 'ca', label: 'Accounts Receivable', sign: -1, note: 'Increase = cash tied up in AR' },
+    { key: 'unbilled',   section: 'ca', label: 'Unbilled Revenue',    sign: -1, note: 'Increase = uncollected work-in-progress' },
+    { key: 'prepaid',    section: 'ca', label: 'Prepaid Expenses',    sign: -1, note: 'Increase = cash paid in advance' },
+    { key: 'other current', section: 'ca', label: 'Other Current Assets', sign: -1, note: '' },
+    { key: 'payable',    section: 'cl', label: 'Accounts Payable',    sign:  1, note: 'Increase = delayed payments to vendors' },
+    { key: 'compensation', section: 'cl', label: 'Accrued Compensation', sign: 1, note: 'Increase = unpaid salaries/bonuses' },
+    { key: 'accrued exp', section: 'cl', label: 'Accrued Expenses',   sign:  1, note: '' },
+    { key: 'deferred',   section: 'cl', label: 'Deferred Revenue',    sign:  1, note: 'Increase = cash received before earned' },
+  ];
+
+  for (const item of bsItems) {
+    const cur  = item.section === 'ca' ? getItem(bs.currentAssets, item.key) : getItem(bs.currentLiabilities, item.key);
+    const prev = item.section === 'ca' ? getItem(bs.prior!.currentAssets, item.key) : getItem(bs.prior!.currentLiabilities, item.key);
+    const delta = cur - prev;
+    if (delta !== 0) {
+      wcItems.push({ label: item.label, amount: item.sign * delta, note: item.note });
+    }
+  }
+
+  const netWC    = wcItems.reduce((s, i) => s + i.amount, 0);
+  const opCF     = ni + plDA + netWC;
+
+  // ── Investing Activities ──
+  const curNetPPE  = getItem(bs.currentAssets, 'property') || getItem(bs.nonCurrentAssets, 'property');
+  const prevNetPPE = getItem(bs.prior!.currentAssets, 'property') || getItem(bs.prior!.nonCurrentAssets, 'property');
+  const capex      = -(curNetPPE - prevNetPPE) + plDA; // gross capex = Δnet PPE + D&A (negative = cash out)
+  const curSoftware  = getItem(bs.nonCurrentAssets, 'software');
+  const prevSoftware = getItem(bs.prior!.nonCurrentAssets, 'software');
+  const softCapex    = -(curSoftware - prevSoftware);
+  const investCF     = -capex + softCapex; // cash out is negative
+
+  const investItems = [
+    ...(capex !== 0     ? [{ label: 'Capital Expenditures (PP&E)', amount: -capex,     note: 'Derived: Δnet PP&E + depreciation' }] : []),
+    ...(softCapex !== 0 ? [{ label: 'Capitalized Software',         amount: softCapex,  note: 'Increase in software development costs' }] : []),
+  ];
+
+  // ── Financing Activities ──
+  const curLTD  = getItem(bs.longTermLiabilities, 'long-term debt');
+  const prevLTD = getItem(bs.prior!.longTermLiabilities, 'long-term debt');
+  const curCurr  = getItem(bs.currentLiabilities, 'current portion');
+  const prevCurr = getItem(bs.prior!.currentLiabilities, 'current portion');
+  const debtChange = (curLTD + curCurr) - (prevLTD + prevCurr);
+  const finCF = debtChange;
+  const finItems = debtChange !== 0 ? [
+    { label: debtChange < 0 ? 'Debt Repayment' : 'Debt Proceeds', amount: debtChange, note: 'Change in total outstanding debt' },
+  ] : [];
+
+  // ── Net change & reconciliation ──
+  const netChange = opCF + investCF + finCF;
+  const openingCash = getItem(bs.prior!.currentAssets, 'cash');
+  const closingCash = getItem(bs.currentAssets, 'cash');
+  const bsNetChange = closingCash - openingCash;
+  const variance    = netChange - bsNetChange;
+  const reconciles  = Math.abs(variance) < (Math.abs(netChange) * 0.05 + 1000); // within 5% or $1k
+
+  const sections = [
+    {
+      label: 'Operating Activities',
+      color: 'text-emerald-400',
+      borderColor: 'border-emerald-500/20',
+      total: opCF,
+      items: [
+        { label: 'Net Income',          amount: ni,    note: `EBITDA ${fmtCF(ebitda)}${plDA > 0 ? ` − D&A ${fmtCF(plDA)}` : ''}${plInterest > 0 ? ` − Interest ${fmtCF(plInterest)}` : ''}${plTaxRate > 0 ? ` − Tax ${plTaxRate}%` : ''}` },
+        ...(plDA > 0 ? [{ label: 'Add: Depreciation & Amortization', amount: plDA, note: 'Non-cash — added back' }] : []),
+        ...wcItems.map(i => ({ label: `Δ ${i.label}`, amount: i.amount, note: i.note })),
+      ],
+    },
+    {
+      label: 'Investing Activities',
+      color: 'text-amber-400',
+      borderColor: 'border-amber-500/20',
+      total: investCF,
+      items: investItems.map(i => ({ label: i.label, amount: i.amount, note: i.note })),
+    },
+    {
+      label: 'Financing Activities',
+      color: 'text-indigo-400',
+      borderColor: 'border-indigo-500/20',
+      total: finCF,
+      items: finItems.map(i => ({ label: i.label, amount: i.amount, note: i.note })),
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* KPI strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Operating CF',  value: fmtCF(opCF),   color: opCF >= 0 ? 'text-emerald-400' : 'text-red-400' },
+          { label: 'Investing CF',  value: fmtCF(investCF), color: 'text-amber-400' },
+          { label: 'Financing CF',  value: fmtCF(finCF),  color: 'text-indigo-400' },
+          { label: 'Net Cash Change', value: fmtCF(netChange), color: netChange >= 0 ? 'text-emerald-400' : 'text-red-400' },
+        ].map(m => (
+          <div key={m.label} className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
+            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-1.5">{m.label}</div>
+            <div className={`text-[17px] font-bold tabular-nums ${m.color}`}>{m.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Statement */}
+      <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="text-[13px] font-semibold text-slate-100">Cash Flow Statement</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">
+              Derived — Indirect Method · {bs.prior.asOf} → {bs.asOf}
+              {plDA === 0 && <span className="text-amber-400/70"> · Set D&amp;A above for more accuracy</span>}
+            </div>
+          </div>
+          {onAskAI && (
+            <button
+              onClick={() => onAskAI(`My derived cash flow statement (indirect method): Operating CF ${fmtCF(opCF)}, Investing CF ${fmtCF(investCF)}, Financing CF ${fmtCF(finCF)}, Net cash change ${fmtCF(netChange)}. Net income was ${fmtCF(ni)}, D&A addback ${fmtCF(plDA)}, working capital change ${fmtCF(netWC)}. What does this tell me about the quality and sustainability of my cash generation?`)}
+              className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1"
+            >
+              <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3"><path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/><rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/></svg>
+              Ask AI
+            </button>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          {sections.map(sec => (
+            <div key={sec.label} className={`border-l-2 ${sec.borderColor} pl-4`}>
+              <div className="flex items-center justify-between mb-2">
+                <div className={`text-[11px] font-bold uppercase tracking-[0.08em] ${sec.color}`}>{sec.label}</div>
+                <div className={`text-[13px] font-bold tabular-nums ${sec.color}`}>{fmtCF(sec.total)}</div>
+              </div>
+              {sec.items.map((item, i) => (
+                <div key={i} className="flex items-start justify-between py-1 gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] text-slate-400">{item.label}</div>
+                    {item.note && <div className="text-[10px] text-slate-600 mt-0.5">{item.note}</div>}
+                  </div>
+                  <div className={`text-[12px] font-medium tabular-nums flex-shrink-0 w-24 text-right ${item.amount >= 0 ? 'text-slate-200' : 'text-slate-400'}`}>
+                    {fmtCF(item.amount)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+
+          {/* Net change */}
+          <div className="border-t border-slate-800/60 pt-3 flex items-center justify-between">
+            <div className="text-[12px] font-bold text-slate-100">Net Increase / (Decrease) in Cash</div>
+            <div className={`text-[14px] font-bold tabular-nums ${netChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtCF(netChange)}</div>
+          </div>
+
+          {/* Reconciliation */}
+          <div className={`rounded-lg border px-4 py-3 space-y-1.5 ${reconciles ? 'bg-emerald-500/4 border-emerald-500/10' : 'bg-amber-500/5 border-amber-500/15'}`}>
+            <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] mb-2">Reconciliation to BS Cash</div>
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-slate-500">Opening Cash ({bs.prior.asOf})</div>
+              <div className="text-[12px] font-medium text-slate-300 tabular-nums">{fmtCF(openingCash)}</div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-slate-500">Net Cash Change</div>
+              <div className={`text-[12px] font-medium tabular-nums ${netChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{netChange >= 0 ? '+' : ''}{fmtCF(netChange)}</div>
+            </div>
+            <div className="flex items-center justify-between border-t border-slate-800/40 pt-1.5">
+              <div className="text-[11px] font-semibold text-slate-400">Derived Closing Cash</div>
+              <div className="text-[12px] font-semibold text-slate-200 tabular-nums">{fmtCF(openingCash + netChange)}</div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] text-slate-500">BS Closing Cash ({bs.asOf})</div>
+              <div className="text-[12px] font-medium text-slate-300 tabular-nums">{fmtCF(closingCash)}</div>
+            </div>
+            <div className={`flex items-center gap-1.5 pt-1 text-[10px] font-medium ${reconciles ? 'text-emerald-400/70' : 'text-amber-400'}`}>
+              <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-3 h-3">
+                {reconciles ? <path d="M2 6l2.5 2.5L10 3"/> : <path d="M3 3l6 6M9 3l-6 6"/>}
+              </svg>
+              {reconciles
+                ? `Reconciles within ${fmtCF(Math.abs(variance))} — derived statement is consistent with balance sheet`
+                : `Variance of ${fmtCF(Math.abs(variance))} — adjust D&A, interest, and tax rate above for a tighter reconciliation`}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Multi-Year Forward Projection ─────────────────────────────────────────────
+function MultiYearProjection({
+  data, previousData, onAskAI,
+}: { data: UnifiedBusinessData; previousData?: UnifiedBusinessData; onAskAI?: (msg: string) => void }) {
+  const baseRev   = data.revenue.total;
+  const baseCOGS  = data.costs.totalCOGS;
+  const baseOpEx  = data.costs.totalOpEx;
+  const baseGP    = baseRev - baseCOGS;
+  const baseGM    = baseRev > 0 ? (baseGP / baseRev) * 100 : 40;
+  const baseEBITDA = baseGP - baseOpEx;
+  const baseEBITDAMargin = baseRev > 0 ? (baseEBITDA / baseRev) * 100 : 0;
+
+  // Auto-detect growth from prior period
+  const prevRev = previousData?.revenue.total ?? 0;
+  const detectedGrowth = prevRev > 0 ? Math.round(((baseRev - prevRev) / prevRev) * 100) : 15;
+  const clampedGrowth  = Math.max(0, Math.min(50, detectedGrowth));
+
+  const [revenueGrowth,  setRevenueGrowth]  = useState(clampedGrowth);
+  const [marginExpansion,setMarginExpansion] = useState(0.5); // pp/yr EBITDA margin
+  const [opexGrowth,     setOpexGrowth]      = useState(5);   // % OpEx growth (hiring, inflation)
+
+  const years = [1, 2, 3];
+  const curYear = new Date().getFullYear();
+
+  const projections = years.map(yr => {
+    const rev        = baseRev * Math.pow(1 + revenueGrowth / 100, yr);
+    const gmPct      = baseGM; // assume GM% held constant (pricing = cost)
+    const gp         = rev * (gmPct / 100);
+    const cogs       = rev - gp;
+    const opex       = baseOpEx * Math.pow(1 + opexGrowth / 100, yr);
+    const ebitdaPct  = Math.min(baseEBITDAMargin + marginExpansion * yr, 45);
+    // Use margin-target EBITDA if meaningful, otherwise derive from GP - OpEx
+    const ebitdaFromMargin = rev * (ebitdaPct / 100);
+    const ebitdaFromPL     = gp - opex;
+    // Blend: margin target governs direction, P&L provides floor/sanity
+    const ebitda = (ebitdaFromMargin + ebitdaFromPL) / 2;
+    const actualEBITDAMargin = rev > 0 ? (ebitda / rev) * 100 : 0;
+    return { yr, rev, cogs, gp, opex, ebitda, ebitdaMargin: actualEBITDAMargin, gmPct };
+  });
+
+  const fmtP = (n: number) => {
+    const abs = Math.abs(n);
+    const s = abs >= 1_000_000 ? `$${(abs / 1_000_000).toFixed(2)}M` : `$${Math.round(abs).toLocaleString('en-US')}`;
+    return n < 0 ? `(${s})` : s;
+  };
+
+  return (
+    <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-slate-800/40 flex items-center justify-between">
+        <div>
+          <div className="text-[13px] font-semibold text-slate-100">3-Year Forward Projection</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">
+            Base: {curYear} actuals · Projected: {curYear + 1}–{curYear + 3}
+            {prevRev > 0 && <span className="text-indigo-400/70"> · Growth auto-detected from prior period</span>}
+          </div>
+        </div>
+        {onAskAI && (
+          <button onClick={() => onAskAI(`My 3-year projection: base revenue ${fmtP(baseRev)}, EBITDA ${fmtP(baseEBITDA)} (${baseEBITDAMargin.toFixed(1)}% margin). Projecting at ${revenueGrowth}% revenue growth, ${marginExpansion}pp/yr margin expansion, ${opexGrowth}% OpEx growth. Year 3 revenue target: ${fmtP(projections[2].rev)}, EBITDA: ${fmtP(projections[2].ebitda)} (${projections[2].ebitdaMargin.toFixed(1)}%). Are these assumptions realistic and what are the key risks to hitting Year 3?`)}
+            className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1 flex-shrink-0">
+            <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3"><path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/><rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/></svg>
+            Ask AI
+          </button>
+        )}
+      </div>
+
+      {/* Assumption sliders */}
+      <div className="px-5 pt-4 pb-3 grid grid-cols-1 sm:grid-cols-3 gap-4 border-b border-slate-800/30">
+        {[
+          { label: 'Revenue Growth',     value: revenueGrowth,   set: setRevenueGrowth,   min: 0,  max: 50,  step: 1,   fmtV: (v: number) => `${v}%/yr`,           color: 'accent-indigo-400' },
+          { label: 'EBITDA Margin Expansion', value: marginExpansion, set: setMarginExpansion, min: -2, max: 5,  step: 0.5, fmtV: (v: number) => `${v >= 0 ? '+' : ''}${v}pp/yr`, color: 'accent-emerald-400' },
+          { label: 'OpEx Growth',        value: opexGrowth,      set: setOpexGrowth,      min: 0,  max: 25,  step: 1,   fmtV: (v: number) => `${v}%/yr`,           color: 'accent-amber-400' },
+        ].map(s => (
+          <div key={s.label} className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-medium text-slate-400">{s.label}</span>
+              <span className="text-[12px] font-bold text-slate-200 tabular-nums">{s.fmtV(s.value)}</span>
+            </div>
+            <input type="range" min={s.min} max={s.max} step={s.step} value={s.value}
+              onChange={e => s.set(Number(e.target.value))}
+              className={`w-full h-1.5 bg-slate-800 rounded-full appearance-none cursor-pointer ${s.color}`}/>
+          </div>
+        ))}
+      </div>
+
+      {/* Projection table */}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[460px]">
+          <thead>
+            <tr className="border-b border-slate-800/40 bg-slate-900/40">
+              <th className="px-5 py-2.5 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em]">Metric</th>
+              <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em]">Base ({curYear})</th>
+              {projections.map(p => (
+                <th key={p.yr} className="px-4 py-2.5 text-right text-[10px] font-semibold text-indigo-400/60 uppercase tracking-[0.08em]">Year {p.yr} ({curYear + p.yr})</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800/20">
+            {[
+              { label: 'Revenue',      base: baseRev,          vals: projections.map(p => p.rev),    color: 'text-slate-100', pctBase: false },
+              { label: 'Gross Profit', base: baseGP,           vals: projections.map(p => p.gp),     color: 'text-slate-300', pctBase: false },
+              { label: 'GM %',         base: baseGM,           vals: projections.map(p => p.gmPct),  color: 'text-slate-400', pctBase: true  },
+              { label: 'OpEx',         base: baseOpEx,         vals: projections.map(p => p.opex),   color: 'text-amber-400/70', pctBase: false },
+              { label: 'EBITDA',       base: baseEBITDA,       vals: projections.map(p => p.ebitda), color: 'text-emerald-400', pctBase: false },
+              { label: 'EBITDA Margin',base: baseEBITDAMargin, vals: projections.map(p => p.ebitdaMargin), color: 'text-emerald-400/70', pctBase: true },
+            ].map(row => (
+              <tr key={row.label} className="hover:bg-slate-800/10">
+                <td className="px-5 py-2.5 text-[12px] font-medium text-slate-400">{row.label}</td>
+                <td className="px-4 py-2.5 text-right text-[12px] text-slate-400 tabular-nums">
+                  {row.pctBase ? `${row.base.toFixed(1)}%` : fmtP(row.base)}
+                </td>
+                {row.vals.map((v, i) => {
+                  const chg = row.base !== 0 ? ((v - row.base) / Math.abs(row.base)) * 100 : 0;
+                  return (
+                    <td key={i} className={`px-4 py-2.5 text-right tabular-nums`}>
+                      <div className={`text-[12px] font-semibold ${row.color}`}>
+                        {row.pctBase ? `${v.toFixed(1)}%` : fmtP(v)}
+                      </div>
+                      <div className={`text-[10px] mt-0.5 ${chg >= 0 ? 'text-emerald-400/50' : 'text-red-400/50'}`}>
+                        {chg >= 0 ? '+' : ''}{chg.toFixed(0)}% vs base
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Year 3 headline */}
+      <div className="px-5 py-3 border-t border-slate-800/30 flex items-center gap-4 flex-wrap bg-slate-900/20">
+        {[
+          { label: `${curYear + 3} Revenue`, value: fmtP(projections[2].rev),    color: 'text-slate-100' },
+          { label: `${curYear + 3} EBITDA`,  value: fmtP(projections[2].ebitda), color: 'text-emerald-400' },
+          { label: 'EBITDA CAGR',           value: `${(Math.pow(projections[2].ebitda / Math.max(baseEBITDA, 1), 1/3) - 1) * 100 >= 0 ? '+' : ''}${((Math.pow(projections[2].ebitda / Math.max(baseEBITDA, 1), 1/3) - 1) * 100).toFixed(1)}%`, color: 'text-indigo-300' },
+        ].map(m => (
+          <div key={m.label} className="flex items-center gap-2">
+            <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em]">{m.label}</div>
+            <div className={`text-[13px] font-bold tabular-nums ${m.color}`}>{m.value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Balance Sheet Panel ────────────────────────────────────────────────────────
+function BSSection({
+  label, section, priorSection, totalAssets, color, onAskAI,
+}: {
+  label: string; section: BalanceSheetSection; priorSection?: BalanceSheetSection;
+  totalAssets?: number; color: string; onAskAI?: (msg: string) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const chgAbs = priorSection ? section.total - priorSection.total : undefined;
+  const chgPct = priorSection && priorSection.total !== 0
+    ? ((section.total - priorSection.total) / Math.abs(priorSection.total)) * 100
+    : undefined;
+
+  const fmtBS = (n: number) => {
+    const abs = Math.abs(n);
+    const s = abs >= 1_000_000 ? `$${(abs / 1_000_000).toFixed(2)}M` : `$${Math.round(abs).toLocaleString('en-US')}`;
+    return n < 0 ? `(${s})` : s;
+  };
+
+  return (
+    <div className="mb-1">
+      {/* Section header */}
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between py-2 px-3 rounded-lg hover:bg-slate-800/30 transition-colors group"
+      >
+        <div className="flex items-center gap-2">
+          <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
+            className={`w-2.5 h-2.5 flex-shrink-0 text-slate-600 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>
+            <path d="M2 3.5L5 6.5 8 3.5"/>
+          </svg>
+          <span className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${color}`}>{label}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          {chgPct !== undefined && (
+            <span className={`text-[10px] font-medium ${chgAbs! >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
+              {chgAbs! >= 0 ? '+' : ''}{chgPct.toFixed(1)}%
+            </span>
+          )}
+          <span className={`text-[13px] font-bold tabular-nums ${color}`}>{fmtBS(section.total)}</span>
+        </div>
+      </button>
+
+      {open && (
+        <div className="ml-2 border-l border-slate-800/40 pl-3 mb-2">
+          {section.items.map((item, i) => {
+            const prior = priorSection?.items[i]?.amount;
+            const itemChg = prior !== undefined ? item.amount - prior : undefined;
+            return (
+              <div key={i} className="flex items-start justify-between py-1.5 gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[11px] text-slate-400">{item.label}</div>
+                  {item.note && <div className="text-[10px] text-slate-600 mt-0.5">{item.note}</div>}
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  {itemChg !== undefined && itemChg !== 0 && (
+                    <span className={`text-[10px] ${itemChg > 0 ? 'text-emerald-400/60' : 'text-red-400/60'}`}>
+                      {itemChg > 0 ? '+' : ''}{fmtBS(itemChg)}
+                    </span>
+                  )}
+                  <span className="text-[12px] font-medium text-slate-200 tabular-nums w-24 text-right">{fmtBS(item.amount)}</span>
+                </div>
+              </div>
+            );
+          })}
+          <div className="flex items-center justify-between pt-1.5 mt-1 border-t border-slate-800/40">
+            <div className="text-[11px] font-semibold text-slate-500">Total {label}</div>
+            <div className={`text-[12px] font-bold tabular-nums ${color}`}>{fmtBS(section.total)}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BalanceSheetPanel({ bs, onAskAI }: { bs: BalanceSheet; onAskAI?: (msg: string) => void }) {
+  const fmtBS = (n: number) => {
+    const abs = Math.abs(n);
+    const s = abs >= 1_000_000 ? `$${(abs / 1_000_000).toFixed(2)}M` : `$${Math.round(abs).toLocaleString('en-US')}`;
+    return n < 0 ? `(${s})` : s;
+  };
+
+  const totalAssets = bs.currentAssets.total + bs.nonCurrentAssets.total;
+  const totalLiabilities = bs.currentLiabilities.total + bs.longTermLiabilities.total;
+  const totalLiabEquity = totalLiabilities + bs.equity.total;
+  const checks = Math.abs(totalAssets - totalLiabEquity) < 2; // balance check
+
+  // Key ratios
+  const currentRatio = bs.currentLiabilities.total > 0 ? bs.currentAssets.total / bs.currentLiabilities.total : null;
+  const cashAR = (bs.currentAssets.items[0]?.amount ?? 0) + (bs.currentAssets.items[1]?.amount ?? 0);
+  const quickRatio = bs.currentLiabilities.total > 0 ? cashAR / bs.currentLiabilities.total : null;
+  const debtEquity = bs.equity.total > 0 ? totalLiabilities / bs.equity.total : null;
+  const workingCapital = bs.currentAssets.total - bs.currentLiabilities.total;
+  const longTermDebt = bs.longTermLiabilities.items.find(i => i.label.toLowerCase().includes('long-term debt'))?.amount ?? 0;
+  const cash = bs.currentAssets.items[0]?.amount ?? 0;
+  const netDebt = longTermDebt - cash;
+
+  // Prior period ratios
+  const priorCA = bs.prior?.currentAssets.total;
+  const priorCL = bs.prior?.currentLiabilities.total;
+  const priorCurrentRatio = priorCA && priorCL ? priorCA / priorCL : null;
+  const priorWC = priorCA && priorCL ? priorCA - priorCL : null;
+
+  const ratios = [
+    {
+      label: 'Current Ratio',
+      value: currentRatio !== null ? currentRatio.toFixed(2) + '×' : '—',
+      sub: 'Current assets / current liabilities',
+      color: currentRatio === null ? 'text-slate-400' : currentRatio >= 2 ? 'text-emerald-400' : currentRatio >= 1.2 ? 'text-amber-400' : 'text-red-400',
+      change: currentRatio !== null && priorCurrentRatio !== null ? currentRatio - priorCurrentRatio : undefined,
+      changeLabel: 'vs prior',
+    },
+    {
+      label: 'Quick Ratio',
+      value: quickRatio !== null ? quickRatio.toFixed(2) + '×' : '—',
+      sub: '(Cash + AR) / current liabilities',
+      color: quickRatio === null ? 'text-slate-400' : quickRatio >= 1.5 ? 'text-emerald-400' : quickRatio >= 1 ? 'text-amber-400' : 'text-red-400',
+      change: undefined,
+      changeLabel: undefined,
+    },
+    {
+      label: 'Working Capital',
+      value: fmtBS(workingCapital),
+      sub: 'Current assets − current liabilities',
+      color: workingCapital >= 0 ? 'text-emerald-400' : 'text-red-400',
+      change: priorWC !== null ? workingCapital - priorWC! : undefined,
+      changeLabel: 'vs prior',
+    },
+    {
+      label: 'Debt / Equity',
+      value: debtEquity !== null ? debtEquity.toFixed(2) + '×' : '—',
+      sub: 'Total liabilities / total equity',
+      color: debtEquity === null ? 'text-slate-400' : debtEquity <= 0.5 ? 'text-emerald-400' : debtEquity <= 1.5 ? 'text-amber-400' : 'text-red-400',
+      change: undefined,
+      changeLabel: undefined,
+    },
+    {
+      label: 'Net Debt',
+      value: fmtBS(netDebt),
+      sub: 'Long-term debt − cash',
+      color: netDebt <= 0 ? 'text-emerald-400' : 'text-amber-400',
+      change: undefined,
+      changeLabel: undefined,
+    },
+    {
+      label: 'Asset Base',
+      value: fmtBS(totalAssets),
+      sub: 'Total assets deployed',
+      color: 'text-slate-100',
+      change: bs.prior ? totalAssets - (bs.prior.currentAssets.total + bs.prior.nonCurrentAssets.total) : undefined,
+      changeLabel: 'vs prior',
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* KPI ratios strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {ratios.map(r => (
+          <div key={r.label} className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
+            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em] mb-1.5">{r.label}</div>
+            <div className={`text-[18px] font-bold tabular-nums ${r.color}`}>{r.value}</div>
+            <div className="text-[10px] text-slate-600 mt-0.5">{r.sub}</div>
+            {r.change !== undefined && r.change !== 0 && (
+              <div className={`text-[10px] mt-1 font-medium ${r.change > 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
+                {r.change > 0 ? '+' : ''}{typeof r.value === 'string' && r.value.endsWith('×') ? r.change.toFixed(2) + '×' : fmtBS(r.change)} {r.changeLabel}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Balance check banner */}
+      <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-[11px] font-medium ${checks ? 'bg-emerald-500/5 border-emerald-500/15 text-emerald-400/70' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-3 h-3 flex-shrink-0">
+          {checks ? <path d="M2 7l3.5 3.5L12 3"/> : <path d="M3 3l8 8M11 3l-8 8"/>}
+        </svg>
+        {checks
+          ? `Balance sheet checks out — Assets (${fmtBS(totalAssets)}) = Liabilities + Equity (${fmtBS(totalLiabEquity)})`
+          : `Balance sheet does not balance — Assets ${fmtBS(totalAssets)} ≠ L+E ${fmtBS(totalLiabEquity)}`}
+      </div>
+
+      {/* Statement */}
+      <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="text-[13px] font-semibold text-slate-100">Balance Sheet</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">
+              As of {bs.asOf}{bs.prior ? ` · Prior: ${bs.prior.asOf}` : ''}
+            </div>
+          </div>
+          {onAskAI && (
+            <button
+              onClick={() => onAskAI(`My balance sheet as of ${bs.asOf}: Total assets $${(totalAssets/1000).toFixed(0)}k, total liabilities $${(totalLiabilities/1000).toFixed(0)}k, equity $${(bs.equity.total/1000).toFixed(0)}k. Current ratio ${currentRatio?.toFixed(2)}×, quick ratio ${quickRatio?.toFixed(2)}×, D/E ratio ${debtEquity?.toFixed(2)}×, working capital $${(workingCapital/1000).toFixed(0)}k. Analyze the financial health and flag any concerns.`)}
+              className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1"
+            >
+              <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3"><path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/><rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/></svg>
+              Ask AI
+            </button>
+          )}
+        </div>
+
+        {/* Column headers */}
+        <div className="flex items-center justify-between px-3 pb-2 mb-2 border-b border-slate-800/40">
+          <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em]">Line Item</div>
+          <div className="flex items-center gap-3">
+            {bs.prior && <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] w-24 text-right">Change</div>}
+            <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em] w-24 text-right">Amount</div>
+          </div>
+        </div>
+
+        {/* Assets */}
+        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.1em] px-3 pt-1 pb-0.5">Assets</div>
+        <BSSection label="Current Assets"     section={bs.currentAssets}     priorSection={bs.prior?.currentAssets}     color="text-slate-100" onAskAI={onAskAI}/>
+        <BSSection label="Non-Current Assets" section={bs.nonCurrentAssets}  priorSection={bs.prior?.nonCurrentAssets}  color="text-slate-100" onAskAI={onAskAI}/>
+        {/* Total Assets */}
+        <div className="flex items-center justify-between px-3 py-2.5 bg-slate-800/30 rounded-lg mb-4">
+          <div className="text-[12px] font-bold text-slate-100">Total Assets</div>
+          <div className="text-[14px] font-bold text-slate-100 tabular-nums">{fmtBS(totalAssets)}</div>
+        </div>
+
+        {/* Liabilities */}
+        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.1em] px-3 pt-1 pb-0.5">Liabilities</div>
+        <BSSection label="Current Liabilities"    section={bs.currentLiabilities}  priorSection={bs.prior?.currentLiabilities}  color="text-red-400/80"   onAskAI={onAskAI}/>
+        <BSSection label="Long-Term Liabilities"  section={bs.longTermLiabilities} priorSection={bs.prior?.longTermLiabilities} color="text-orange-400/80" onAskAI={onAskAI}/>
+        <div className="flex items-center justify-between px-3 py-2 rounded-lg mb-3">
+          <div className="text-[11px] font-semibold text-slate-400">Total Liabilities</div>
+          <div className="text-[12px] font-bold text-slate-300 tabular-nums">{fmtBS(totalLiabilities)}</div>
+        </div>
+
+        {/* Equity */}
+        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.1em] px-3 pt-1 pb-0.5">Equity</div>
+        <BSSection label="Shareholders' Equity" section={bs.equity} priorSection={bs.prior?.equity} color="text-emerald-400/90" onAskAI={onAskAI}/>
+        {/* Total L + E */}
+        <div className="flex items-center justify-between px-3 py-2.5 bg-slate-800/30 rounded-lg mt-1">
+          <div className="text-[12px] font-bold text-slate-100">Total Liabilities &amp; Equity</div>
+          <div className={`text-[14px] font-bold tabular-nums ${checks ? 'text-emerald-400' : 'text-red-400'}`}>{fmtBS(totalLiabEquity)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function FinancialDashboard({ data, previousData, dashboard, budget, onSetBudget, annotations, onAnnotate, onAskAI }: Props) {
   const [showComparison, setShowComparison] = useState(false);
+  const [plDA, setPlDA] = useState(0);
+  const [plInterest, setPlInterest] = useState(0);
+  const [plTaxRate, setPlTaxRate] = useState(25);
   const hasCashFlow = data.cashFlow && data.cashFlow.length > 0;
   const hasARaging  = data.arAging && data.arAging.length > 0;
   const rev    = data.revenue.total;
@@ -1215,13 +1819,39 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
               showChange
               showPct
               defaultExpanded={false}
+              depreciation={plDA}
+              interestExpense={plInterest}
+              taxRate={plTaxRate}
             />
           )}
-          <div className="mt-4 pt-3 border-t border-slate-800/60">
-            <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-2">Annualized Run Rate</div>
-            <div className="text-[13px] font-bold text-slate-300">{fmt(runRate)}</div>
-            <div className="text-[11px] text-slate-600 mt-0.5">Monthly average × 12</div>
-          </div>
+          {/* Below-the-line inputs */}
+          {!showComparison && (
+            <div className="mt-4 pt-3 border-t border-slate-800/60 space-y-2.5">
+              <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-2">Below-the-Line (to Net Income)</div>
+              {[
+                { label: 'D&A', value: plDA, set: setPlDA, max: 1_000_000, step: 5_000 },
+                { label: 'Interest', value: plInterest, set: setPlInterest, max: 500_000, step: 5_000 },
+                { label: 'Tax Rate', value: plTaxRate, set: setPlTaxRate, max: 50, step: 1, isPct: true },
+              ].map(f => (
+                <div key={f.label} className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-500 w-14 flex-shrink-0">{f.label}</span>
+                  <input type="range" min={0} max={f.max} step={f.step} value={f.value}
+                    onChange={e => f.set(Number(e.target.value))}
+                    className="flex-1 accent-indigo-500 h-1"/>
+                  <span className="text-[10px] font-semibold text-slate-300 w-16 text-right tabular-nums">
+                    {f.isPct ? `${f.value}%` : f.value === 0 ? '$0' : fmt(f.value)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {showComparison && (
+            <div className="mt-4 pt-3 border-t border-slate-800/60">
+              <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-2">Annualized Run Rate</div>
+              <div className="text-[13px] font-bold text-slate-300">{fmt(runRate)}</div>
+              <div className="text-[11px] text-slate-600 mt-0.5">Monthly average × 12</div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1467,6 +2097,15 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
         );
       })()}
 
+      {/* Multi-Year Projection */}
+      <div>
+        <div className="flex items-center gap-3 mb-3">
+          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em]">3-Year Forward Projection</div>
+          <div className="flex-1 h-px bg-indigo-500/10"/>
+        </div>
+        <MultiYearProjection data={data} previousData={previousData} onAskAI={onAskAI}/>
+      </div>
+
       {/* Cash Flow */}
       {hasCashFlow ? (
         <div>
@@ -1534,6 +2173,45 @@ export default function FinancialDashboard({ data, previousData, dashboard, budg
             <div className="text-[13px] font-semibold text-slate-200 mb-0.5">AR Aging Report</div>
             <div className="text-[12px] text-slate-500">Upload AR aging to see collection risk, days sales outstanding, and past-due breakdown by customer</div>
           </div>
+        </div>
+      )}
+
+      {/* Balance Sheet */}
+      {data.balanceSheet ? (
+        <div>
+          <div className="flex items-center gap-3 mb-3">
+            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em]">Balance Sheet</div>
+            <div className="flex-1 h-px bg-indigo-500/10"/>
+          </div>
+          <BalanceSheetPanel bs={data.balanceSheet} onAskAI={onAskAI}/>
+        </div>
+      ) : (
+        <div className="bg-indigo-500/4 border border-indigo-500/15 rounded-xl p-4 flex items-center gap-4">
+          <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center flex-shrink-0 text-lg">🏦</div>
+          <div>
+            <div className="text-[13px] font-semibold text-slate-200 mb-0.5">Balance Sheet</div>
+            <div className="text-[12px] text-slate-500">Upload a balance sheet snapshot to see current/quick ratios, working capital, debt/equity, and period-over-period asset trends</div>
+          </div>
+
+        </div>
+      )}
+
+      {/* Derived Cash Flow Statement */}
+      {data.balanceSheet?.prior && (
+        <div>
+          <div className="flex items-center gap-3 mb-3">
+            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em]">Cash Flow Statement</div>
+            <div className="text-[10px] text-slate-600 bg-slate-800/50 border border-slate-700/40 rounded px-2 py-0.5">Derived · Indirect Method</div>
+            <div className="flex-1 h-px bg-teal-500/10"/>
+          </div>
+          <DerivedCFPanel
+            bs={data.balanceSheet}
+            ebitda={ebitda}
+            plDA={plDA}
+            plInterest={plInterest}
+            plTaxRate={plTaxRate}
+            onAskAI={onAskAI}
+          />
         </div>
       )}
 

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { UnifiedBusinessData } from '../../types';
+import { authHeaders, loadAuthSession } from '../../lib/auth';
 
 interface BriefingItem {
   type: 'action' | 'insight' | 'warning';
@@ -261,6 +262,9 @@ export default function DailyBriefing({ data, previousData, companyName, onAskAI
   const [expanded, setExpanded] = useState(true);
   const [dismissed, setDismissed] = useState<Set<number>>(new Set());
   const [lastGenerated, setLastGenerated] = useState<string>('');
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<'idle' | 'sent' | 'error'>('idle');
+  const isLoggedIn = !!loadAuthSession()?.token;
 
   useEffect(() => {
     const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
@@ -363,7 +367,7 @@ export default function DailyBriefing({ data, previousData, companyName, onAskAI
           )}
 
           {/* Footer */}
-          <div className="flex items-center justify-between pt-1">
+          <div className="flex items-center justify-between pt-1 flex-wrap gap-2">
             <button
               onClick={() => onAskAI(`Give me a comprehensive daily briefing for ${companyName}. What are my most important priorities today?`)}
               className="flex items-center gap-1.5 text-[11px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
@@ -374,7 +378,36 @@ export default function DailyBriefing({ data, previousData, companyName, onAskAI
               </svg>
               Ask AI for deeper analysis
             </button>
-            <span className="text-[10px] text-slate-700">Auto-generated from your data</span>
+            <div className="flex items-center gap-2">
+              {isLoggedIn && (
+                <button
+                  onClick={async () => {
+                    if (emailSending) return;
+                    setEmailSending(true);
+                    setEmailStatus('idle');
+                    try {
+                      const res = await fetch('/api/digest/email', {
+                        method: 'POST', headers: authHeaders(),
+                        body: JSON.stringify({ companyName, data }),
+                      });
+                      setEmailStatus(res.ok ? 'sent' : 'error');
+                    } catch { setEmailStatus('error'); }
+                    finally { setEmailSending(false); setTimeout(() => setEmailStatus('idle'), 4000); }
+                  }}
+                  className={`flex items-center gap-1.5 text-[11px] font-medium transition-colors ${
+                    emailStatus === 'sent'  ? 'text-emerald-400' :
+                    emailStatus === 'error' ? 'text-red-400' :
+                    'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-3 h-3">
+                    <path d="M1 3.5l6 4 6-4M1 3.5h12v8H1z"/>
+                  </svg>
+                  {emailSending ? 'Sending…' : emailStatus === 'sent' ? 'Sent!' : emailStatus === 'error' ? 'Failed' : 'Email digest'}
+                </button>
+              )}
+              <span className="text-[10px] text-slate-700">Auto-generated from your data</span>
+            </div>
           </div>
         </div>
       )}

@@ -2,7 +2,16 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type CommandType = 'nav' | 'action' | 'ai';
+type CommandType = 'nav' | 'action' | 'ai' | 'result';
+
+interface SearchRecord {
+  id: string;
+  label: string;
+  sub: string;
+  badge: string;
+  badgeColor: string;
+  navTarget: string;
+}
 
 interface Command {
   id: string;
@@ -40,10 +49,11 @@ const AI_PROMPTS = [
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function CommandPalette({ open, onClose, onNavigate, onAskAI, onRunAction, onEnterManually, onBackupData }: CommandPaletteProps) {
-  const [query, setQuery]       = useState('');
-  const [selected, setSelected] = useState(0);
-  const inputRef                = useRef<HTMLInputElement>(null);
-  const listRef                 = useRef<HTMLDivElement>(null);
+  const [query, setQuery]             = useState('');
+  const [selected, setSelected]       = useState(0);
+  const [records, setRecords]         = useState<SearchRecord[]>([]);
+  const inputRef                      = useRef<HTMLInputElement>(null);
+  const listRef                       = useRef<HTMLDivElement>(null);
 
   // All available commands
   const allCommands: Command[] = [
@@ -67,7 +77,61 @@ export default function CommandPalette({ open, onClose, onNavigate, onAskAI, onR
     ...(onBackupData    ? [{ id: 'act-backup', type: 'action' as CommandType, label: 'Backup data',          description: 'Download all data as JSON',               icon: '↓', onSelect: () => { onBackupData();    onClose(); } }] : []),
   ];
 
-  const isAIMode = query.startsWith('>') || query.startsWith('?') || (query.length > 2 && !allCommands.some(c => c.label.toLowerCase().startsWith(query.toLowerCase().slice(0, 3))));
+  // Search local data records when query >= 2 chars and not AI mode
+  useEffect(() => {
+    const q = query.trim().toLowerCase();
+    if (q.length < 2 || q.startsWith('>') || q.startsWith('?')) {
+      setRecords([]);
+      return;
+    }
+    try {
+      const results: SearchRecord[] = [];
+      const fmtM = (n?: number) => n == null ? '' : n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : `$${Math.round(n).toLocaleString()}`;
+
+      // CRM deals
+      const crmRaw = localStorage.getItem('bos_deals');
+      if (crmRaw) {
+        (JSON.parse(crmRaw) as { id: string; name: string; company?: string; stage: string; value?: number }[])
+          .filter(d => d.name?.toLowerCase().includes(q) || d.company?.toLowerCase().includes(q))
+          .slice(0, 3)
+          .forEach(d => results.push({
+            id: `crm-${d.id}`, label: d.name, sub: [d.company, d.stage].filter(Boolean).join(' · '),
+            badge: 'CRM', badgeColor: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+            navTarget: 'pipeline',
+          }));
+      }
+
+      // ACQ targets
+      const acqRaw = localStorage.getItem('bos_acq_targets');
+      if (acqRaw) {
+        (JSON.parse(acqRaw) as { id: string; name: string; industry?: string; stage: string; ebitda?: number }[])
+          .filter(t => t.name?.toLowerCase().includes(q) || t.industry?.toLowerCase().includes(q))
+          .slice(0, 3)
+          .forEach(t => results.push({
+            id: `acq-${t.id}`, label: t.name, sub: [t.industry, t.stage, t.ebitda ? fmtM(t.ebitda)+' EBITDA' : ''].filter(Boolean).join(' · '),
+            badge: 'ACQ', badgeColor: 'text-violet-400 bg-violet-500/10 border-violet-500/20',
+            navTarget: 'acquisitions',
+          }));
+      }
+
+      // M&A deal flow
+      const dealRaw = localStorage.getItem('bos_deals_v2');
+      if (dealRaw) {
+        (JSON.parse(dealRaw) as { id: string; name: string; industry?: string; stage: string; revenue?: number }[])
+          .filter(d => d.name?.toLowerCase().includes(q) || d.industry?.toLowerCase().includes(q))
+          .slice(0, 3)
+          .forEach(d => results.push({
+            id: `deal-${d.id}`, label: d.name, sub: [d.industry, d.stage, d.revenue ? fmtM(d.revenue)+' rev' : ''].filter(Boolean).join(' · '),
+            badge: 'M&A', badgeColor: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+            navTarget: 'deals',
+          }));
+      }
+
+      setRecords(results.slice(0, 6));
+    } catch { setRecords([]); }
+  }, [query]);
+
+  const isAIMode = query.startsWith('>') || query.startsWith('?') || (query.length > 2 && !allCommands.some(c => c.label.toLowerCase().startsWith(query.toLowerCase().slice(0, 3))) && records.length === 0);
 
   const filteredCommands = query.trim() === '' || query.startsWith('>') || query.startsWith('?')
     ? allCommands
@@ -84,7 +148,7 @@ export default function CommandPalette({ open, onClose, onNavigate, onAskAI, onR
 
   const totalItems = isAIMode
     ? suggestedPrompts.length + 1  // +1 for "Ask AI: [query]"
-    : filteredCommands.length + (suggestedPrompts.length > 0 ? suggestedPrompts.length : 0);
+    : filteredCommands.length + records.length + (suggestedPrompts.length > 0 ? suggestedPrompts.length : 0);
 
   useEffect(() => {
     if (open) {
@@ -112,15 +176,22 @@ export default function CommandPalette({ open, onClose, onNavigate, onAskAI, onR
       }
       return;
     }
-    const cmd = filteredCommands[idx];
-    if (cmd) cmd.onSelect();
-    else {
-      const promptIdx = idx - filteredCommands.length;
-      const p = suggestedPrompts[promptIdx];
-      if (p) { onAskAI(p); onClose(); }
+    if (idx < filteredCommands.length) {
+      filteredCommands[idx]?.onSelect();
+      return;
     }
+    const recIdx = idx - filteredCommands.length;
+    if (recIdx < records.length) {
+      const rec = records[recIdx];
+      onNavigate(rec.navTarget);
+      onClose();
+      return;
+    }
+    const promptIdx = idx - filteredCommands.length - records.length;
+    const p = suggestedPrompts[promptIdx];
+    if (p) { onAskAI(p); onClose(); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAIMode, filteredCommands, suggestedPrompts, query, onAskAI, onClose]);
+  }, [isAIMode, filteredCommands, records, suggestedPrompts, query, onAskAI, onClose, onNavigate]);
 
   useEffect(() => {
     if (!open) return;
@@ -146,8 +217,9 @@ export default function CommandPalette({ open, onClose, onNavigate, onAskAI, onR
     nav:    'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
     action: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
     ai:     'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+    result: 'text-slate-400 bg-slate-800/60 border-slate-700/40',
   };
-  const typeLabel: Record<CommandType, string> = { nav: 'Go to', action: 'Action', ai: 'AI' };
+  const typeLabel: Record<CommandType, string> = { nav: 'Go to', action: 'Action', ai: 'AI', result: 'Record' };
 
   const rawQ = getAIQuery();
 
@@ -258,6 +330,33 @@ export default function CommandPalette({ open, onClose, onNavigate, onAskAI, onR
             </>
           )}
 
+          {/* Data record results */}
+          {!isAIMode && records.length > 0 && (
+            <>
+              <div className={`px-3 pb-1 pt-2.5 border-t border-slate-800/40 mt-1`}>
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.08em]">Records</div>
+              </div>
+              {records.map((rec, i) => {
+                const idx = filteredCommands.length + i;
+                return (
+                  <button key={rec.id} data-idx={idx} onClick={() => handleSelect(idx)}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${selected === idx ? 'bg-slate-800/60' : 'hover:bg-slate-800/30'}`}>
+                    <div className="w-7 h-7 rounded-lg bg-slate-800/60 border border-slate-700/40 flex items-center justify-center flex-shrink-0">
+                      <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" className="w-3.5 h-3.5 text-slate-400">
+                        <rect x="2" y="3" width="10" height="8" rx="1.5"/><path d="M5 6h4M5 8.5h2.5"/>
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] font-medium text-slate-200 truncate">{rec.label}</div>
+                      {rec.sub && <div className="text-[10px] text-slate-600 truncate">{rec.sub}</div>}
+                    </div>
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border flex-shrink-0 ${rec.badgeColor}`}>{rec.badge}</span>
+                  </button>
+                );
+              })}
+            </>
+          )}
+
           {/* AI prompts section */}
           {suggestedPrompts.length > 0 && (
             <>
@@ -267,7 +366,7 @@ export default function CommandPalette({ open, onClose, onNavigate, onAskAI, onR
                 </div>
               </div>
               {suggestedPrompts.map((prompt, i) => {
-                const baseIdx = isAIMode ? (rawQ ? 1 : 0) + i : filteredCommands.length + i;
+                const baseIdx = isAIMode ? (rawQ ? 1 : 0) + i : filteredCommands.length + records.length + i;
                 return (
                   <button key={prompt} data-idx={baseIdx} onClick={() => handleSelect(baseIdx)}
                     className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${selected === baseIdx ? 'bg-emerald-500/[0.06]' : 'hover:bg-slate-800/30'}`}>
@@ -286,7 +385,7 @@ export default function CommandPalette({ open, onClose, onNavigate, onAskAI, onR
           )}
 
           {/* Empty state */}
-          {filteredCommands.length === 0 && suggestedPrompts.length === 0 && !isAIMode && query.trim() !== '' && (
+          {filteredCommands.length === 0 && records.length === 0 && suggestedPrompts.length === 0 && !isAIMode && query.trim() !== '' && (
             <div className="px-4 py-8 text-center">
               <div className="text-[12px] text-slate-600">No results for "{query}"</div>
               <div className="text-[11px] text-slate-700 mt-1">{'Try "> " to ask AI a question'}</div>

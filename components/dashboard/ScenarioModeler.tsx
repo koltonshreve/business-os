@@ -1,6 +1,6 @@
 import { useState, useCallback, useId, useEffect } from 'react';
 import type { UnifiedBusinessData } from '../../types';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine, AreaChart, Area, CartesianGrid, Legend } from 'recharts';
+import { XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, CartesianGrid } from 'recharts';
 
 interface Props {
   data: UnifiedBusinessData;
@@ -13,6 +13,7 @@ interface Scenario {
   id: string;
   name: string;
   color: string;
+  notes?: string;             // optional advisor notes
   revenueGrowthPct: number;   // % change on base revenue
   grossMarginPct: number;     // target GM% (0–100)
   opexChangePct: number;      // % change to OpEx
@@ -44,7 +45,7 @@ const fmt = (n: number, _compact = false) => {
   return n < 0 ? `(${s})` : s;
 };
 
-const pct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`;
+const pct = (n: number) => n < 0 ? `(${Math.abs(n).toFixed(1)}%)` : `+${n.toFixed(1)}%`;
 const delta = (n: number) => `${n >= 0 ? '+' : ''}${fmt(n, true)}`;
 
 // ── Compute projected P&L from scenario levers ────────────────────────────────
@@ -176,48 +177,259 @@ function Lever({
   );
 }
 
-// ── Waterfall chart showing lever impact ──────────────────────────────────────
-function ImpactWaterfall({ base, projected }: { base: UnifiedBusinessData; projected: ReturnType<typeof project> }) {
-  const baseEBITDA = base.revenue.total - base.costs.totalCOGS - base.costs.totalOpEx;
-  const dRevEffect = projected.dRevenue * (projected.gmPct / 100);
-  const dMarginEffect = projected.dGP - dRevEffect;
-  const dOpExEffect = -projected.dOpEx;
+// ── Revenue bridge — volume/price/customers/churn → final revenue ────────────
+function RevenueWaterfall({ base, projected, active }: {
+  base: UnifiedBusinessData;
+  projected: ReturnType<typeof project>;
+  active: Scenario;
+}) {
+  const baseRev = base.revenue.total;
+  const baseGP  = baseRev - base.costs.totalCOGS;
+  const baseGM  = baseRev > 0 ? (baseGP / baseRev) * 100 : 40;
 
-  const bars = [
-    { name: 'Base EBITDA', value: baseEBITDA, cumulative: baseEBITDA, type: 'base' },
-    { name: 'Revenue ↑', value: dRevEffect, cumulative: baseEBITDA + dRevEffect, type: dRevEffect >= 0 ? 'up' : 'down' },
-    { name: 'Margin', value: dMarginEffect, cumulative: baseEBITDA + dRevEffect + dMarginEffect, type: dMarginEffect >= 0 ? 'up' : 'down' },
-    { name: 'OpEx', value: dOpExEffect, cumulative: projected.ebitda, type: dOpExEffect >= 0 ? 'up' : 'down' },
-    { name: 'Projected', value: projected.ebitda, cumulative: projected.ebitda, type: 'projected' },
+  type WBar = { name: string; cumBefore: number; cumAfter: number; type: 'base' | 'up' | 'down' | 'final' };
+  const bars: WBar[] = [];
+  bars.push({ name: 'Base', cumBefore: 0, cumAfter: baseRev, type: 'base' });
+
+  const leverDefs = [
+    { key: 'revenueGrowthPct' as keyof Scenario, label: 'Volume',  skip: active.revenueGrowthPct === 0 },
+    { key: 'priceIncreasePct' as keyof Scenario, label: 'Price',   skip: active.priceIncreasePct === 0 },
+    { key: 'newCustomers'     as keyof Scenario, label: '+Custs.', skip: active.newCustomers === 0 },
+    { key: 'churnRatePct'     as keyof Scenario, label: 'Churn',   skip: active.churnRatePct === 0 },
   ];
 
-  const allVals = bars.flatMap(b => [b.cumulative, b.cumulative - b.value]);
-  const minVal  = Math.min(...allVals, 0);
-  const maxVal  = Math.max(...allVals);
+  let running = baseRev;
+  let partialSc: Scenario = { id: '', name: '', color: '', ...DEFAULT_SCENARIO, grossMarginPct: baseGM };
+
+  for (const lev of leverDefs) {
+    if (lev.skip) continue;
+    const prevSc = { ...partialSc };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    partialSc = { ...partialSc, [lev.key]: (active as any)[lev.key] };
+    const prevR = project(base, prevSc).revenue;
+    const nextR = project(base, partialSc).revenue;
+    const d = nextR - prevR;
+    if (Math.abs(d) < 1) continue;
+    bars.push({ name: lev.label, cumBefore: running, cumAfter: running + d, type: d >= 0 ? 'up' : 'down' });
+    running += d;
+  }
+
+  bars.push({ name: 'Final', cumBefore: 0, cumAfter: projected.revenue, type: 'final' });
+
+  if (bars.length === 2) return null; // no revenue levers active
+
+  const svgW = 500; const svgH = 140; const padL = 52; const padR = 8; const padT = 8; const padB = 28;
+  const chartW = svgW - padL - padR; const chartH = svgH - padT - padB;
+  const allY = bars.flatMap(b => [b.cumBefore, b.cumAfter, 0]);
+  const rawMin = Math.min(...allY); const rawMax = Math.max(...allY);
+  const yPad = (rawMax - rawMin) * 0.18 || 1;
+  const domMin = rawMin - yPad; const domMax = rawMax + yPad;
+  const toY = (v: number) => padT + (1 - (v - domMin) / (domMax - domMin)) * chartH;
+  const slotW = chartW / bars.length;
+  const barW = Math.min(38, slotW * 0.65);
+  const bx = (i: number) => padL + i * slotW + (slotW - barW) / 2;
+  const COLORS: Record<string, string> = { base: '#6366f1', up: 'rgba(16,185,129,0.78)', down: 'rgba(239,68,68,0.78)', final: projected.revenue >= baseRev ? '#10b981' : '#ef4444' };
+  const ticks = [0.25, 0.5, 0.75].map(t => domMin + t * (domMax - domMin));
 
   return (
-    <div className="h-48">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={bars} margin={{ top: 4, right: 8, left: 0, bottom: 0 }} barSize={32}>
-          <XAxis dataKey="name" tick={{ fill: '#475569', fontSize: 10 }} tickLine={false} axisLine={false}/>
-          <YAxis domain={[minVal * 1.1, maxVal * 1.1]} tick={{ fill: '#475569', fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={v => fmt(v, true)}/>
-          <Tooltip
-            contentStyle={{ background: '#0d1117', border: '1px solid #1e293b', borderRadius: 8, fontSize: 12 }}
-            formatter={(v: number) => [fmt(v, true), '']}
-          />
-          <ReferenceLine y={0} stroke="#1e293b" strokeWidth={1}/>
-          <Bar dataKey="value" radius={[3, 3, 0, 0]}>
-            {bars.map((b, i) => (
-              <Cell key={i} fill={
-                b.type === 'base'      ? '#6366f1' :
-                b.type === 'projected' ? (projected.ebitda >= baseEBITDA ? '#10b981' : '#ef4444') :
-                b.type === 'up'        ? 'rgba(16,185,129,0.6)' :
-                                         'rgba(239,68,68,0.6)'
-              }/>
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+    <svg width="100%" height={svgH} viewBox={`0 0 ${svgW} ${svgH}`} preserveAspectRatio="xMidYMid meet">
+      {ticks.map((v, i) => (
+        <g key={i}>
+          <line x1={padL} y1={toY(v)} x2={svgW - padR} y2={toY(v)} stroke="#1e293b" strokeWidth="1"/>
+          <text x={padL - 4} y={toY(v)} textAnchor="end" dominantBaseline="middle" fill="#475569" fontSize="8">{fmt(v)}</text>
+        </g>
+      ))}
+      {bars.map((bar, i) => {
+        const x = bx(i);
+        const isAnchor = bar.type === 'base' || bar.type === 'final';
+        const lo = isAnchor ? Math.min(0, bar.cumAfter) : Math.min(bar.cumBefore, bar.cumAfter);
+        const hi = isAnchor ? Math.max(0, bar.cumAfter) : Math.max(bar.cumBefore, bar.cumAfter);
+        const rectTop = toY(hi); const rectH = Math.max(1, Math.abs(toY(lo) - toY(hi)));
+        const connY = toY(bar.cumAfter);
+        const nextBar = bars[i + 1];
+        const d = bar.cumAfter - bar.cumBefore;
+        return (
+          <g key={i}>
+            {nextBar && bar.type !== 'final' && (
+              <line x1={x + barW} y1={connY} x2={bx(i + 1)} y2={connY} stroke="#334155" strokeWidth="1" strokeDasharray="3,2"/>
+            )}
+            <rect x={x} y={rectTop} width={barW} height={rectH} fill={COLORS[bar.type]} rx={2}/>
+            {rectH >= 14 && (
+              <text x={x + barW / 2} y={rectTop + rectH / 2} textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.9)" fontSize="8" fontWeight="600" fontFamily="monospace">
+                {isAnchor ? fmt(bar.cumAfter) : `${d >= 0 ? '+' : ''}${fmt(d)}`}
+              </text>
+            )}
+            <text x={x + barW / 2} y={svgH - padB + 10} textAnchor="middle" fill="#475569" fontSize="9">{bar.name}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ── Waterfall chart showing individual lever impact ───────────────────────────
+function ImpactWaterfall({ base, projected, active }: {
+  base: UnifiedBusinessData;
+  projected: ReturnType<typeof project>;
+  active: Scenario;
+}) {
+  const baseRev     = base.revenue.total;
+  const baseGP      = baseRev - base.costs.totalCOGS;
+  const baseGM      = baseRev > 0 ? (baseGP / baseRev) * 100 : 40;
+  const baseEBITDA  = baseGP - base.costs.totalOpEx;
+
+  type WBar = { name: string; cumBefore: number; cumAfter: number; type: 'base' | 'up' | 'down' | 'projected' };
+
+  // Sequential lever list — apply one-by-one, accumulating scenario
+  const leverDefs = [
+    { key: 'revenueGrowthPct' as keyof Scenario, label: 'Volume',   skip: active.revenueGrowthPct === 0 },
+    { key: 'priceIncreasePct' as keyof Scenario, label: 'Price',    skip: active.priceIncreasePct === 0 },
+    { key: 'newCustomers'     as keyof Scenario, label: '+Custs.',  skip: active.newCustomers === 0 },
+    { key: 'churnRatePct'     as keyof Scenario, label: 'Churn',    skip: active.churnRatePct === 0 },
+    { key: 'grossMarginPct'   as keyof Scenario, label: 'Margin',   skip: Math.abs((active.grossMarginPct || baseGM) - baseGM) <= 0.5 },
+    { key: 'opexChangePct'    as keyof Scenario, label: 'OpEx Δ',   skip: active.opexChangePct === 0 },
+    { key: 'newHires'         as keyof Scenario, label: 'Hires',    skip: active.newHires === 0 },
+    { key: 'oneTimeExpense'   as keyof Scenario, label: 'One-Time', skip: !active.oneTimeExpense },
+  ];
+
+  const bars: WBar[] = [];
+  bars.push({ name: 'Base', cumBefore: 0, cumAfter: baseEBITDA, type: 'base' });
+
+  let running = baseEBITDA;
+  let partialSc: Scenario = { id: '', name: '', color: '', ...DEFAULT_SCENARIO, grossMarginPct: baseGM };
+
+  for (const lev of leverDefs) {
+    if (lev.skip) continue;
+    const prevSc = { ...partialSc };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    partialSc = { ...partialSc, [lev.key]: (active as any)[lev.key] };
+    const prevE = project(base, prevSc).ebitda;
+    const nextE = project(base, partialSc).ebitda;
+    const d = nextE - prevE;
+    if (Math.abs(d) < 1) continue;
+    bars.push({ name: lev.label, cumBefore: running, cumAfter: running + d, type: d >= 0 ? 'up' : 'down' });
+    running += d;
+  }
+
+  bars.push({ name: 'Final', cumBefore: 0, cumAfter: projected.ebitda, type: 'projected' });
+
+  // SVG layout
+  const svgW = 600;
+  const svgH = 200;
+  const padL = 58;
+  const padR = 8;
+  const padT = 10;
+  const padB = 34;
+  const chartW = svgW - padL - padR;
+  const chartH = svgH - padT - padB;
+
+  const allY = bars.flatMap(b => [b.cumBefore, b.cumAfter, 0]);
+  const rawMin = Math.min(...allY);
+  const rawMax = Math.max(...allY);
+  const yRange = rawMax - rawMin || 1;
+  const yPad   = yRange * 0.18;
+  const domMin = rawMin - yPad;
+  const domMax = rawMax + yPad;
+
+  const toY = (v: number) => padT + (1 - (v - domMin) / (domMax - domMin)) * chartH;
+  const zeroY = toY(0);
+
+  const n       = bars.length;
+  const slotW   = chartW / n;
+  const barW    = Math.min(44, slotW * 0.68);
+  const bx      = (i: number) => padL + i * slotW + (slotW - barW) / 2;
+
+  const COLORS = { base: '#6366f1', up: 'rgba(16,185,129,0.78)', down: 'rgba(239,68,68,0.78)', projected: projected.ebitda >= baseEBITDA ? '#10b981' : '#ef4444' };
+
+  // Y-axis ticks
+  const tickCount = 4;
+  const ticks = Array.from({ length: tickCount + 1 }, (_, i) => domMin + (i / tickCount) * (domMax - domMin));
+
+  const noChanges = bars.length === 2; // only base + final, no levers
+
+  return (
+    <div className="relative w-full" style={{ height: svgH }}>
+      {noChanges && (
+        <div className="absolute inset-0 flex items-center justify-center text-[11px] text-slate-600">
+          Adjust levers to see the bridge
+        </div>
+      )}
+      <svg width="100%" height={svgH} viewBox={`0 0 ${svgW} ${svgH}`} preserveAspectRatio="xMidYMid meet">
+        {/* Y-axis grid lines + labels */}
+        {ticks.map((v, i) => {
+          const py = toY(v);
+          return (
+            <g key={i}>
+              <line x1={padL} y1={py} x2={svgW - padR} y2={py} stroke="#1e293b" strokeWidth="1"/>
+              <text x={padL - 5} y={py} textAnchor="end" dominantBaseline="middle" fill="#475569" fontSize="9">
+                {fmt(v)}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Zero line (only when negative values exist) */}
+        {domMin < 0 && domMax > 0 && (
+          <line x1={padL} y1={zeroY} x2={svgW - padR} y2={zeroY} stroke="#334155" strokeWidth="1.5"/>
+        )}
+
+        {/* Bars + connectors */}
+        {bars.map((bar, i) => {
+          const x = bx(i);
+          let rectTop: number, rectH: number;
+
+          if (bar.type === 'base' || bar.type === 'projected') {
+            // Anchored at zero
+            const lo = Math.min(0, bar.cumAfter);
+            const hi = Math.max(0, bar.cumAfter);
+            rectTop = toY(hi);
+            rectH   = Math.max(1, Math.abs(toY(lo) - toY(hi)));
+          } else {
+            // Floating between cumBefore and cumAfter
+            const lo = Math.min(bar.cumBefore, bar.cumAfter);
+            const hi = Math.max(bar.cumBefore, bar.cumAfter);
+            rectTop = toY(hi);
+            rectH   = Math.max(1, Math.abs(toY(lo) - toY(hi)));
+          }
+
+          // Connector dashed line from this bar's "after" level to next bar's start position
+          const nextBar = bars[i + 1];
+          const connectorY = (bar.type === 'base' || bar.type === 'projected') ? toY(bar.cumAfter) : toY(bar.cumAfter);
+          const connectorLine = nextBar && bar.type !== 'projected' ? (
+            <line
+              x1={x + barW} y1={connectorY}
+              x2={bx(i + 1)} y2={connectorY}
+              stroke="#334155" strokeWidth="1" strokeDasharray="3,2"
+            />
+          ) : null;
+
+          // Delta label — inside bar if tall enough, above otherwise
+          const d = bar.cumAfter - bar.cumBefore;
+          const label = bar.type === 'base' || bar.type === 'projected' ? fmt(bar.cumAfter) : `${d >= 0 ? '+' : ''}${fmt(d)}`;
+          const labelInside = rectH >= 18;
+          const labelY = labelInside ? rectTop + rectH / 2 : (bar.type === 'down' ? rectTop + rectH + 11 : rectTop - 5);
+
+          return (
+            <g key={i}>
+              {connectorLine}
+              <rect x={x} y={rectTop} width={barW} height={rectH} fill={COLORS[bar.type]} rx={2}/>
+              {/* Value label */}
+              <text
+                x={x + barW / 2} y={labelY}
+                textAnchor="middle" dominantBaseline={labelInside ? 'middle' : 'auto'}
+                fill={labelInside ? 'rgba(255,255,255,0.9)' : (bar.type === 'up' || bar.type === 'projected' && projected.ebitda >= baseEBITDA ? '#6ee7b7' : bar.type === 'down' ? '#fca5a5' : '#e2e8f0')}
+                fontSize="8.5" fontWeight="600" fontFamily="monospace"
+              >
+                {label}
+              </text>
+              {/* X-axis bar name */}
+              <text x={x + barW / 2} y={svgH - padB + 11} textAnchor="middle" fill="#475569" fontSize="9.5">
+                {bar.name}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
 }
@@ -260,6 +472,9 @@ function ScenarioCard({
         {delta(ebitdaDelta)} EBITDA
       </div>
       <div className="text-[10px] text-slate-600 mt-0.5">{proj.ebitdaMargin.toFixed(1)}% margin</div>
+      {scenario.notes && (
+        <div className="text-[10px] text-slate-500 mt-1.5 pt-1.5 border-t border-slate-800/60 line-clamp-2 italic">{scenario.notes}</div>
+      )}
     </div>
   );
 }
@@ -272,6 +487,21 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
   const baseGP       = baseRev - baseCOGS;
   const baseEBITDA   = baseGP - baseOpEx;
   const baseGM       = baseRev > 0 ? (baseGP / baseRev) * 100 : 40;
+
+  // Current cash on hand — from last cashflow period's closing balance
+  const currentCash = (() => {
+    const cf = data.cashFlow ?? [];
+    if (cf.length === 0) return 0;
+    return cf[cf.length - 1].closingBalance;
+  })();
+
+  // Given projected EBITDA and cash on hand, returns months of runway (null = infinite/profitable)
+  const calcRunway = (projEBITDA: number): number | null => {
+    if (projEBITDA >= 0 || currentCash <= 0) return null;
+    return currentCash / (-projEBITDA / 12);
+  };
+  const fmtRunway = (mo: number | null) =>
+    mo === null ? '∞' : mo >= 120 ? '10+ yr' : mo >= 24 ? `${(mo / 12).toFixed(1)} yr` : `${Math.round(mo)} mo`;
 
   const [active, setActive] = useState<Scenario>({
     id: 'current', name: 'New Scenario',
@@ -297,6 +527,24 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
   const [sbaDownPct,       setSbaDownPct]       = useState(20);
   const [sbAInterestRate,  setSbAInterestRate]  = useState(7.5);
   const [sbaTerm,          setSbaTerm]          = useState(10);
+  // Opt/Base/Pes range mode
+  const [opbpMode, setOpbpMode] = useState(false);
+  // Probability weights for saved scenarios (id → 0-100)
+  const [probs, setProbs] = useState<Record<string, number>>({});
+  // Customer economics
+  const [cac, setCac] = useState(0);
+  // Net income bridge
+  const [daEstimate, setDaEstimate]   = useState(0);
+  const [interestExp, setInterestExp] = useState(0);
+  const [taxRate, setTaxRate]         = useState(25);
+  // Existing debt service DSCR
+  const [existingDebtSvc, setExistingDebtSvc] = useState(0);
+  // Concentration risk
+  const [concPct, setConcPct] = useState(0);
+  // Save modal notes
+  const [notesInput, setNotesInput] = useState('');
+  // Share link
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const proj = project(data, active);
 
@@ -326,11 +574,33 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
 
   const saveScenario = () => {
     const name = nameInput.trim() || `Scenario ${saved.length + 1}`;
-    const scenario: Scenario = { ...active, id: `s-${Date.now()}`, name, color: SCENARIO_COLORS[saved.length % SCENARIO_COLORS.length] };
+    const scenario: Scenario = { ...active, id: `s-${Date.now()}`, name, color: SCENARIO_COLORS[saved.length % SCENARIO_COLORS.length], notes: notesInput.trim() || undefined };
     setSaved(prev => [...prev, scenario]);
     setShowSave(false);
     setNameInput('');
+    setNotesInput('');
   };
+
+  const copyLink = async () => {
+    if (typeof window === 'undefined') return;
+    const payload = { revenueGrowthPct: active.revenueGrowthPct, grossMarginPct: active.grossMarginPct, opexChangePct: active.opexChangePct, newHires: active.newHires, avgCompK: active.avgCompK, priceIncreasePct: active.priceIncreasePct, newCustomers: active.newCustomers, churnRatePct: active.churnRatePct, oneTimeExpense: active.oneTimeExpense, name: active.name };
+    const encoded = btoa(JSON.stringify(payload));
+    const url = `${window.location.origin}${window.location.pathname}?scenario=${encoded}`;
+    try { await navigator.clipboard.writeText(url); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000); } catch { /* ignore */ }
+  };
+
+  // Load scenario from URL param on mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const encoded = params.get('scenario');
+    if (!encoded) return;
+    try {
+      const decoded = JSON.parse(atob(encoded));
+      setActive(prev => ({ ...prev, ...decoded }));
+    } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadScenario = (s: Scenario) => {
     setActive({ ...s });
@@ -373,6 +643,54 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
   const ebitdaChange = proj.ebitda - baseEBITDA;
   const ebitdaChangePct = baseEBITDA !== 0 ? (ebitdaChange / Math.abs(baseEBITDA)) * 100 : 0;
 
+  // Rule of 40: revenue growth % (vs base) + EBITDA margin %
+  const revGrowthPctVsBase = baseRev > 0 ? (proj.dRevenue / baseRev) * 100 : 0;
+  const rule40 = revGrowthPctVsBase + proj.ebitdaMargin;
+
+  // Burn multiple: |EBITDA burn| / net new revenue (only meaningful when losing money but growing)
+  const burnMultiple = proj.ebitda < 0 && proj.dRevenue > 0
+    ? Math.abs(proj.ebitda) / proj.dRevenue
+    : null;
+
+  // Customer economics
+  const customerCount       = data.customers.totalCount || 1;
+  const avgRevPerCustomer   = baseRev / customerCount;
+  const baseAnnualChurnEst  = 0.10; // assume 10% base annual churn
+  const effectiveChurn      = Math.max(0.01, baseAnnualChurnEst + active.churnRatePct / 100);
+  const ltv                 = cac > 0 || true ? (avgRevPerCustomer * proj.gmPct / 100) / effectiveChurn : 0;
+  const ltvCac              = cac > 0 ? ltv / cac : null;
+  const cacPaybackMo        = cac > 0 && avgRevPerCustomer > 0 ? Math.ceil(cac / (avgRevPerCustomer * proj.gmPct / 100 / 12)) : null;
+
+  // Net income bridge
+  const projEBIT        = proj.ebitda - daEstimate;
+  const projEBT         = projEBIT - interestExp;
+  const projNetIncome   = projEBT > 0 ? projEBT * (1 - taxRate / 100) : projEBT;
+
+  // Concentration risk
+  const concRevLost     = concPct > 0 ? proj.revenue * (concPct / 100) : 0;
+  const concGPLost      = concRevLost * (proj.gmPct / 100);
+  const concEBITDA      = proj.ebitda - concGPLost;
+
+  // Existing debt DSCR
+  const existingDSCR    = existingDebtSvc > 0 ? proj.ebitda / existingDebtSvc : null;
+
+  // Optimistic / Pessimistic lever scaling
+  const makeVariant = (s: Scenario, mult: number): Scenario => {
+    const gmDelta = s.grossMarginPct > 0 ? (s.grossMarginPct - baseGM) * mult : 0;
+    return {
+      ...s,
+      revenueGrowthPct: s.revenueGrowthPct * mult,
+      priceIncreasePct: s.priceIncreasePct * mult,
+      newCustomers:     Math.round(s.newCustomers * mult),
+      churnRatePct:     Math.max(0, s.churnRatePct / mult),   // less churn = optimistic
+      grossMarginPct:   s.grossMarginPct > 0 ? Math.min(80, Math.max(10, baseGM + gmDelta)) : s.grossMarginPct,
+      opexChangePct:    s.opexChangePct <= 0 ? s.opexChangePct * mult : s.opexChangePct / mult,
+      oneTimeExpense:   Math.max(0, s.oneTimeExpense / mult),  // less one-time = optimistic
+    };
+  };
+  const projOpt = project(data, makeVariant(active, 1.5));
+  const projPes = project(data, makeVariant(active, 0.5));
+
   // Quick scenario presets
   // Presets start from DEFAULT_SCENARIO so no stale lever values bleed through
   const PRESET_BASE = { ...DEFAULT_SCENARIO, grossMarginPct: baseGM };
@@ -403,9 +721,30 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
             </button>
           )}
           {hasChanges && (
+            <button onClick={() => setOpbpMode(v => !v)}
+              className={`text-[12px] font-medium px-3 py-1.5 rounded-lg border transition-all ${
+                opbpMode ? 'bg-violet-500/15 text-violet-300 border-violet-500/30' : 'text-slate-400 border-slate-700/60 hover:border-slate-600'}`}>
+              {opbpMode ? '✓ O/B/P' : 'Opt / Base / Pes'}
+            </button>
+          )}
+          {hasChanges && (
             <button onClick={() => setShowSave(true)}
               className="flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-all">
               Save Scenario
+            </button>
+          )}
+          {hasChanges && onAskAI && (
+            <button onClick={() => onAskAI(
+              `Based on my business data — Revenue: ${fmt(baseRev)}, EBITDA: ${fmt(baseEBITDA)} (${(baseRev > 0 ? baseEBITDA/baseRev*100 : 0).toFixed(1)}% margin), Gross Margin: ${baseGM.toFixed(1)}%, ${customerCount} customers — suggest 3 specific, named scenarios I should model. For each scenario, provide exact lever values: revenueGrowthPct, priceIncreasePct, opexChangePct, newHires, churnRatePct, grossMarginPct. Format as a brief table with rationale. Make the scenarios meaningfully different: one conservative, one growth-oriented, one defensive/cost-cut.`
+            )}
+              className="text-[12px] font-medium px-3 py-1.5 rounded-lg border text-violet-400 border-violet-500/30 bg-violet-500/8 hover:bg-violet-500/15 transition-all">
+              Suggest Scenarios
+            </button>
+          )}
+          {hasChanges && (
+            <button onClick={copyLink}
+              className="text-[12px] font-medium px-3 py-1.5 rounded-lg border text-slate-400 border-slate-700/60 hover:border-slate-600 transition-all">
+              {linkCopied ? '✓ Link Copied' : '⎘ Share Link'}
             </button>
           )}
           {hasChanges && (
@@ -551,6 +890,38 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
                   onChange={v => set('avgCompK', v)}
                 />
               )}
+              {active.newHires > 0 && (() => {
+                const hireCostAnnual = active.newHires * active.avgCompK * 1000;
+                // Break-even revenue per hire: salary / GM% = revenue needed to cover cost
+                const breakEvenRevPerHire = active.avgCompK * 1000 / Math.max(0.01, proj.gmPct / 100);
+                // Payback: months of incremental revenue to cover hire cost
+                const incRevPerHire = proj.dRevenue / active.newHires;
+                const paybackMo = incRevPerHire > 0
+                  ? Math.ceil((breakEvenRevPerHire) / (incRevPerHire / 12))
+                  : null;
+                return (
+                  <div className="pt-3 mt-1 border-t border-slate-800/40 grid grid-cols-2 gap-x-4 gap-y-2">
+                    <div>
+                      <div className="text-[10px] text-slate-500 mb-0.5">Total Hire Cost</div>
+                      <div className="text-[13px] font-bold text-pink-400">{fmt(hireCostAnnual)}<span className="text-[10px] text-slate-500 font-normal">/yr</span></div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-500 mb-0.5">Break-Even Rev / Hire</div>
+                      <div className="text-[13px] font-bold text-slate-200">{fmt(breakEvenRevPerHire)}</div>
+                    </div>
+                    {paybackMo !== null ? (
+                      <div className="col-span-2">
+                        <div className="text-[10px] text-slate-500 mb-0.5">Payback Period</div>
+                        <div className={`text-[13px] font-bold ${paybackMo <= 12 ? 'text-emerald-400' : paybackMo <= 24 ? 'text-amber-400' : 'text-red-400'}`}>
+                          {paybackMo} mo
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="col-span-2 text-[10px] text-slate-600">No incremental revenue modeled — hires are pure cost drag</div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -586,45 +957,134 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
             ))}
           </div>
 
+          {/* Opt / Base / Pes range strip */}
+          {opbpMode && hasChanges && (
+            <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-slate-800/50 flex items-center gap-3">
+                <span className="text-[11px] font-semibold text-violet-300">Scenario Range</span>
+                <span className="text-[10px] text-slate-600">Pessimistic (levers ×0.5) · Base · Optimistic (levers ×1.5)</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[420px]">
+                  <thead>
+                    <tr className="border-b border-slate-800/40">
+                      <th className="px-4 py-2 text-left text-[10px] text-slate-600 font-semibold uppercase tracking-wide">Metric</th>
+                      <th className="px-4 py-2 text-right text-[10px] text-red-400/80 font-semibold uppercase tracking-wide">Pessimistic</th>
+                      <th className="px-4 py-2 text-right text-[10px] text-slate-300 font-semibold uppercase tracking-wide">Base</th>
+                      <th className="px-4 py-2 text-right text-[10px] text-emerald-400/80 font-semibold uppercase tracking-wide">Optimistic</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { label: 'Revenue',     pes: projPes.revenue,       base: proj.revenue,       opt: projOpt.revenue,       fn: fmt },
+                      { label: 'Gross Profit',pes: projPes.grossProfit,   base: proj.grossProfit,   opt: projOpt.grossProfit,   fn: fmt },
+                      { label: 'EBITDA',      pes: projPes.ebitda,        base: proj.ebitda,        opt: projOpt.ebitda,        fn: fmt, bold: true },
+                      { label: 'EBITDA %',    pes: projPes.ebitdaMargin,  base: proj.ebitdaMargin,  opt: projOpt.ebitdaMargin,  isPct: true, bold: true },
+                      { label: 'EV @ 5.5×',  pes: projPes.ebitda * 5.5,  base: proj.ebitda * 5.5,  opt: projOpt.ebitda * 5.5,  fn: fmt },
+                    ].map(row => (
+                      <tr key={row.label} className="border-b border-slate-800/30">
+                        <td className={`px-4 py-2 text-[12px] ${row.bold ? 'font-semibold text-slate-100' : 'text-slate-400'}`}>{row.label}</td>
+                        <td className={`px-4 py-2 text-right text-[12px] font-medium tabular-nums ${row.pes < row.base ? 'text-red-400' : 'text-slate-400'}`}>
+                          {row.isPct ? `${row.pes.toFixed(1)}%` : fmt(row.pes)}
+                        </td>
+                        <td className="px-4 py-2 text-right text-[12px] font-semibold tabular-nums text-slate-100">
+                          {row.isPct ? `${row.base.toFixed(1)}%` : fmt(row.base)}
+                        </td>
+                        <td className={`px-4 py-2 text-right text-[12px] font-medium tabular-nums ${row.opt > row.base ? 'text-emerald-400' : 'text-slate-400'}`}>
+                          {row.isPct ? `${row.opt.toFixed(1)}%` : fmt(row.opt)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {/* EBITDA impact gauge */}
           <div className={`border rounded-xl p-5 ${
             ebitdaChange > 0 ? 'bg-emerald-500/5 border-emerald-500/20' :
             ebitdaChange < 0 ? 'bg-red-500/5 border-red-500/20' :
                                'bg-slate-900/50 border-slate-800/50'
           }`}>
-            <div className="flex items-start justify-between">
+            <div className="flex items-start justify-between flex-wrap gap-4">
               <div>
                 <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-[0.08em] mb-1">EBITDA Impact</div>
                 <div className={`text-[28px] font-bold tracking-tight ${ebitdaChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                   {delta(ebitdaChange)}
                 </div>
                 <div className={`text-[13px] font-medium mt-1 ${ebitdaChangePct >= 0 ? 'text-emerald-400/80' : 'text-red-400/80'}`}>
-                  {pct(ebitdaChangePct)} vs base · {proj.ebitdaMargin.toFixed(1)}% projected margin
+                  {pct(ebitdaChangePct)} vs base · {proj.ebitdaMargin.toFixed(1)}% margin
                 </div>
-              </div>
-              <div className="text-right">
-                <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-[0.08em] mb-1">Break-Even Revenue</div>
-                <div className="text-[18px] font-bold text-slate-200">{fmt(proj.breakEven, true)}</div>
-                <div className={`text-[11px] mt-1 ${proj.revenue >= proj.breakEven ? 'text-emerald-400/80' : 'text-red-400/80'}`}>
-                  {proj.revenue >= proj.breakEven
-                    ? `${fmt(proj.revenue - proj.breakEven, true)} above break-even`
-                    : `${fmt(proj.breakEven - proj.revenue, true)} below break-even`}
+                {/* Rule of 40 */}
+                <div className="flex items-center gap-2 mt-2">
+                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${
+                    rule40 >= 40 ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
+                    rule40 >= 20 ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' :
+                                   'text-red-400 bg-red-500/10 border-red-500/20'
+                  }`}>R40: {rule40.toFixed(0)}</span>
+                  <span className="text-[10px] text-slate-600">
+                    {revGrowthPctVsBase.toFixed(1)}% growth + {proj.ebitdaMargin.toFixed(1)}% margin
+                  </span>
                 </div>
-              </div>
-              <button onClick={copyScenario}
-                className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 font-medium border border-slate-700/50 hover:border-slate-600 px-3 py-2 rounded-lg transition-all flex-shrink-0">
-                {copied ? '✓ Copied' : '⎘ Copy'}
-              </button>
-              {onAskAI && (
-                <button onClick={() => onAskAI(
-                  `I'm modeling a scenario: revenue ${delta(proj.dRevenue)} to ${fmt(proj.revenue, true)}, gross margin ${proj.gmPct.toFixed(1)}%, OpEx ${delta(proj.dOpEx)} to ${fmt(proj.opex, true)}, EBITDA ${delta(ebitdaChange)} to ${fmt(proj.ebitda, true)} (${proj.ebitdaMargin.toFixed(1)}% margin). ` +
-                  `Is this scenario realistic and achievable? What are the risks I'm not accounting for?`
+                {/* Burn multiple */}
+                {burnMultiple !== null && (
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${
+                      burnMultiple <= 1 ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
+                      burnMultiple <= 2 ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' :
+                                          'text-red-400 bg-red-500/10 border-red-500/20'
+                    }`}>Burn {burnMultiple.toFixed(1)}×</span>
+                    <span className="text-[10px] text-slate-600">burn ÷ net new revenue</span>
+                  </div>
                 )}
-                  className="flex items-center gap-1.5 text-[11px] text-indigo-400 hover:text-indigo-300 font-medium border border-indigo-500/25 hover:border-indigo-500/50 bg-indigo-500/8 hover:bg-indigo-500/15 px-3 py-2 rounded-lg transition-all flex-shrink-0">
-                  <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/><rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/></svg>
-                  Validate with AI
+              </div>
+              <div className="flex items-start gap-4 flex-wrap">
+                <div className="text-right">
+                  <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-[0.08em] mb-1">Break-Even Revenue</div>
+                  <div className="text-[18px] font-bold text-slate-200">{fmt(proj.breakEven, true)}</div>
+                  <div className={`text-[11px] mt-1 ${proj.revenue >= proj.breakEven ? 'text-emerald-400/80' : 'text-red-400/80'}`}>
+                    {proj.revenue >= proj.breakEven
+                      ? `${fmt(proj.revenue - proj.breakEven, true)} above`
+                      : `${fmt(proj.breakEven - proj.revenue, true)} below`}
+                  </div>
+                </div>
+                {currentCash > 0 && (() => {
+                  const runwayMo = calcRunway(proj.ebitda);
+                  const runwayOk = runwayMo === null || runwayMo >= 12;
+                  return (
+                    <div className="text-right border-l border-slate-700/40 pl-4">
+                      <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-[0.08em] mb-1">Cash Runway</div>
+                      <div className={`text-[18px] font-bold ${runwayOk ? (runwayMo === null ? 'text-slate-200' : 'text-emerald-400') : 'text-red-400'}`}>
+                        {fmtRunway(runwayMo)}
+                      </div>
+                      <div className="text-[11px] mt-1 text-slate-500">{fmt(currentCash)} on hand</div>
+                    </div>
+                  );
+                })()}
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button onClick={copyScenario}
+                  className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-300 font-medium border border-slate-700/50 hover:border-slate-600 px-3 py-2 rounded-lg transition-all">
+                  {copied ? '✓ Copied' : '⎘ Copy'}
                 </button>
-              )}
+                {onAskAI && (
+                  <button onClick={() => onAskAI(
+                    `Scenario analysis — ${active.name}:\n` +
+                    `Revenue: ${fmt(proj.revenue)} (${delta(proj.dRevenue)} vs base)\n` +
+                    `Gross Margin: ${proj.gmPct.toFixed(1)}% | OpEx: ${fmt(proj.opex)} (${delta(proj.dOpEx)})\n` +
+                    `EBITDA: ${fmt(proj.ebitda)} (${proj.ebitdaMargin.toFixed(1)}% margin, ${delta(ebitdaChange)} vs base)\n` +
+                    `Rule of 40: ${rule40.toFixed(0)} | Break-even: ${fmt(proj.breakEven)}\n` +
+                    (burnMultiple !== null ? `Burn multiple: ${burnMultiple.toFixed(1)}×\n` : '') +
+                    (active.newHires > 0 ? `New hires: ${active.newHires} @ $${active.avgCompK}k avg ($${active.newHires * active.avgCompK}k/yr total)\n` : '') +
+                    `\nIs this scenario realistic? What are the key risks, and which lever should I prioritize to improve EBITDA most efficiently?`
+                  )}
+                    className="flex items-center gap-1.5 text-[11px] text-indigo-400 hover:text-indigo-300 font-medium border border-indigo-500/25 hover:border-indigo-500/50 bg-indigo-500/8 hover:bg-indigo-500/15 px-3 py-2 rounded-lg transition-all">
+                    <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0"><path d="M7 1a5 5 0 015 5 5 5 0 01-3.5 4.75V12H5.5v-1.25A5 5 0 012 6a5 5 0 015-5z"/><rect x="5.5" y="12.5" width="3" height="1" rx="0.5"/></svg>
+                    Ask AI
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -712,6 +1172,168 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
                 </div>
               );
             })()}
+          </div>
+
+          {/* ── Break-Even Analysis (table) ── */}
+          {(() => {
+            const gap = proj.revenue - proj.breakEven;
+            const safetyMargin = proj.breakEven > 0 ? (gap / proj.breakEven) * 100 : 0;
+            const aboveBreakEven = proj.revenue >= proj.breakEven;
+            return (
+              <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between">
+                  <div className="text-[12px] font-semibold text-slate-300">Break-Even Analysis</div>
+                  <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border ${aboveBreakEven ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-red-400 bg-red-500/10 border-red-500/20'}`}>
+                    {aboveBreakEven ? `${fmt(gap)} above` : `${fmt(Math.abs(gap))} below`}
+                  </span>
+                </div>
+                <div className="divide-y divide-slate-800/40">
+                  {[
+                    { label: 'Break-Even Revenue',  value: fmt(proj.breakEven),          sub: `GM% ${proj.gmPct.toFixed(1)}% covering fixed costs`,   color: 'text-amber-400' },
+                    { label: 'Projected Revenue',   value: fmt(proj.revenue),             sub: hasChanges ? `${delta(proj.dRevenue)} vs base` : 'current base', color: 'text-slate-100' },
+                    { label: 'Safety Margin',       value: `${safetyMargin.toFixed(1)}%`, sub: aboveBreakEven ? 'revenue could fall before loss' : 'revenue needed to break even', color: aboveBreakEven ? 'text-emerald-400' : 'text-red-400' },
+                    { label: 'Fixed Costs (OpEx)',  value: fmt(proj.opex),                sub: 'operating expenses driving break-even',                  color: 'text-slate-300' },
+                    { label: 'Gross Margin',        value: `${proj.gmPct.toFixed(1)}%`,   sub: `${fmt(proj.grossProfit)} gross profit on ${fmt(proj.revenue)} revenue`, color: 'text-slate-300' },
+                  ].map(row => (
+                    <div key={row.label} className="flex items-center justify-between px-5 py-2.5">
+                      <div>
+                        <div className="text-[12px] font-medium text-slate-400">{row.label}</div>
+                        <div className="text-[10px] text-slate-600 mt-0.5">{row.sub}</div>
+                      </div>
+                      <div className={`text-[13px] font-bold tabular-nums ${row.color}`}>{row.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ── Customer Economics ── */}
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+            <div className="text-[11px] font-semibold text-cyan-400/80 uppercase tracking-[0.1em] mb-4">Customer Economics</div>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-[10px] text-slate-500 mb-0.5">Avg Rev / Customer</div>
+                  <div className="text-[13px] font-bold text-slate-200">{fmt(avgRevPerCustomer)}<span className="text-[10px] text-slate-500 font-normal">/yr</span></div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-500 mb-0.5">LTV (at {effectiveChurn*100 < 1 ? (effectiveChurn*100).toFixed(1) : Math.round(effectiveChurn*100)}% churn)</div>
+                  <div className="text-[13px] font-bold text-cyan-400">{fmt(ltv)}</div>
+                </div>
+              </div>
+              <Lever
+                label="CAC (Cost to Acquire)"
+                hint="fully-loaded customer acquisition cost"
+                value={cac}
+                min={0} max={50_000} step={500}
+                format={v => v === 0 ? '$0' : fmt(v)}
+                accentColor="text-cyan-400"
+                onChange={setCac}
+              />
+              {cac > 0 && (
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <div className="text-[10px] text-slate-500 mb-0.5">LTV : CAC</div>
+                    <div className={`text-[15px] font-bold ${ltvCac! >= 3 ? 'text-emerald-400' : ltvCac! >= 1 ? 'text-amber-400' : 'text-red-400'}`}>
+                      {ltvCac!.toFixed(1)}×
+                    </div>
+                    <div className="text-[9px] text-slate-600 mt-0.5">target ≥ 3×</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-slate-500 mb-0.5">CAC Payback</div>
+                    <div className={`text-[15px] font-bold ${cacPaybackMo! <= 12 ? 'text-emerald-400' : cacPaybackMo! <= 24 ? 'text-amber-400' : 'text-red-400'}`}>
+                      {cacPaybackMo} mo
+                    </div>
+                    <div className="text-[9px] text-slate-600 mt-0.5">target &lt; 12 mo</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Concentration Risk ── */}
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+            <div className="text-[11px] font-semibold text-orange-400/80 uppercase tracking-[0.1em] mb-4">Concentration Risk</div>
+            <Lever
+              label="Top Customer % of Revenue"
+              hint="what if this customer churns?"
+              value={concPct}
+              min={0} max={80} step={5}
+              format={v => v === 0 ? 'None set' : `${v}%`}
+              accentColor="text-orange-400"
+              onChange={setConcPct}
+            />
+            {concPct > 0 && (
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-[10px] text-slate-500 mb-0.5">Revenue at Risk</div>
+                  <div className="text-[13px] font-bold text-orange-400">{fmt(concRevLost)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-500 mb-0.5">EBITDA if Lost</div>
+                  <div className={`text-[13px] font-bold ${concEBITDA >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmt(concEBITDA)}</div>
+                </div>
+                <div className="col-span-2">
+                  <div className="text-[10px] text-slate-500 mb-0.5">Resulting EBITDA Margin</div>
+                  <div className={`text-[13px] font-bold ${concEBITDA >= 0 ? 'text-slate-200' : 'text-red-400'}`}>
+                    {proj.revenue - concRevLost > 0 ? ((concEBITDA / (proj.revenue - concRevLost)) * 100).toFixed(1) : '—'}%
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Acquisition Analysis divider ── */}
+          <div className="flex items-center gap-3 pt-2">
+            <div className="flex-1 h-px bg-slate-800/60"/>
+            <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em] flex items-center gap-2">
+              <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3 text-indigo-500/60"><path d="M7 1v12M1 7h12" strokeLinecap="round"/></svg>
+              Acquisition Analysis
+            </div>
+            <div className="flex-1 h-px bg-slate-800/60"/>
+          </div>
+
+          {/* ── Existing Debt Service / DSCR ── */}
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="text-[12px] font-semibold text-slate-300">Existing Debt Service</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">Impact on DSCR at projected EBITDA</div>
+              </div>
+              {existingDSCR !== null && (
+                <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-semibold ${existingDSCR >= 1.25 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : existingDSCR >= 1 ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+                  DSCR {existingDSCR.toFixed(2)}× {existingDSCR >= 1.25 ? '✓ Bankable' : existingDSCR >= 1 ? '⚠ Tight' : '✗ Below 1.0×'}
+                </div>
+              )}
+            </div>
+            <Lever
+              label="Annual Debt Service (P+I)"
+              hint="existing loan payments per year"
+              value={existingDebtSvc}
+              min={0} max={2_000_000} step={25_000}
+              format={v => v === 0 ? 'None' : fmt(v) + '/yr'}
+              accentColor="text-rose-400"
+              onChange={setExistingDebtSvc}
+            />
+            {existingDebtSvc > 0 && (
+              <div className="mt-4 grid grid-cols-3 gap-3">
+                <div>
+                  <div className="text-[10px] text-slate-500 mb-0.5">EBITDA</div>
+                  <div className="text-[13px] font-bold text-slate-200">{fmt(proj.ebitda)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-500 mb-0.5">Debt Service</div>
+                  <div className="text-[13px] font-bold text-rose-400">{fmt(existingDebtSvc)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-500 mb-0.5">Net After Debt</div>
+                  <div className={`text-[13px] font-bold ${proj.ebitda - existingDebtSvc >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {fmt(proj.ebitda - existingDebtSvc)}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ── Valuation Estimator ── */}
@@ -998,24 +1620,96 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
             );
           })()}
 
-          {/* Waterfall */}
+          {/* Revenue Bridge */}
+          {proj.dRevenue !== 0 && (
+            <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-[12px] font-semibold text-slate-300">Revenue Bridge</div>
+                <div className={`text-[11px] font-semibold ${proj.dRevenue >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {delta(proj.dRevenue)} · {fmt(proj.revenue)} final
+                </div>
+              </div>
+              <RevenueWaterfall base={data} projected={proj} active={active}/>
+            </div>
+          )}
+
+          {/* EBITDA Bridge */}
           <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-5">
             <div className="text-[12px] font-semibold text-slate-300 mb-3">EBITDA Bridge — Base to Projected</div>
-            <ImpactWaterfall base={data} projected={proj}/>
+            <ImpactWaterfall base={data} projected={proj} active={active}/>
+          </div>
+
+          {/* ── Net Income Bridge ── */}
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between">
+              <div>
+                <div className="text-[12px] font-semibold text-slate-100">Net Income Bridge</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">EBITDA → EBIT → EBT → Net Income</div>
+              </div>
+              <div className={`text-[13px] font-bold ${projNetIncome >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {fmt(projNetIncome)} net
+              </div>
+            </div>
+            <div className="px-5 py-4 grid grid-cols-3 gap-4 border-b border-slate-800/40">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">D&A Estimate</label>
+                <div className="flex items-center gap-2">
+                  <input type="range" min={0} max={500_000} step={5_000} value={daEstimate} onChange={e => setDaEstimate(Number(e.target.value))} className="flex-1 accent-indigo-500"/>
+                  <span className="text-[11px] font-bold text-slate-300 w-20 text-right">{daEstimate === 0 ? '$0' : fmt(daEstimate)}</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">Interest Expense</label>
+                <div className="flex items-center gap-2">
+                  <input type="range" min={0} max={500_000} step={5_000} value={interestExp} onChange={e => setInterestExp(Number(e.target.value))} className="flex-1 accent-indigo-500"/>
+                  <span className="text-[11px] font-bold text-slate-300 w-20 text-right">{interestExp === 0 ? '$0' : fmt(interestExp)}</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1">Tax Rate</label>
+                <div className="flex items-center gap-2">
+                  <input type="range" min={0} max={45} step={1} value={taxRate} onChange={e => setTaxRate(Number(e.target.value))} className="flex-1 accent-indigo-500"/>
+                  <span className="text-[11px] font-bold text-slate-300 w-12 text-right">{taxRate}%</span>
+                </div>
+              </div>
+            </div>
+            <div className="divide-y divide-slate-800/40">
+              {[
+                { label: 'EBITDA',      value: proj.ebitda,   color: 'text-slate-100', indent: false },
+                { label: 'Less: D&A',   value: -daEstimate,   color: daEstimate > 0 ? 'text-red-400/80' : 'text-slate-500', indent: true },
+                { label: 'EBIT',        value: projEBIT,      color: projEBIT >= 0 ? 'text-slate-200' : 'text-red-400', indent: false, bold: true },
+                { label: 'Less: Interest', value: -interestExp, color: interestExp > 0 ? 'text-red-400/80' : 'text-slate-500', indent: true },
+                { label: 'EBT',         value: projEBT,       color: projEBT >= 0 ? 'text-slate-200' : 'text-red-400', indent: false, bold: true },
+                { label: `Less: Tax (${taxRate}%)`, value: projEBT > 0 ? -(projEBT * taxRate / 100) : 0, color: 'text-red-400/80', indent: true },
+                { label: 'Net Income',  value: projNetIncome, color: projNetIncome >= 0 ? 'text-emerald-400' : 'text-red-400', indent: false, bold: true },
+              ].map(row => (
+                <div key={row.label} className={`flex items-center justify-between px-5 py-2 ${row.bold ? 'bg-slate-800/20' : ''}`}>
+                  <span className={`text-[12px] ${row.indent ? 'pl-4 text-slate-500' : 'font-medium text-slate-300'}`}>{row.label}</span>
+                  <span className={`text-[12px] font-semibold tabular-nums ${row.color}`}>{row.value === 0 ? '—' : fmt(row.value)}</span>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Sensitivity Analysis */}
           <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between">
-              <div className="text-[12px] font-semibold text-slate-100">Sensitivity Analysis</div>
-              <div className="text-[10px] text-slate-500">EBITDA impact if each lever moves ±10% / ±20%</div>
+            <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <div className="text-[12px] font-semibold text-slate-100">Sensitivity Analysis</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">EBITDA at each lever setting — heat color shows impact magnitude</div>
+              </div>
+              <div className="flex items-center gap-3 text-[10px]">
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm" style={{ background: 'rgba(16,185,129,0.25)' }}/><span className="text-slate-500">Positive</span></div>
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm" style={{ background: 'rgba(239,68,68,0.25)' }}/><span className="text-slate-500">Negative</span></div>
+              </div>
             </div>
             <div className="overflow-x-auto">
             <table className="w-full min-w-[520px]">
               <thead>
-                <tr className="border-b border-slate-800/40">
-                  {['Lever', '−20%', '−10%', 'Current', '+10%', '+20%'].map(h => (
-                    <th key={h} className="px-3 py-2.5 text-right first:text-left text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em]">{h}</th>
+                <tr className="border-b border-slate-800/40 bg-slate-900/30">
+                  <th className="px-4 py-2 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-[0.08em] w-44">Lever</th>
+                  {['−20%', '−10%', 'Current', '+10%', '+20%'].map(h => (
+                    <th key={h} className={`px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-[0.08em] ${h === 'Current' ? 'text-slate-300' : 'text-slate-600'}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -1025,72 +1719,87 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
                   type SensRow = { label: string; field: keyof Scenario; delta20: number; delta10: number; delta0: number };
                   const rows: SensRow[] = [
                     { label: 'Revenue Volume',  field: 'revenueGrowthPct', delta20: -20, delta10: -10, delta0: active.revenueGrowthPct },
-                    { label: 'Price Increase',  field: 'priceIncreasePct', delta20: -20, delta10: -10, delta0: active.priceIncreasePct },
+                    { label: 'Price / Rate',    field: 'priceIncreasePct', delta20: -20, delta10: -10, delta0: active.priceIncreasePct },
                     { label: 'Gross Margin',    field: 'grossMarginPct',   delta20: -20, delta10: -10, delta0: active.grossMarginPct },
-                    { label: 'OpEx Change',     field: 'opexChangePct',    delta20: -20, delta10: -10, delta0: active.opexChangePct },
-                    { label: 'Add\'l Churn',    field: 'churnRatePct',     delta20: 20,  delta10: 10,  delta0: active.churnRatePct },
+                    { label: 'OpEx',            field: 'opexChangePct',    delta20: -20, delta10: -10, delta0: active.opexChangePct },
+                    { label: 'Customer Churn',  field: 'churnRatePct',     delta20: 20,  delta10: 10,  delta0: active.churnRatePct },
                   ];
 
                   function ebitdaAt(field: keyof Scenario, val: number): number {
-                    const s = { ...active, [field]: val };
-                    return project(data, s).ebitda;
+                    return project(data, { ...active, [field]: val }).ebitda;
                   }
 
-                  return rows.map(row => {
+                  // Compute all swings first so we can find the overall max for heat scaling
+                  const computed = rows.map(row => {
                     const base0 = ebitdaAt(row.field, row.delta0);
                     const low10 = ebitdaAt(row.field, row.delta0 + row.delta10);
                     const low20 = ebitdaAt(row.field, row.delta0 + row.delta20);
                     const hi10  = ebitdaAt(row.field, row.delta0 - row.delta10);
                     const hi20  = ebitdaAt(row.field, row.delta0 - row.delta20);
                     const maxSwing = Math.max(Math.abs(hi20 - base0), Math.abs(low20 - base0));
-                    const isChurn = row.label.includes('Churn');
+                    return { row, base0, low10, low20, hi10, hi20, maxSwing };
+                  });
+                  const overallMaxSwing = Math.max(...computed.map(c => c.maxSwing), 1);
+                  const mostSensitiveIdx = computed.reduce((best, c, i) =>
+                    c.maxSwing > computed[best].maxSwing ? i : best, 0);
+
+                  return computed.map(({ row, base0, low10, low20, hi10, hi20, maxSwing }, rowIdx) => {
+                    const isChurn = row.field === 'churnRatePct';
+                    const isMostSensitive = rowIdx === mostSensitiveIdx;
 
                     function cell(val: number, isCurrent = false) {
                       const d = val - baseEBITDA;
                       const isPos = d >= 0;
+                      const intensity = isCurrent ? 0 : Math.min(1, Math.abs(d) / (maxSwing || 1));
+                      const bgColor = isCurrent
+                        ? 'rgba(100,116,139,0.12)'
+                        : isPos
+                          ? `rgba(16,185,129,${(0.05 + intensity * 0.20).toFixed(2)})`
+                          : `rgba(239,68,68,${(0.05 + intensity * 0.20).toFixed(2)})`;
                       return (
-                        <td key={val} className={`px-3 py-2.5 text-right ${isCurrent ? 'font-semibold' : ''}`}>
-                          <div className={`text-[12px] ${isCurrent ? 'text-slate-200' : isPos ? 'text-emerald-400' : 'text-red-400'}`}>
-                            {fmt(val)}
-                          </div>
-                          {!isCurrent && (
-                            <div className={`text-[10px] ${isPos ? 'text-emerald-400/60' : 'text-red-400/60'}`}>
-                              {d >= 0 ? '+' : ''}{fmt(d)}
+                        <td key={val} className="px-3 py-0 text-right" style={{ backgroundColor: bgColor }}>
+                          <div className="py-1.5">
+                            <div className={`text-[11px] font-semibold tabular-nums leading-tight ${isCurrent ? 'text-slate-200' : isPos ? 'text-emerald-300' : 'text-red-300'}`}>
+                              {fmt(val)}
                             </div>
-                          )}
+                            {!isCurrent && (
+                              <div className={`text-[9px] tabular-nums leading-tight ${isPos ? 'text-emerald-500/70' : 'text-red-500/70'}`}>
+                                {d >= 0 ? '+' : ''}{fmt(d)}
+                              </div>
+                            )}
+                          </div>
                         </td>
                       );
                     }
 
+                    const vals = isChurn
+                      ? [hi20, hi10, base0, low10, low20]
+                      : [low20, low10, base0, hi10, hi20];
+
                     return (
-                      <tr key={row.label} className="border-b border-slate-800/30 hover:bg-slate-800/20 transition-colors">
-                        <td className="px-3 py-2.5">
-                          <div className="text-[12px] text-slate-300 font-medium">{row.label}</div>
-                          <div className="text-[10px] text-slate-600 mt-0.5">±{fmt(maxSwing)} swing</div>
+                      <tr key={row.label} className={`border-b border-slate-800/30 ${isMostSensitive ? 'border-l-2 border-l-amber-500/60' : ''}`}>
+                        <td className="px-4 py-1.5">
+                          <div className="flex items-center gap-1.5">
+                            {isMostSensitive && (
+                              <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1 py-px rounded">TOP</span>
+                            )}
+                            <div className="text-[11px] text-slate-200 font-medium">{row.label}</div>
+                            <div className="flex-1 mx-1.5 h-0.5 bg-slate-800 rounded-full overflow-hidden min-w-[20px]">
+                              <div className="h-full rounded-full bg-amber-500/50" style={{ width: `${(maxSwing / overallMaxSwing) * 100}%` }}/>
+                            </div>
+                            <span className="text-[9px] text-slate-600 tabular-nums flex-shrink-0">±{fmt(maxSwing)}</span>
+                          </div>
                         </td>
-                        {isChurn ? (
-                          <>
-                            {cell(hi20)}
-                            {cell(hi10)}
-                            {cell(base0, true)}
-                            {cell(low10)}
-                            {cell(low20)}
-                          </>
-                        ) : (
-                          <>
-                            {cell(low20)}
-                            {cell(low10)}
-                            {cell(base0, true)}
-                            {cell(hi10)}
-                            {cell(hi20)}
-                          </>
-                        )}
+                        {vals.map((v, i) => cell(v, i === 2))}
                       </tr>
                     );
                   });
                 })()}
               </tbody>
             </table>
+            </div>
+            <div className="px-5 py-3 border-t border-slate-800/40 text-[10px] text-slate-700">
+              Heat intensity scales within each row · TOP = highest EBITDA sensitivity lever · Values show projected annual EBITDA
             </div>
           </div>
 
@@ -1150,10 +1859,33 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
       </div>
 
       {/* Comparison table — all saved scenarios */}
-      {compareMode && saved.length > 1 && (
+      {compareMode && saved.length > 1 && (() => {
+        // Probability weighting
+        const probVals = saved.map(s => probs[s.id] ?? Math.round(100 / saved.length));
+        const totalProb = probVals.reduce((a, b) => a + b, 0);
+        const weightedEBITDA = saved.reduce((sum, s, i) => sum + project(data, s).ebitda * (probVals[i] / Math.max(1, totalProb)), 0);
+        const weightedRevenue = saved.reduce((sum, s, i) => sum + project(data, s).revenue * (probVals[i] / Math.max(1, totalProb)), 0);
+
+        return (
         <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-slate-800/50">
+          <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between gap-3 flex-wrap">
             <div className="text-[12px] font-semibold text-slate-100">Scenario Comparison</div>
+            <div className="flex items-center gap-2 text-[10px] text-slate-500">
+              <span>Set probability weights:</span>
+              {saved.map((s, i) => (
+                <label key={s.id} className="flex items-center gap-1">
+                  <span style={{ color: s.color }} className="font-medium truncate max-w-[60px]">{s.name}</span>
+                  <input
+                    type="number" min={0} max={100} step={5}
+                    value={probVals[i]}
+                    onChange={e => setProbs(prev => ({ ...prev, [s.id]: Number(e.target.value) }))}
+                    className="w-12 bg-slate-800 border border-slate-700 rounded px-1.5 py-0.5 text-slate-200 text-[10px] tabular-nums text-right"
+                  />
+                  <span>%</span>
+                </label>
+              ))}
+              <span className={`font-semibold ${totalProb === 100 ? 'text-emerald-400' : 'text-amber-400'}`}>{totalProb}% total</span>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -1166,6 +1898,7 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
                       <span style={{ color: s.color }}>{s.name}</span>
                     </th>
                   ))}
+                  <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-violet-400/80 uppercase tracking-[0.08em]">Wtd. Exp.</th>
                 </tr>
               </thead>
               <tbody>
@@ -1179,7 +1912,9 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
                   { label: '— EV @ 3.5×', base: baseEBITDA * 3.5, get: (p: ReturnType<typeof project>) => p.ebitda * 3.5, isEV: true },
                   { label: '— EV @ 5.5×', base: baseEBITDA * 5.5, get: (p: ReturnType<typeof project>) => p.ebitda * 5.5, isEV: true },
                   { label: '— EV @ 7.5×', base: baseEBITDA * 7.5, get: (p: ReturnType<typeof project>) => p.ebitda * 7.5, isEV: true },
-                ].map(row => (
+                ].map(row => {
+                  const wtdVal = saved.reduce((sum, s, i) => sum + row.get(project(data, s)) * (probVals[i] / Math.max(1, totalProb)), 0);
+                  return (
                   <tr key={row.label} className={`border-b border-slate-800/30 ${(row as {isEV?:boolean}).isEV ? 'bg-purple-950/10' : ''}`}>
                     <td className={`px-4 py-2.5 text-[12px] ${row.bold ? 'font-semibold text-slate-100' : (row as {isEV?:boolean}).isEV ? 'text-purple-400/80 pl-6' : 'text-slate-400'}`}>{row.label}</td>
                     <td className="px-4 py-2.5 text-[12px] text-right text-slate-500">
@@ -1203,13 +1938,68 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
                         </td>
                       );
                     })}
+                    <td className={`px-4 py-2.5 text-right text-[12px] font-semibold tabular-nums text-violet-300`}>
+                      {row.isPct ? `${wtdVal.toFixed(1)}%` : fmt(wtdVal, true)}
+                    </td>
                   </tr>
-                ))}
+                  );
+                })}
+                {/* Rule of 40 row */}
+                <tr className="border-b border-slate-800/30 bg-indigo-950/10">
+                  <td className="px-4 py-2.5 text-[12px] text-indigo-300/80 font-medium">Rule of 40</td>
+                  <td className="px-4 py-2.5 text-[12px] text-right text-slate-500">
+                    {(0 + (baseRev > 0 ? (baseEBITDA / baseRev) * 100 : 0)).toFixed(0)}
+                  </td>
+                  {saved.map(s => {
+                    const p = project(data, s);
+                    const r40 = ((p.revenue - baseRev) / Math.max(1, baseRev) * 100) + p.ebitdaMargin;
+                    return (
+                      <td key={s.id} className={`px-4 py-2.5 text-right text-[12px] font-bold ${r40 >= 40 ? 'text-emerald-400' : r40 >= 20 ? 'text-amber-400' : 'text-red-400'}`}>
+                        {r40.toFixed(0)}
+                      </td>
+                    );
+                  })}
+                  <td className="px-4 py-2.5 text-right text-[11px] text-slate-600">—</td>
+                </tr>
+                {/* Cash Runway row */}
+                {currentCash > 0 && (
+                  <tr className="border-b border-slate-800/30 bg-sky-950/10">
+                    <td className="px-4 py-2.5 text-[12px] text-sky-400/80 font-medium">Cash Runway</td>
+                    <td className="px-4 py-2.5 text-[12px] text-right text-slate-500">
+                      {fmtRunway(calcRunway(baseEBITDA))}
+                    </td>
+                    {saved.map(s => {
+                      const p = project(data, s);
+                      const runwayMo = calcRunway(p.ebitda);
+                      const runwayOk = runwayMo === null || runwayMo >= 12;
+                      return (
+                        <td key={s.id} className={`px-4 py-2.5 text-right text-[12px] font-semibold ${runwayOk ? (runwayMo === null ? 'text-slate-300' : 'text-emerald-400') : 'text-red-400'}`}>
+                          {fmtRunway(runwayMo)}
+                        </td>
+                      );
+                    })}
+                    <td className="px-4 py-2.5 text-right text-[11px] text-slate-600">—</td>
+                  </tr>
+                )}
+                {/* Probability-weighted expected value summary */}
+                <tr className="bg-violet-950/20">
+                  <td className="px-4 py-3 text-[12px] font-semibold text-violet-300">Expected EBITDA</td>
+                  <td className="px-4 py-3 text-[12px] text-right text-slate-500">{fmt(baseEBITDA)}</td>
+                  {saved.map(s => {
+                    const p = project(data, s);
+                    return <td key={s.id} className="px-4 py-3 text-right text-[11px] text-slate-500">{fmt(p.ebitda)}</td>;
+                  })}
+                  <td className="px-4 py-3 text-right text-[14px] font-bold text-violet-300 tabular-nums">
+                    {fmt(weightedEBITDA)}
+                    <div className="text-[9px] text-violet-500/60 font-normal">prob-weighted</div>
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Save modal */}
       {showSave && (
@@ -1221,7 +2011,12 @@ export default function ScenarioModeler({ data, onAskAI, onScenarioChange }: Pro
             <input autoFocus type="text" placeholder="e.g. Conservative, Aggressive Growth…"
               value={nameInput} onChange={e => setNameInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') saveScenario(); if (e.key === 'Escape') setShowSave(false); }}
-              className="w-full bg-slate-800/60 border border-slate-700/60 rounded-xl px-3 py-2.5 text-[13px] text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/60 mb-4"/>
+              className="w-full bg-slate-800/60 border border-slate-700/60 rounded-xl px-3 py-2.5 text-[13px] text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/60 mb-3"/>
+            <textarea
+              placeholder="Notes / rationale (optional)"
+              value={notesInput} onChange={e => setNotesInput(e.target.value)}
+              rows={2}
+              className="w-full bg-slate-800/60 border border-slate-700/60 rounded-xl px-3 py-2.5 text-[12px] text-slate-300 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/60 resize-none mb-4"/>
             <div className="flex gap-2">
               <button onClick={() => setShowSave(false)}
                 className="flex-1 px-4 py-2 text-[12px] text-slate-400 border border-slate-700/60 rounded-xl hover:border-slate-600 transition-colors">

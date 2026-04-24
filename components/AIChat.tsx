@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { UnifiedBusinessData } from '../types';
 import { loadSession, incrementAIQuery, hasAIQueryBudget, PLANS } from '../lib/plan';
+import { authHeaders, loadAuthSession } from '../lib/auth';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -18,6 +19,7 @@ interface Props {
   companyProfile?: { industry?: string; revenueModel?: string };
   onCreateTask?: (title: string, context: string) => void;
   onNavigate?: (view: string) => void;
+  onUpgrade?: () => void;
 }
 
 // ── Icons ──────────────────────────────────────────────────────────────────────
@@ -361,8 +363,10 @@ const MAX_SAVED_MESSAGES  = 20;
 export default function AIChat({
   data, open, onClose, initialMessage, onInitialMessageSent,
   companyName, activeView, companyProfile,
-  onCreateTask, onNavigate,
+  onCreateTask, onNavigate, onUpgrade,
 }: Props) {
+  const [serverUsage, setServerUsage] = useState<{ count: number; limit: number; planId: string } | null>(null);
+  const [showUpgrade, setShowUpgrade] = useState(false);
   const [messages,    setMessages]    = useState<Message[]>(() => {
     if (typeof window === 'undefined') return [];
     try {
@@ -383,9 +387,10 @@ export default function AIChat({
   const streamRef   = useRef('');   // accumulates streaming content
 
   const sessionSnap  = loadSession();
-  const planLimit    = PLANS[sessionSnap.planId].limits.aiQueriesPerMonth;
+  const planLimit    = serverUsage?.limit ?? PLANS[sessionSnap.planId].limits.aiQueriesPerMonth;
+  const queriesUsedN = serverUsage?.count ?? sessionSnap.aiQueriesUsed;
   const isUnlimited  = planLimit >= 999;
-  const queriesLeft  = Math.max(0, planLimit - sessionSnap.aiQueriesUsed);
+  const queriesLeft  = Math.max(0, planLimit - queriesUsedN);
   const quickPrompts = buildQuickPrompts(data);
 
   // Context summary line
@@ -418,6 +423,17 @@ export default function AIChat({
     if (open) setTimeout(() => inputRef.current?.focus(), 120);
   }, [open]);
 
+  // Fetch server-side usage for authenticated users
+  useEffect(() => {
+    if (!open || !loadAuthSession()?.token) return;
+    fetch('/api/user/usage', { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((u: { count: number; limit: number; planId: string } | null) => {
+        if (u) setServerUsage(u);
+      })
+      .catch(() => null);
+  }, [open]);
+
   // Initial message
   useEffect(() => {
     if (open && initialMessage && !sentInitial.current) {
@@ -440,9 +456,12 @@ export default function AIChat({
     if (!trimmed || loading || streaming) return;
 
     const session = loadSession();
-    if (!hasAIQueryBudget(session)) {
-      const limit = PLANS[session.planId].limits.aiQueriesPerMonth;
-      setError(`You've used all ${limit} AI queries on the ${session.planId} plan this month.`);
+    if (!hasAIQueryBudget(session) && !serverUsage) {
+      setShowUpgrade(true);
+      return;
+    }
+    if (serverUsage && serverUsage.count >= serverUsage.limit && serverUsage.limit < 999) {
+      setShowUpgrade(true);
       return;
     }
 
@@ -461,7 +480,7 @@ export default function AIChat({
       const bypassKey = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_DEMO_BYPASS_KEY) ?? '';
       const res = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify({
           message: trimmed, data, history: messages.slice(-6),
           companyName, activeView, companyProfile,
@@ -476,7 +495,7 @@ export default function AIChat({
         let result: Record<string, unknown> = {};
         try { result = await res.json(); } catch { /* ignore */ }
         if (res.status === 402) {
-          setError(`Monthly AI limit reached. ${(result.message as string) ?? ''} Upgrade your plan to continue.`);
+          setShowUpgrade(true);
         } else if (res.status === 429) {
           setError(`Hourly limit reached. ${(result.message as string) ?? 'Try again in an hour.'}`);
         } else {
@@ -531,6 +550,7 @@ export default function AIChat({
 
       // Increment query count on successful completion
       incrementAIQuery(session);
+      if (serverUsage) setServerUsage(u => u ? { ...u, count: u.count + 1 } : u);
 
     } catch {
       setError('Connection failed. Check your network and try again.');
@@ -566,8 +586,8 @@ export default function AIChat({
 
       {/* Panel */}
       <div
-        className="animate-chat-enter fixed bottom-4 right-4 sm:bottom-5 sm:right-5 z-[150] flex flex-col
-          w-[calc(100vw-2rem)] max-w-[460px] h-[min(640px,calc(100vh-4rem))]
+        className="animate-chat-enter fixed bottom-[72px] right-3 md:bottom-5 md:right-5 z-[150] flex flex-col
+          w-[calc(100vw-1.5rem)] max-w-[460px] h-[calc(100dvh-88px)] md:h-[min(640px,calc(100vh-4rem))]
           bg-[#0b0f1a] border border-slate-700/50 rounded-2xl overflow-hidden"
         style={{ boxShadow: '0 30px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(99,102,241,0.15), 0 0 40px rgba(99,102,241,0.06)' }}
       >
@@ -765,6 +785,58 @@ export default function AIChat({
 
       {/* Blinking cursor keyframe — only needs to exist once in DOM */}
       <style>{`@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }`}</style>
+
+      {/* Upgrade modal */}
+      {showUpgrade && (
+        <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowUpgrade(false)}>
+          <div
+            className="bg-[#0b0f1a] border border-slate-700/50 rounded-2xl w-full max-w-sm p-6 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Icon */}
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-violet-600/10 border border-indigo-500/20 flex items-center justify-center mx-auto mb-4">
+              <svg viewBox="0 0 14 14" fill="currentColor" className="w-6 h-6 text-indigo-400">
+                <path d="M7 1a6 6 0 100 12A6 6 0 007 1zm.75 8.5h-1.5v-4h1.5v4zm0-5.5h-1.5V2.5h1.5V4z"/>
+              </svg>
+            </div>
+
+            <h3 className="text-[15px] font-semibold text-slate-100 text-center mb-1">Monthly query limit reached</h3>
+            <p className="text-[12px] text-slate-400 text-center leading-relaxed mb-5">
+              You've used all {planLimit} AI queries on the <span className="capitalize font-medium text-slate-300">{serverUsage?.planId ?? sessionSnap.planId}</span> plan this month. Upgrade for more capacity.
+            </p>
+
+            <div className="space-y-2.5 mb-5">
+              {[
+                { plan: 'Growth', queries: '50 AI queries/month', price: '$49', highlight: false },
+                { plan: 'Pro', queries: 'Unlimited AI queries', price: '$149', highlight: true },
+              ].map(p => (
+                <div key={p.plan} className={`flex items-center justify-between px-4 py-3 rounded-xl border ${
+                  p.highlight ? 'bg-indigo-500/10 border-indigo-500/25' : 'bg-slate-800/40 border-slate-700/40'
+                }`}>
+                  <div>
+                    <div className={`text-[12px] font-semibold ${p.highlight ? 'text-indigo-300' : 'text-slate-200'}`}>{p.plan}</div>
+                    <div className="text-[11px] text-slate-500">{p.queries}</div>
+                  </div>
+                  <div className={`text-[13px] font-bold ${p.highlight ? 'text-indigo-300' : 'text-slate-300'}`}>{p.price}<span className="text-[10px] font-normal text-slate-500">/mo</span></div>
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={() => { setShowUpgrade(false); onUpgrade?.(); }}
+              className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold transition-colors mb-2"
+            >
+              Upgrade plan →
+            </button>
+            <button
+              onClick={() => setShowUpgrade(false)}
+              className="w-full py-2 text-[12px] text-slate-600 hover:text-slate-400 transition-colors"
+            >
+              Maybe later
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

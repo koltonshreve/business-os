@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { authHeaders, loadAuthSession } from '../../lib/auth';
 import type { Automation, AutomationTrigger, AutomationAction, DealStage, TriggerType, ActionType } from '../../types';
 
 // ── Seed automations ──────────────────────────────────────────────────────────
@@ -323,10 +324,56 @@ export default function AutomationBuilder() {
 
   const [automations, setAutomationsState] = useState<Automation[]>(loadAutomations);
   const [showForm, setShowForm] = useState(false);
+  const [webhookStatus, setWebhookStatus] = useState<Record<string, 'idle' | 'sending' | 'ok' | 'err'>>({});
+
+  const testWebhook = async (auto: Automation) => {
+    if (!auto.action.webhookUrl) return;
+    setWebhookStatus(s => ({ ...s, [auto.id]: 'sending' }));
+    try {
+      const r = await fetch('/api/automations/fire', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ webhookUrl: auto.action.webhookUrl, payload: { automationName: auto.name, trigger: auto.trigger, action: auto.action } }),
+      });
+      setWebhookStatus(s => ({ ...s, [auto.id]: r.ok ? 'ok' : 'err' }));
+      setTimeout(() => setWebhookStatus(s => ({ ...s, [auto.id]: 'idle' })), 3000);
+    } catch {
+      setWebhookStatus(s => ({ ...s, [auto.id]: 'err' }));
+      setTimeout(() => setWebhookStatus(s => ({ ...s, [auto.id]: 'idle' })), 3000);
+    }
+  };
+
+  // Hydrate from DB prefs on mount
+  useEffect(() => {
+    if (!loadAuthSession()) return;
+    fetch('/api/user/prefs', { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((prefs: { automations?: Automation[] } | null) => {
+        if (prefs?.automations && prefs.automations.length > 0) {
+          setAutomationsState(prefs.automations);
+          try { localStorage.setItem('bos_automations', JSON.stringify(prefs.automations)); } catch { /* ignore */ }
+        } else {
+          // Push local automations up to DB
+          const local = loadAutomations();
+          fetch('/api/user/prefs', {
+            method: 'PATCH', headers: authHeaders(),
+            body: JSON.stringify({ automations: local }),
+          }).catch(() => null);
+        }
+      })
+      .catch(() => null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const save = useCallback((list: Automation[]) => {
     setAutomationsState(list);
     try { localStorage.setItem('bos_automations', JSON.stringify(list)); } catch { /* ignore */ }
+    if (loadAuthSession()) {
+      fetch('/api/user/prefs', {
+        method: 'PATCH', headers: authHeaders(),
+        body: JSON.stringify({ automations: list }),
+      }).catch(() => null);
+    }
   }, []);
 
   const toggle = (id: string) => {
@@ -442,6 +489,22 @@ export default function AutomationBuilder() {
                     </span>
                   </div>
                 </div>
+
+                {/* Test webhook button */}
+                {auto.action.type === 'webhook' && auto.action.webhookUrl && (
+                  <button
+                    onClick={() => testWebhook(auto)}
+                    disabled={webhookStatus[auto.id] === 'sending'}
+                    title="Test this webhook"
+                    className={`flex-shrink-0 px-2 py-1 text-[10px] font-semibold rounded-lg border transition-colors mt-0.5 ${
+                      webhookStatus[auto.id] === 'ok'  ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/8' :
+                      webhookStatus[auto.id] === 'err' ? 'text-red-400 border-red-500/30 bg-red-500/8' :
+                      'text-indigo-400 border-indigo-500/25 hover:bg-indigo-500/10'
+                    }`}
+                  >
+                    {webhookStatus[auto.id] === 'sending' ? '…' : webhookStatus[auto.id] === 'ok' ? '✓ sent' : webhookStatus[auto.id] === 'err' ? '✗ fail' : 'Test'}
+                  </button>
+                )}
 
                 {/* Delete */}
                 <button

@@ -2,7 +2,7 @@
 // Intelligent inventory & purchasing decision engine.
 // Decides: WHAT to buy · WHEN to buy · HOW MUCH to buy · IF bulk is worth it.
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { UnifiedBusinessData } from '../../types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -507,6 +507,15 @@ interface Props {
 type Tab = 'overview' | 'decisions' | 'bulk' | 'calendar';
 type SortKey = 'urgency' | 'days' | 'capital' | 'savings' | 'name';
 
+const STORAGE_KEY = 'bos_inventory_items';
+
+const BLANK_ITEM: Omit<PurchaseItem, 'id' | 'discountTiers'> = {
+  name: '', sku: '', category: 'Raw Materials', supplier: '',
+  currentStock: 0, unit: 'units', avgDailyUsage: 1,
+  leadTimeDays: 7, safetyStockDays: 3,
+  unitCost: 10, orderingCost: 50, carryingCostPct: 0.25,
+};
+
 export default function CapitalImpactSummary({ data, onAskAI }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [sortKey, setSortKey] = useState<SortKey>('urgency');
@@ -515,7 +524,45 @@ export default function CapitalImpactSummary({ data, onAskAI }: Props) {
   const [budgetInput, setBudgetInput] = useState<string>('5000');
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const metrics = useMemo(() => DEMO.map(computeMetrics), []);
+  // Persisted user inventory items
+  const [userItems, setUserItems] = useState<PurchaseItem[]>([]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [draft, setDraft] = useState<Omit<PurchaseItem, 'id' | 'discountTiers'>>(BLANK_ITEM);
+
+  useEffect(() => {
+    try {
+      const s = localStorage.getItem(STORAGE_KEY);
+      if (s) setUserItems(JSON.parse(s));
+    } catch {}
+  }, []);
+
+  const persistItems = (next: PurchaseItem[]) => {
+    setUserItems(next);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch {}
+  };
+
+  const saveItem = () => {
+    if (!draft.name.trim() || draft.avgDailyUsage <= 0) return;
+    const newItem: PurchaseItem = {
+      ...draft,
+      // carryingCostPct entered as integer % (e.g. 25) — store as decimal
+      carryingCostPct: draft.carryingCostPct > 1 ? draft.carryingCostPct / 100 : draft.carryingCostPct,
+      id: `inv_${Date.now()}`,
+      discountTiers: [{ label: 'Standard', minQty: 1, unitCost: draft.unitCost }],
+    };
+    persistItems([...userItems, newItem]);
+    setDraft(BLANK_ITEM);
+    setAddOpen(false);
+  };
+
+  const deleteItem = (id: string) => persistItems(userItems.filter(i => i.id !== id));
+
+  const isDemo = userItems.length === 0;
+  const activeItems = isDemo ? DEMO : userItems;
+
+  const metrics = useMemo(() => activeItems.map(computeMetrics), [activeItems]);
+
+  const categories = ['All', ...Array.from(new Set(activeItems.map(d => d.category)))];
 
   const sorted = useMemo(() => {
     const urgencyOrder: Record<Urgency, number> = { critical: 0, warning: 1, soon: 2, stable: 3 };
@@ -567,7 +614,6 @@ export default function CapitalImpactSummary({ data, onAskAI }: Props) {
     return selected;
   }, [metrics, budget]);
 
-  const categories = ['All', ...Array.from(new Set(DEMO.map(d => d.category)))];
   const recs = ['All', 'BUY NOW', 'ORDER SOON', 'BULK OPPORTUNITY', 'HOLD'];
 
   const tabs: { id: Tab; label: string }[] = [
@@ -582,14 +628,44 @@ export default function CapitalImpactSummary({ data, onAskAI }: Props) {
   return (
     <div className="space-y-5">
 
+      {/* ── Demo banner ── */}
+      {isDemo && (
+        <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl px-4 py-2.5 flex items-center gap-2.5">
+          <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 text-amber-400 flex-shrink-0">
+            <path d="M7 1L1 12h12L7 1zm0 3.5l2.5 5.5h-5L7 4.5z"/>
+          </svg>
+          <div className="text-[11px] text-amber-300/80 flex-1">
+            Showing <span className="font-semibold text-amber-300">demo inventory</span> — add your real items with the button below.
+          </div>
+          <button onClick={() => setAddOpen(true)}
+            className="text-[10px] font-semibold text-amber-300 border border-amber-500/30 px-2.5 py-1 rounded-lg hover:bg-amber-500/10 transition-colors flex-shrink-0">
+            Add Item
+          </button>
+        </div>
+      )}
+
       {/* ── Header ── */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-[15px] font-bold text-slate-100">Capital Impact Summary</div>
+          <div className="flex items-center gap-2">
+            <div className="text-[15px] font-bold text-slate-100">Capital Impact Summary</div>
+            {!isDemo && (
+              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                {userItems.length} items
+              </span>
+            )}
+          </div>
           <div className="text-[12px] text-slate-500 mt-0.5">
             Intelligent purchasing engine · {metrics.length} items tracked · {portfolio.critical + portfolio.warning} require action
           </div>
         </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {!isDemo && (
+            <button onClick={() => setAddOpen(true)}
+              className="text-[11px] font-semibold text-slate-400 border border-slate-700/50 hover:border-slate-600 px-2.5 py-1.5 rounded-lg transition-colors">
+              + Add Item
+            </button>
+          )}
         {onAskAI && (
           <button
             onClick={() => onAskAI(
@@ -605,7 +681,80 @@ export default function CapitalImpactSummary({ data, onAskAI }: Props) {
             Ask AI
           </button>
         )}
+        </div>
       </div>
+
+      {/* ── Add Item Modal ── */}
+      {addOpen && (
+        <div className="bg-slate-900/80 border border-slate-700/60 rounded-xl p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="text-[13px] font-semibold text-slate-100">Add Inventory Item</div>
+            <button onClick={() => setAddOpen(false)} className="text-slate-600 hover:text-slate-300 text-lg leading-none">×</button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {([
+              { label: 'Item Name',         key: 'name',             type: 'text',   placeholder: 'Corrugated Boxes 12×10×8"' },
+              { label: 'SKU / Code',        key: 'sku',              type: 'text',   placeholder: 'PKG-001' },
+              { label: 'Supplier',          key: 'supplier',         type: 'text',   placeholder: 'PackRight Supply Co.' },
+              { label: 'Unit',             key: 'unit',             type: 'text',   placeholder: 'units / rolls / cases' },
+              { label: 'Current Stock',     key: 'currentStock',     type: 'number', placeholder: '200' },
+              { label: 'Avg Daily Usage',   key: 'avgDailyUsage',    type: 'number', placeholder: '15' },
+              { label: 'Lead Time (days)',  key: 'leadTimeDays',     type: 'number', placeholder: '7' },
+              { label: 'Safety Stock (days)', key: 'safetyStockDays', type: 'number', placeholder: '3' },
+              { label: 'Unit Cost ($)',     key: 'unitCost',         type: 'number', placeholder: '0.85' },
+              { label: 'Ordering Cost ($)', key: 'orderingCost',     type: 'number', placeholder: '75' },
+              { label: 'Carrying Cost %',  key: 'carryingCostPct',  type: 'number', placeholder: '25' },
+            ] as { label: string; key: keyof typeof draft; type: string; placeholder: string }[]).map(f => (
+              <div key={f.key}>
+                <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">{f.label}</label>
+                <input
+                  type={f.type}
+                  placeholder={f.placeholder}
+                  value={String(draft[f.key])}
+                  onChange={e => setDraft(d => ({ ...d, [f.key]: f.type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value }))}
+                  className="w-full bg-slate-800/60 border border-slate-700/40 rounded-lg px-3 py-2 text-[12px] text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500/50"
+                />
+              </div>
+            ))}
+            <div>
+              <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Category</label>
+              <select value={draft.category} onChange={e => setDraft(d => ({ ...d, category: e.target.value as PurchaseItem['category'] }))}
+                className="w-full bg-slate-800/60 border border-slate-700/40 rounded-lg px-3 py-2 text-[12px] text-slate-200 outline-none focus:border-indigo-500/50">
+                {(['Raw Materials','Packaging','MRO','Office & Tech','Components','Consumables'] as const).map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="text-[9px] text-slate-600">Carrying cost entered as % (e.g. 25 = 25% annual). Discount tiers can be added after saving.</div>
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => setAddOpen(false)} className="text-[11px] text-slate-500 border border-slate-700/40 px-3 py-1.5 rounded-lg">Cancel</button>
+            <button onClick={saveItem} disabled={!draft.name.trim()}
+              className="text-[11px] font-semibold text-emerald-300 bg-emerald-500/10 border border-emerald-500/25 px-4 py-1.5 rounded-lg hover:bg-emerald-500/20 disabled:opacity-40 transition-colors">
+              Save Item
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── User item list (when real data) ── */}
+      {!isDemo && (
+        <div className="bg-slate-900/40 border border-slate-800/40 rounded-xl p-4">
+          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3">Your Inventory ({userItems.length} items)</div>
+          <div className="space-y-1.5">
+            {userItems.map(item => (
+              <div key={item.id} className="flex items-center justify-between gap-3 bg-slate-800/30 rounded-lg px-3 py-2">
+                <div className="flex-1 min-w-0">
+                  <span className="text-[12px] font-medium text-slate-200 truncate">{item.name}</span>
+                  <span className="text-[10px] text-slate-500 ml-2">{item.sku} · {item.supplier}</span>
+                </div>
+                <span className="text-[10px] text-slate-500 flex-shrink-0">{item.currentStock} {item.unit} on hand</span>
+                <button onClick={() => deleteItem(item.id)} className="text-[10px] text-slate-700 hover:text-red-400 transition-colors px-1.5 py-0.5 rounded border border-slate-700/40 hover:border-red-500/30 flex-shrink-0">×</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── KPI Cards ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { UnifiedBusinessData } from '../../types';
+import type { LiveComp } from '../../pages/api/data/public-comps';
 
 interface Props {
   data: UnifiedBusinessData;
@@ -119,14 +120,25 @@ function getPercentile(value: number, range: BenchmarkRange): number {
   return ((clamped - low) / (high - low)) * 100;
 }
 
+// Maps local Industry type → public-comps industry string
+const INDUSTRY_MAP: Partial<Record<Industry, string>> = {
+  professional_services: 'professional',
+  saas:                  'saas',
+  manufacturing:         'manufacturing',
+  construction:          'construction',
+  healthcare:            'healthcare',
+  // retail has no EDGAR comp bucket
+};
+
 interface MetricRowProps {
   label: string;
   value: number | null;
   range: BenchmarkRange;
+  liveMedian?: number | null;  // live EDGAR median, if available
   note?: string;
 }
 
-function MetricRow({ label, value, range }: MetricRowProps) {
+function MetricRow({ label, value, range, liveMedian }: MetricRowProps) {
   if (value == null) return null;
 
   const pct = getPercentile(value, range);
@@ -164,8 +176,19 @@ function MetricRow({ label, value, range }: MetricRowProps) {
       <div className="relative h-2 bg-slate-800 rounded-full overflow-visible mb-3">
         {/* Gradient fill: low → median → high */}
         <div className="absolute inset-0 rounded-full bg-gradient-to-r from-red-500/30 via-amber-500/30 to-emerald-500/30"/>
-        {/* Median tick */}
+        {/* Static median tick */}
         <div className="absolute top-0 h-full w-px bg-slate-600/80" style={{ left: '50%' }}/>
+        {/* Live EDGAR median tick */}
+        {liveMedian != null && (() => {
+          const livePct = Math.max(2, Math.min(98, getPercentile(liveMedian, range)));
+          return (
+            <div
+              className="absolute top-[-3px] h-[14px] w-0.5 bg-emerald-400/70 rounded-full"
+              style={{ left: `${livePct}%`, transform: 'translateX(-50%)' }}
+              title={`Live EDGAR median: ${fmtBenchmark(liveMedian, range.unit)}`}
+            />
+          );
+        })()}
         {/* Your value marker */}
         <div
           className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-slate-900 shadow-lg ${dotColor}`}
@@ -176,7 +199,12 @@ function MetricRow({ label, value, range }: MetricRowProps) {
       {/* Scale labels */}
       <div className="flex justify-between text-[9px] text-slate-600 font-mono mb-2">
         <span>{fmtBenchmark(range.low, range.unit)}</span>
-        <span className="text-slate-500">median {fmtBenchmark(range.median, range.unit)}</span>
+        <span className="text-slate-500">
+          median {fmtBenchmark(range.median, range.unit)}
+          {liveMedian != null && (
+            <span className="text-emerald-600 ml-1">· live {fmtBenchmark(liveMedian, range.unit)}</span>
+          )}
+        </span>
         <span>{fmtBenchmark(range.high, range.unit)}</span>
       </div>
 
@@ -206,9 +234,33 @@ function MetricRow({ label, value, range }: MetricRowProps) {
   );
 }
 
+function numMedian(vals: number[]): number | null {
+  if (vals.length === 0) return null;
+  const sorted = [...vals].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
 export default function IndustryBenchmarksPanel({ data, previousData, onAskAI }: Props) {
   const [industry, setIndustry] = useState<Industry>('professional_services');
   const benchmarks = INDUSTRY_BENCHMARKS[industry];
+
+  // Live EDGAR public-comp medians
+  const [liveComps, setLiveComps] = useState<LiveComp[] | null>(null);
+  useEffect(() => {
+    fetch('/api/data/public-comps')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.comps) setLiveComps(d.comps); })
+      .catch(() => {});
+  }, []);
+
+  const edgarIndustry = INDUSTRY_MAP[industry] ?? null;
+  const industryComps = liveComps && edgarIndustry
+    ? liveComps.filter(c => c.industry === edgarIndustry)
+    : [];
+
+  const liveEbitdaMedian = numMedian(industryComps.map(c => c.ebitdaMarginPct));
+  const liveRevenueGrowthMedian = numMedian(industryComps.map(c => c.revenueGrowthPct));
+  const hasLiveData = industryComps.length > 0;
 
   const rev    = data.revenue.total;
   const cogs   = data.costs.totalCOGS;
@@ -268,7 +320,14 @@ export default function IndustryBenchmarksPanel({ data, previousData, onAskAI }:
       {/* Header */}
       <div className="flex items-start justify-between mb-5">
         <div>
-          <div className="text-[13px] font-semibold text-slate-100">Industry Benchmarks</div>
+          <div className="flex items-center gap-2">
+            <div className="text-[13px] font-semibold text-slate-100">Industry Benchmarks</div>
+            {hasLiveData && (
+              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                live · EDGAR ({industryComps.length} co.)
+              </span>
+            )}
+          </div>
           <div className="text-[11px] text-slate-600 mt-0.5">
             See how your metrics compare to industry peers
           </div>
@@ -327,6 +386,11 @@ export default function IndustryBenchmarksPanel({ data, previousData, onAskAI }:
             label={m.label}
             value={m.value}
             range={benchmarks[m.key as keyof Omit<IndustryBenchmarks, 'label'>] as BenchmarkRange}
+            liveMedian={
+              m.key === 'ebitdaMargin'  ? liveEbitdaMedian :
+              m.key === 'revenueGrowth' ? liveRevenueGrowthMedian :
+              null
+            }
           />
         ))}
       </div>
@@ -369,7 +433,8 @@ export default function IndustryBenchmarksPanel({ data, previousData, onAskAI }:
       })()}
 
       <div className="mt-4 pt-3 border-t border-slate-800/40 text-[10px] text-slate-700">
-        Benchmarks are typical ranges for {benchmarks.label} businesses. Low = bottom quartile, High = top quartile. Sources: industry surveys, Dun & Bradstreet, BizStats.
+        Benchmarks are typical ranges for {benchmarks.label} businesses. Low = bottom quartile, High = top quartile. Sources: industry surveys, Dun &amp; Bradstreet, BizStats.
+        {hasLiveData && ' Green tick on EBITDA Margin and Revenue Growth bars shows live median from SEC EDGAR public company filings.'}
       </div>
     </div>
   );

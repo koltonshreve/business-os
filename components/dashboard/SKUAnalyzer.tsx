@@ -122,6 +122,62 @@ const COMPLEXITY_META = {
   high:   { color: 'text-red-400',     bg: 'bg-red-500/8 border-red-500/20' },
 };
 
+/**
+ * Build SKURecord[] directly from data.revenue.byProduct.
+ * byProduct gives us name, amount (revenue), and optionally margin%.
+ * We don't have price/units separately, so we treat each product as one
+ * "unit" priced at its total revenue — all cluster/kill math still holds
+ * since it's based on revenuePct and margin, not raw units.
+ */
+function buildSKUsFromProducts(
+  products: NonNullable<NonNullable<Props['data']['revenue']['byProduct']>>,
+  overrides: Record<string, { keep?: boolean; notes?: string }>
+): SKURecord[] {
+  const totalRev  = products.reduce((s, p) => s + p.amount, 0);
+  const records   = products.map((p, i) => {
+    // margin is stored as decimal fraction (0–1) in byProduct
+    const margin      = Math.max(0, Math.min(1, p.margin ?? 0.30));
+    const contribution = p.amount * margin;
+    return { id: `prod_${i}`, name: p.name, amount: p.amount, margin, contribution };
+  });
+  const totalCont = records.reduce((s, r) => s + r.contribution, 0);
+
+  return records.map(r => {
+    const revPct  = totalRev  > 0 ? (r.amount       / totalRev)  * 100 : 0;
+    const contPct = totalCont > 0 ? (r.contribution  / totalCont) * 100 : 0;
+
+    const cluster: SKURecord['cluster'] =
+      revPct >= 15 && r.margin >= 0.35                             ? 'star'
+      : revPct >= 5 || (revPct >= 2 && r.margin >= 0.30)          ? 'core'
+      : revPct < 2  && r.margin < 0.15                            ? 'kill'
+      : 'tail';
+
+    const complexity: SKURecord['complexity'] =
+      r.margin < 0.15 ? 'high' : r.margin < 0.30 ? 'medium' : 'low';
+
+    const killSignal = cluster === 'kill' || (complexity === 'high' && r.margin < 0.2 && revPct < 3);
+    const ov = overrides[r.id] ?? {};
+
+    return {
+      id:              r.id,
+      name:            r.name,
+      category:        'Products',
+      price:           r.amount,
+      variableCost:    r.amount * (1 - r.margin),
+      unitsSold:       1,
+      revenue:         r.amount,
+      margin:          r.margin,
+      contribution:    r.contribution,
+      revenuePct:      parseFloat(revPct.toFixed(2)),
+      contributionPct: parseFloat(contPct.toFixed(2)),
+      complexity,
+      cluster:         ov.keep ? 'core' : cluster,
+      killSignal:      ov.keep ? false : killSignal,
+      overrideKeep:    ov.keep,
+    } as SKURecord;
+  }).sort((a, b) => b.revenue - a.revenue);
+}
+
 export default function SKUAnalyzer({ data, onAskAI }: Props) {
   const [view, setView] = useState<ViewMode>('simple');
   const [sortKey, setSortKey] = useState<SortKey>('revenue');
@@ -132,7 +188,14 @@ export default function SKUAnalyzer({ data, onAskAI }: Props) {
   const [scenarioMode, setScenarioMode] = useState(false);
   const [scenarioExcluded, setScenarioExcluded] = useState<Set<string>>(new Set());
 
-  const skus = useMemo(() => computeSKUs(DEMO_SKUS_RAW, overrides), [overrides]);
+  const hasRealProducts = (data.revenue.byProduct?.length ?? 0) > 0;
+
+  const skus = useMemo(() => {
+    if (hasRealProducts) {
+      return buildSKUsFromProducts(data.revenue.byProduct!, overrides);
+    }
+    return computeSKUs(DEMO_SKUS_RAW, overrides);
+  }, [hasRealProducts, data.revenue.byProduct, overrides]);
 
   const filtered = useMemo(() => {
     let list = skus;
@@ -217,10 +280,29 @@ export default function SKUAnalyzer({ data, onAskAI }: Props) {
   return (
     <div className="space-y-5">
 
+      {/* ── Demo data notice ── */}
+      {!hasRealProducts && (
+        <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl px-4 py-2.5 flex items-center gap-2.5">
+          <svg viewBox="0 0 14 14" fill="currentColor" className="w-3.5 h-3.5 text-amber-400 flex-shrink-0">
+            <path d="M7 1L1 12h12L7 1zm0 3.5l2.5 5.5h-5L7 4.5z"/>
+          </svg>
+          <div className="text-[11px] text-amber-300/80">
+            Showing <span className="font-semibold text-amber-300">demo data</span> — upload a revenue CSV with a product/amount column to analyze your real product mix.
+          </div>
+        </div>
+      )}
+
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-[15px] font-semibold text-slate-100">SKU / Product Analyzer</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-[15px] font-semibold text-slate-100">SKU / Product Analyzer</h2>
+            {hasRealProducts && (
+              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                live data
+              </span>
+            )}
+          </div>
           <p className="text-[11px] text-slate-500 mt-0.5">
             {skus.length} products · {categories.length} categories · Pareto: {paretoN} SKUs = 80% of revenue
           </p>

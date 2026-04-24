@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import type { Deal, DealStage } from '../../types';
+import { authHeaders, loadAuthSession } from '../../lib/auth';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 // ⚠  localStorage key is 'bos_deals' — this is the CRM sales pipeline.
@@ -72,6 +73,10 @@ function newId() { return `d${Date.now()}`; }
 
 // ─── DealCard ─────────────────────────────────────────────────────────────────
 
+function daysSince(iso: string) {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+}
+
 function DealCard({ deal, onDragStart, onClick }: {
   deal: Deal;
   onDragStart: (e: React.DragEvent, id: string) => void;
@@ -80,6 +85,9 @@ function DealCard({ deal, onDragStart, onClick }: {
   const due = daysUntil(deal.closeDate);
   const dueColor = due < 0 ? 'text-red-400' : due <= 7 ? 'text-amber-400' : 'text-slate-500';
   const dueLabel = due < 0 ? `${Math.abs(due)}d overdue` : due === 0 ? 'Due today' : `${due}d`;
+  const idleDays = daysSince(deal.updatedAt);
+  const isTerminal = deal.stage === 'closed-won' || deal.stage === 'closed-lost';
+  const isIdle = !isTerminal && idleDays >= 7;
 
   return (
     <div
@@ -88,6 +96,14 @@ function DealCard({ deal, onDragStart, onClick }: {
       onClick={() => onClick(deal)}
       className="bg-[#0d1117] border border-slate-800/80 rounded-xl p-3.5 cursor-grab active:cursor-grabbing hover:border-slate-700 hover:bg-slate-900/70 transition-all select-none group"
     >
+      {/* Idle warning */}
+      {isIdle && (
+        <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-lg bg-amber-500/8 border border-amber-500/20">
+          <svg viewBox="0 0 12 12" fill="currentColor" className="w-2.5 h-2.5 text-amber-500 flex-shrink-0"><path d="M6 1a5 5 0 100 10A5 5 0 006 1zm0 2.5a.5.5 0 01.5.5v2.25l1.25.72a.5.5 0 01-.5.87l-1.5-.87A.5.5 0 015.5 6.5V4a.5.5 0 01.5-.5z"/></svg>
+          <span className="text-[9px] font-semibold text-amber-500 uppercase tracking-wide">{idleDays}d idle — needs attention</span>
+        </div>
+      )}
+
       {/* Deal name + company */}
       <div className="mb-2.5">
         <div className="text-[13px] font-semibold text-slate-100 leading-snug mb-0.5">{deal.name}</div>
@@ -182,6 +198,19 @@ function DealDrawer({ deal, onClose, onSave, onDelete }: {
 
         {/* Body */}
         <div className="flex-1 px-5 py-4 space-y-4">
+          {/* Idle warning banner */}
+          {(() => {
+            const idle = daysSince(deal.updatedAt);
+            const terminal = deal.stage === 'closed-won' || deal.stage === 'closed-lost';
+            if (!terminal && idle >= 7) return (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/8 border border-amber-500/20">
+                <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3 text-amber-400 flex-shrink-0"><path d="M7 1a6 6 0 100 12A6 6 0 007 1zm0 2.5a.5.5 0 01.5.5v3l1.5.87a.5.5 0 01-.5.87l-2-1.16A.5.5 0 016.5 7V4a.5.5 0 01.5-.5z"/></svg>
+                <span className="text-[11px] text-amber-400 font-medium">No activity in {idle} days — update notes or stage to keep pipeline current</span>
+              </div>
+            );
+            return null;
+          })()}
+
           {/* Value + probability */}
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-3">
@@ -495,6 +524,195 @@ function KanbanColumn({ stage, deals, onDragStart, onDrop, onDragOver, onDealCli
   );
 }
 
+// ─── CSV Import Modal ─────────────────────────────────────────────────────────
+
+function CSVImportModal({ onClose, onImport }: { onClose: () => void; onImport: (deals: Deal[]) => void }) {
+  const [isDragging, setIsDragging] = useState(false);
+  const [preview, setPreview] = useState<Deal[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const parseCSV = (text: string) => {
+    const lines = text.trim().split(/\r?\n/);
+    if (lines.length < 2) { setError('CSV must have a header row and at least one data row.'); return; }
+
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/[^a-z]/g, ''));
+    const col = (name: string) => {
+      const idx = headers.findIndex(h => h.includes(name));
+      return idx >= 0 ? idx : -1;
+    };
+
+    const parsed: Deal[] = [];
+    const errs: string[] = [];
+
+    lines.slice(1).forEach((line, i) => {
+      if (!line.trim()) return;
+      // Handle quoted fields
+      const cells: string[] = [];
+      let cur = '', inQ = false;
+      for (const ch of line + ',') {
+        if (ch === '"') { inQ = !inQ; }
+        else if (ch === ',' && !inQ) { cells.push(cur.trim()); cur = ''; }
+        else { cur += ch; }
+      }
+
+      const get = (name: string) => (col(name) >= 0 ? cells[col(name)]?.trim() ?? '' : '');
+
+      const name = get('name') || get('deal');
+      const company = get('company') || get('account');
+      if (!name || !company) { errs.push(`Row ${i + 2}: missing name or company`); return; }
+
+      const rawValue = get('value') || get('amount') || get('revenue');
+      const value = parseFloat(rawValue.replace(/[$,]/g, '')) || 0;
+      const probability = Math.min(100, Math.max(0, parseInt(get('probability') || get('prob') || '50') || 50));
+
+      const rawStage = get('stage').toLowerCase().replace(/\s+/g, '-');
+      const stageMatch = STAGES.find(s => s.id === rawStage || s.label.toLowerCase() === rawStage);
+      const stage: DealStage = stageMatch?.id ?? 'lead';
+
+      const rawDate = get('closedate') || get('close') || get('date');
+      const closeDate = rawDate || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+
+      const owner = get('owner') || get('rep') || 'You';
+      const source = get('source') || 'import';
+      const notes = get('notes') || get('note') || get('description') || '';
+      const contactName = get('contactname') || get('contact') || '';
+      const contactEmail = get('email') || get('contactemail') || '';
+
+      parsed.push({
+        id: `csv-${Date.now()}-${i}`,
+        name, company, value, probability, stage, closeDate,
+        owner: OWNERS.includes(owner) ? owner : 'You',
+        source, notes: notes || undefined, contactName: contactName || undefined,
+        contactEmail: contactEmail || undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    });
+
+    if (parsed.length === 0) {
+      setError(errs.length > 0 ? errs.join('; ') : 'No valid rows found. Check the CSV format.');
+      return;
+    }
+    if (errs.length > 0) setError(`Imported ${parsed.length} rows. Skipped: ${errs.join('; ')}`);
+    else setError(null);
+    setPreview(parsed);
+  };
+
+  const handleFile = (file: File) => {
+    if (!file.name.endsWith('.csv') && file.type !== 'text/csv') {
+      setError('Please upload a .csv file.'); return;
+    }
+    const reader = new FileReader();
+    reader.onload = e => parseCSV(e.target?.result as string);
+    reader.readAsText(file);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-[#0d1117] border border-slate-800/80 rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden shadow-2xl"
+        onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800/60">
+          <div>
+            <div className="text-[14px] font-bold text-slate-100">Import Deals from CSV</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">Columns: name, company, value, stage, probability, closeDate, owner, source, contactName, notes</div>
+          </div>
+          <button onClick={onClose} className="text-slate-600 hover:text-slate-300 p-1">
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-4 h-4"><path d="M2 2l10 10M12 2L2 12"/></svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {!preview ? (
+            <>
+              {/* Drop zone */}
+              <div
+                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
+                  isDragging ? 'border-indigo-500/60 bg-indigo-500/5' : 'border-slate-700/60 hover:border-slate-600'
+                }`}
+                onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={e => { e.preventDefault(); setIsDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
+                onClick={() => fileRef.current?.click()}
+              >
+                <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-8 h-8 text-slate-600 mx-auto mb-3">
+                  <path d="M6 22v4a2 2 0 002 2h16a2 2 0 002-2v-4M16 6v16M10 12l6-6 6 6" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <div className="text-[13px] font-medium text-slate-400">Drop your CSV here or <span className="text-indigo-400">click to browse</span></div>
+                <div className="text-[11px] text-slate-600 mt-1">One header row required</div>
+                <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }}/>
+              </div>
+
+              {/* Template hint */}
+              <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-3">
+                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1.5">Example CSV format</div>
+                <code className="text-[10px] text-slate-500 font-mono leading-relaxed block whitespace-pre">
+                  {`name,company,value,stage,probability,closeDate,owner
+Annual Retainer,Acme Corp,120000,proposal,60,2026-06-30,You
+Software Audit,Blue Sky Inc,48000,qualified,40,2026-07-15,Sarah K.`}
+                </code>
+              </div>
+            </>
+          ) : (
+            <div>
+              <div className="text-[12px] text-slate-400 mb-3 font-medium">{preview.length} deal{preview.length !== 1 ? 's' : ''} ready to import</div>
+              <div className="border border-slate-800/60 rounded-xl overflow-hidden">
+                <table className="w-full text-[11px]">
+                  <thead>
+                    <tr className="border-b border-slate-800/60 bg-slate-900/50">
+                      {['Name', 'Company', 'Value', 'Stage', 'Prob.', 'Owner'].map(h => (
+                        <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.slice(0, 10).map((d, i) => (
+                      <tr key={i} className="border-b border-slate-800/30 last:border-0 hover:bg-slate-900/30">
+                        <td className="px-3 py-2 text-slate-200 truncate max-w-[120px]">{d.name}</td>
+                        <td className="px-3 py-2 text-slate-400 truncate max-w-[100px]">{d.company}</td>
+                        <td className="px-3 py-2 text-slate-300 tabular-nums">{fmt(d.value)}</td>
+                        <td className="px-3 py-2"><span className={`${STAGES.find(s => s.id === d.stage)?.color ?? 'text-slate-400'} capitalize`}>{STAGES.find(s => s.id === d.stage)?.label ?? d.stage}</span></td>
+                        <td className="px-3 py-2 text-slate-400">{d.probability}%</td>
+                        <td className="px-3 py-2 text-slate-400">{d.owner}</td>
+                      </tr>
+                    ))}
+                    {preview.length > 10 && (
+                      <tr><td colSpan={6} className="px-3 py-2 text-[10px] text-slate-600">+{preview.length - 10} more rows</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-amber-500/8 border border-amber-500/20">
+              <span className="text-amber-400 text-[11px] flex-1">{error}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 py-3 border-t border-slate-800/60 flex items-center justify-between">
+          <button onClick={() => { setPreview(null); setError(null); }} className="text-[12px] text-slate-500 hover:text-slate-300 transition-colors">
+            {preview ? '← Re-upload' : 'Cancel'}
+          </button>
+          {preview && (
+            <button
+              onClick={() => { onImport(preview); onClose(); }}
+              className="flex items-center gap-2 text-[13px] font-semibold text-white bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-xl transition-colors">
+              Import {preview.length} deal{preview.length !== 1 ? 's' : ''} →
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main KanbanBoard ─────────────────────────────────────────────────────────
 
 export default function KanbanBoard() {
@@ -503,9 +721,40 @@ export default function KanbanBoard() {
   const [addingToStage, setAddingToStage] = useState<DealStage | null>(null);
   const [filterOwner, setFilterOwner] = useState<string>('all');
   const [filterStage, setFilterStage] = useState<DealStage | 'all'>('all');
+  const [showImport, setShowImport] = useState(false);
   const dragId = useRef<string | null>(null);
 
-  const persistDeals = (updated: Deal[]) => { setDeals(updated); saveDeals(updated); };
+  // ── DB sync ────────────────────────────────────────────────────────────────
+  const syncToDb = useCallback((list: Deal[]) => {
+    if (!loadAuthSession()) return;
+    fetch('/api/crm-deals', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(list),
+    }).catch(() => null);
+  }, []);
+
+  useEffect(() => {
+    if (!loadAuthSession()) return;
+    fetch('/api/crm-deals', { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((dbDeals: Deal[] | null) => {
+        if (dbDeals && dbDeals.length > 0) {
+          setDeals(dbDeals);
+          saveDeals(dbDeals);
+        } else {
+          syncToDb(loadDeals());
+        }
+      })
+      .catch(() => null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const persistDeals = (updated: Deal[]) => {
+    setDeals(updated);
+    saveDeals(updated);
+    syncToDb(updated);
+  };
 
   const handleDragStart = useCallback((e: React.DragEvent, id: string) => {
     dragId.current = id;
@@ -525,7 +774,16 @@ export default function KanbanBoard() {
     setSelectedDeal(updated);
   };
 
-  const handleDelete = (id: string) => persistDeals(deals.filter(d => d.id !== id));
+  const handleDelete = (id: string) => {
+    persistDeals(deals.filter(d => d.id !== id));
+    if (loadAuthSession()) {
+      fetch('/api/crm-deals', {
+        method: 'DELETE',
+        headers: authHeaders(),
+        body: JSON.stringify({ id }),
+      }).catch(() => null);
+    }
+  };
 
   const handleAdd = (deal: Deal) => persistDeals([...deals, deal]);
 
@@ -542,6 +800,35 @@ export default function KanbanBoard() {
   const winRate = deals.filter(d => ['closed-won', 'closed-lost'].includes(d.stage)).length > 0
     ? (wonDeals.length / deals.filter(d => ['closed-won', 'closed-lost'].includes(d.stage)).length) * 100
     : null;
+
+  // Pipeline health score (0–100)
+  const pipelineHealth = (() => {
+    if (activeDeals.length === 0) return 0;
+    const sevenDays = 7 * 86400000;
+    const now = Date.now();
+    const idleCount = activeDeals.filter(d => d.updatedAt && now - new Date(d.updatedAt).getTime() >= sevenDays).length;
+    const idlePct = (idleCount / activeDeals.length) * 100;
+    const stagesUsed = new Set(activeDeals.map(d => d.stage)).size;
+    const activeStages = STAGES.filter(s => !['closed-won','closed-lost'].includes(s.id)).length;
+
+    let score = 0;
+    // Deal volume (max 30): 10+ deals = full, scales from 0
+    score += Math.min(30, (activeDeals.length / 10) * 30);
+    // Win rate (max 25): 50%+ = full
+    if (winRate !== null) score += Math.min(25, (winRate / 50) * 25);
+    else score += 12; // neutral if no closed deals
+    // Idle deals (max 25): 0% idle = full, 50%+ = 0
+    score += Math.max(0, 25 - (idlePct / 50) * 25);
+    // Stage spread (max 20): all stages used = full
+    score += Math.min(20, (stagesUsed / activeStages) * 20);
+
+    return Math.round(Math.min(100, score));
+  })();
+
+  const healthColor = pipelineHealth >= 70 ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+    : pipelineHealth >= 40 ? 'text-amber-400 bg-amber-500/10 border-amber-500/20'
+    : 'text-red-400 bg-red-500/10 border-red-500/20';
+  const healthLabel = pipelineHealth >= 70 ? 'Healthy' : pipelineHealth >= 40 ? 'Fair' : 'Weak';
 
   const uniqueOwners = Array.from(new Set(deals.map(d => d.owner)));
 
@@ -563,6 +850,15 @@ export default function KanbanBoard() {
           ))}
         </div>
 
+        {/* Pipeline health badge */}
+        <div className={`hidden lg:flex items-center gap-2 px-3 py-2 rounded-xl border text-[11px] font-semibold ${healthColor} flex-shrink-0`}
+          title={`Pipeline health: ${pipelineHealth}/100 — based on deal volume, win rate, idle deals, and stage spread`}>
+          <svg viewBox="0 0 12 12" className="w-3 h-3" fill="currentColor">
+            <path d="M6 1a5 5 0 100 10A5 5 0 006 1zm0 2a1 1 0 011 1v2.586l1.707 1.707a1 1 0 01-1.414 1.414L5.586 8A1 1 0 015 7V4a1 1 0 011-1z"/>
+          </svg>
+          {pipelineHealth}/100 · {healthLabel}
+        </div>
+
         {/* Filters + Add */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <select value={filterOwner} onChange={e => setFilterOwner(e.target.value)}
@@ -570,6 +866,12 @@ export default function KanbanBoard() {
             <option value="all">All owners</option>
             {uniqueOwners.map(o => <option key={o} value={o}>{o}</option>)}
           </select>
+          <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-1.5 text-[12px] font-medium text-slate-400 border border-slate-700/60 hover:border-slate-600 hover:text-slate-200 px-3 py-1.5 rounded-xl transition-colors">
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-3 h-3"><path d="M6 1v7M3 5l3 3 3-3M1 9v1a1 1 0 001 1h8a1 1 0 001-1V9"/></svg>
+            Import CSV
+          </button>
           <button
             onClick={() => setAddingToStage('lead')}
             className="flex items-center gap-1.5 text-[12px] font-semibold text-white bg-indigo-600 hover:bg-indigo-500 px-3.5 py-1.5 rounded-xl transition-colors shadow-md">
@@ -609,6 +911,17 @@ export default function KanbanBoard() {
           defaultStage={addingToStage}
           onClose={() => setAddingToStage(null)}
           onAdd={handleAdd}
+        />
+      )}
+
+      {/* CSV import modal */}
+      {showImport && (
+        <CSVImportModal
+          onClose={() => setShowImport(false)}
+          onImport={imported => {
+            const merged = [...deals, ...imported];
+            persistDeals(merged);
+          }}
         />
       )}
     </div>

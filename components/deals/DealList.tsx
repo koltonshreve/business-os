@@ -1,13 +1,14 @@
 // ─── DealList ─────────────────────────────────────────────────────────────────
 // Primary CRM view. All deal management happens here.
 
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
   Deal, DealStage, STAGE_LABEL, STAGE_COLOR, STAGE_ORDER,
   loadDeals, saveDeals, createDeal, sortDealsByUrgency,
   isActiveDeal, actionStatus, daysUntilAction, fmtMoney, fmtActionDate,
 } from '../../lib/deals';
 import DealDetail from './DealDetail';
+import { authHeaders, loadAuthSession } from '../../lib/auth';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -307,11 +308,40 @@ export default function DealList({ onAskAI, initialDealId }: Props) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastCounter = useRef(0);
 
+  // ── DB sync on mount ─────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!loadAuthSession()?.token) return;
+    fetch('/api/deals', { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((dbDeals: Deal[] | null) => {
+        if (dbDeals && dbDeals.length > 0) {
+          setDeals(dbDeals);
+          saveDeals(dbDeals);
+        } else if (dbDeals && dbDeals.length === 0) {
+          // First login — push localStorage deals to DB
+          const localDeals = loadDeals();
+          if (localDeals.length > 0) syncToDb(localDeals);
+        }
+      })
+      .catch(() => null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function syncToDb(next: Deal[]) {
+    if (!loadAuthSession()?.token) return;
+    fetch('/api/deals', {
+      method: 'POST', headers: authHeaders(),
+      body: JSON.stringify({ deals: next }),
+    }).catch(() => null);
+  }
+
   // ── Persistence ──────────────────────────────────────────────────────────────
 
   function persist(next: Deal[]) {
     setDeals(next);
     saveDeals(next);
+    syncToDb(next);
   }
 
   // ── Toast ────────────────────────────────────────────────────────────────────
@@ -337,9 +367,18 @@ export default function DealList({ onAskAI, initialDealId }: Props) {
 
   function handleDeleteDeal(id: string) {
     const deal = deals.find(d => d.id === id);
-    persist(deals.filter(d => d.id !== id));
+    const next = deals.filter(d => d.id !== id);
+    setDeals(next);
+    saveDeals(next);
     setSelectedId(null);
     if (deal) toast(`${deal.name} removed`, 'info');
+    // Delete from DB
+    if (loadAuthSession()?.token) {
+      fetch('/api/deals', {
+        method: 'DELETE', headers: authHeaders(),
+        body: JSON.stringify({ id }),
+      }).catch(() => null);
+    }
   }
 
   // ── Filtered list ────────────────────────────────────────────────────────────

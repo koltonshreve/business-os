@@ -1,9 +1,10 @@
 // ─── /api/tasks ───────────────────────────────────────────────────────────────
-// GET  /api/tasks        — list tasks (filterable by status, priority)
-// POST /api/tasks        — create a task
+// GET  /api/tasks  — list tasks for authenticated user
+// POST /api/tasks  — create a task (scoped to authenticated user)
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getDb, ensureSchema, isDbConfigured } from '../../../lib/db';
+import { getSessionUser } from '../../../lib/session';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!isDbConfigured()) {
@@ -13,49 +14,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     await ensureSchema();
     const sql = getDb();
+    const user = await getSessionUser(req);
+    const userEmail = user?.email ?? null;
 
     if (req.method === 'GET') {
       const { status, priority } = req.query;
+      const statuses = status ? (status as string).split(',') : null;
 
-      let rows;
-      if (status && priority) {
-        const statuses = (status as string).split(',');
-        rows = await sql`
-          SELECT * FROM bos_tasks
-          WHERE status = ANY(${statuses}) AND priority = ${priority as string}
-          ORDER BY
-            CASE priority WHEN 'p1' THEN 1 WHEN 'p2' THEN 2 ELSE 3 END,
-            CASE WHEN due_date IS NULL THEN 1 ELSE 0 END,
-            due_date ASC,
-            created_at DESC
-        `;
-      } else if (status) {
-        const statuses = (status as string).split(',');
-        rows = await sql`
-          SELECT * FROM bos_tasks
-          WHERE status = ANY(${statuses})
-          ORDER BY
-            CASE priority WHEN 'p1' THEN 1 WHEN 'p2' THEN 2 ELSE 3 END,
-            CASE WHEN due_date IS NULL THEN 1 ELSE 0 END,
-            due_date ASC,
-            created_at DESC
-        `;
-      } else if (priority) {
-        rows = await sql`
-          SELECT * FROM bos_tasks
-          WHERE priority = ${priority as string}
-          ORDER BY created_at DESC
-        `;
-      } else {
-        rows = await sql`
-          SELECT * FROM bos_tasks
-          ORDER BY
-            CASE status WHEN 'active' THEN 1 WHEN 'open' THEN 2 ELSE 3 END,
-            CASE priority WHEN 'p1' THEN 1 WHEN 'p2' THEN 2 ELSE 3 END,
-            created_at DESC
-          LIMIT 200
-        `;
-      }
+      const rows = await sql`
+        SELECT * FROM bos_tasks
+        WHERE (user_email = ${userEmail} OR (${userEmail} IS NULL AND user_email IS NULL))
+          AND (${statuses}::text[] IS NULL OR status = ANY(${statuses}::text[]))
+          AND (${priority as string | null} IS NULL OR priority = ${priority as string | null})
+        ORDER BY
+          CASE status WHEN 'active' THEN 1 WHEN 'open' THEN 2 ELSE 3 END,
+          CASE priority WHEN 'p1' THEN 1 WHEN 'p2' THEN 2 ELSE 3 END,
+          CASE WHEN due_date IS NULL THEN 1 ELSE 0 END,
+          due_date ASC,
+          created_at DESC
+        LIMIT 200
+      `;
 
       return res.status(200).json(rows);
     }
@@ -68,7 +46,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         INSERT INTO bos_tasks (
           title, context, impact, priority, status, created_by,
           trigger_id, entity_type, entity_id, entity_name,
-          assignee, due_date, metadata
+          assignee, due_date, recurrence, metadata, user_email
         ) VALUES (
           ${body.title},
           ${body.context ?? null},
@@ -82,13 +60,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ${body.entity_name ?? null},
           ${body.assignee ?? 'you'},
           ${body.due_date ?? null},
-          ${JSON.stringify(body.metadata ?? {})}
+          ${body.recurrence ?? 'none'},
+          ${JSON.stringify(body.metadata ?? {})}::jsonb,
+          ${userEmail}
         )
         RETURNING *
       ` as unknown as Record<string, unknown>[];
       const row = insertRows[0];
 
-      // Log event
       await sql`
         INSERT INTO bos_events (type, summary, source, entity_type, entity_name)
         VALUES (

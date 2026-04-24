@@ -28,3 +28,24 @@ export function loadAuthSession(): AuthSession | null {
 export function clearAuthSession(): void {
   try { localStorage.removeItem(AUTH_KEY); } catch { /* ignore */ }
 }
+
+/** Returns headers with Bearer token for authenticated API calls. */
+export function authHeaders(): Record<string, string> {
+  const session = loadAuthSession();
+  if (!session?.token) return { 'Content-Type': 'application/json' };
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` };
+}
+
+export async function signOut(): Promise<void> {
+  const session = loadAuthSession();
+  if (session?.token) {
+    try {
+      await fetch('/api/auth/signout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: session.token }),
+      });
+    } catch { /* non-fatal */ }
+  }
+  clearAuthSession();
+}

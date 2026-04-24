@@ -19,6 +19,10 @@ interface Props {
   /** Compact row height for tight layouts */
   compact?: boolean;
   className?: string;
+  /** Below-the-line items to extend P&L to Net Income */
+  depreciation?: number;
+  interestExpense?: number;
+  taxRate?: number; // 0-100
 }
 
 const fmt = (n: number) => {
@@ -161,6 +165,9 @@ export default function PLStatement({
   showChange = true, showPct = true,
   defaultExpanded = false, compact = false,
   className = '',
+  depreciation = 0,
+  interestExpense = 0,
+  taxRate = 0,
 }: Props) {
   const rev    = data.revenue.total;
   const cogs   = data.costs.totalCOGS;
@@ -274,6 +281,51 @@ export default function PLStatement({
           color={ebitda > 0 ? 'text-emerald-400' : 'text-red-400'}
           compact={compact} showPct={showPct} showChange={showChange}
         />
+
+        {/* Below-the-line: EBIT → Net Income (only when any field set) */}
+        {(depreciation > 0 || interestExpense > 0 || taxRate > 0) && (() => {
+          const ebit = ebitda - depreciation;
+          const ebt  = ebit - interestExpense;
+          const tax  = ebt > 0 ? ebt * (taxRate / 100) : 0;
+          const ni   = ebt - tax;
+          return (
+            <>
+              {depreciation > 0 && (
+                <PLRow label="Depreciation & Amortization" value={-depreciation}
+                  pctOfRev={rev > 0 ? (depreciation/rev)*100 : 0}
+                  color="text-slate-500" level={1}
+                  compact={compact} showPct={showPct} showChange={false}/>
+              )}
+              <PLRow label="EBIT" value={ebit}
+                pctOfRev={rev > 0 ? (ebit/rev)*100 : 0}
+                bold subtotal
+                color={ebit >= 0 ? 'text-slate-200' : 'text-red-400'}
+                compact={compact} showPct={showPct} showChange={false}/>
+              {interestExpense > 0 && (
+                <PLRow label="Interest Expense" value={-interestExpense}
+                  pctOfRev={rev > 0 ? (interestExpense/rev)*100 : 0}
+                  color="text-slate-500" level={1}
+                  compact={compact} showPct={showPct} showChange={false}/>
+              )}
+              <PLRow label="EBT" value={ebt}
+                pctOfRev={rev > 0 ? (ebt/rev)*100 : 0}
+                bold subtotal
+                color={ebt >= 0 ? 'text-slate-200' : 'text-red-400'}
+                compact={compact} showPct={showPct} showChange={false}/>
+              {taxRate > 0 && ebt > 0 && (
+                <PLRow label={`Income Tax (${taxRate}%)`} value={-tax}
+                  pctOfRev={rev > 0 ? (tax/rev)*100 : 0}
+                  color="text-slate-500" level={1}
+                  compact={compact} showPct={showPct} showChange={false}/>
+              )}
+              <PLRow label="Net Income" value={ni}
+                pctOfRev={rev > 0 ? (ni/rev)*100 : 0}
+                bold separator subtotal
+                color={ni >= 0 ? 'text-emerald-400' : 'text-red-400'}
+                compact={compact} showPct={showPct} showChange={false}/>
+            </>
+          );
+        })()}
       </div>
     </div>
   );

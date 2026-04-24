@@ -4,6 +4,7 @@
 
 import { useState, useEffect } from 'react';
 import { addMemoryEntry } from '../../lib/memory';
+import { authHeaders, loadAuthSession } from '../../lib/auth';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -501,22 +502,57 @@ export default function GoalEngine() {
   const [showAdd, setShowAdd]   = useState(false);
   const [filter, setFilter]     = useState<GoalCategory | 'all'>('all');
 
-  // Hydrate from localStorage
+  // Hydrate: DB prefs first, then localStorage fallback
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem('bos_acq_goals');
-      if (saved) setGoals(JSON.parse(saved));
-      else {
-        const seeds = seedGoals();
-        setGoals(seeds);
-        localStorage.setItem('bos_acq_goals', JSON.stringify(seeds));
-      }
-    } catch { setGoals(seedGoals()); }
+    const session = loadAuthSession();
+    if (session) {
+      fetch('/api/user/prefs', { headers: authHeaders() })
+        .then(r => r.ok ? r.json() : null)
+        .then((prefs: { acqGoals?: AcqGoal[] } | null) => {
+          if (prefs?.acqGoals && prefs.acqGoals.length > 0) {
+            setGoals(prefs.acqGoals);
+            try { localStorage.setItem('bos_acq_goals', JSON.stringify(prefs.acqGoals)); } catch { /* ignore */ }
+          } else {
+            // Fall back to localStorage, then push to DB
+            try {
+              const saved = localStorage.getItem('bos_acq_goals');
+              const gs = saved ? JSON.parse(saved) as AcqGoal[] : seedGoals();
+              setGoals(gs);
+              if (!saved) localStorage.setItem('bos_acq_goals', JSON.stringify(gs));
+              // Sync up to DB
+              fetch('/api/user/prefs', {
+                method: 'PATCH', headers: authHeaders(),
+                body: JSON.stringify({ acqGoals: gs }),
+              }).catch(() => null);
+            } catch { setGoals(seedGoals()); }
+          }
+        })
+        .catch(() => {
+          try {
+            const saved = localStorage.getItem('bos_acq_goals');
+            if (saved) setGoals(JSON.parse(saved));
+            else { const seeds = seedGoals(); setGoals(seeds); localStorage.setItem('bos_acq_goals', JSON.stringify(seeds)); }
+          } catch { setGoals(seedGoals()); }
+        });
+    } else {
+      try {
+        const saved = localStorage.getItem('bos_acq_goals');
+        if (saved) setGoals(JSON.parse(saved));
+        else { const seeds = seedGoals(); setGoals(seeds); localStorage.setItem('bos_acq_goals', JSON.stringify(seeds)); }
+      } catch { setGoals(seedGoals()); }
+    }
   }, []);
 
   const persist = (gs: AcqGoal[]) => {
     setGoals(gs);
     try { localStorage.setItem('bos_acq_goals', JSON.stringify(gs)); } catch { /* ignore */ }
+    const session = loadAuthSession();
+    if (session) {
+      fetch('/api/user/prefs', {
+        method: 'PATCH', headers: authHeaders(),
+        body: JSON.stringify({ acqGoals: gs }),
+      }).catch(() => null);
+    }
   };
 
   const addGoal = (data: Omit<AcqGoal, 'id' | 'createdAt' | 'updatedAt'>) => {

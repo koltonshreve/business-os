@@ -62,41 +62,68 @@ Cost breakdown: ${data.costs.byCategory.map(c => `${c.category} $${(c.amount/100
 }
 
 function parseJSON<T>(raw: string): T {
-  // Strip markdown fences and leading/trailing whitespace
+  // Strip all markdown fences (handles fences anywhere, not just start/end)
   let cleaned = raw
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```\s*$/, '')
+    .replace(/```(?:json)?\s*/gi, '')
+    .replace(/```\s*/g, '')
     .trim();
 
-  // Sometimes Claude adds a preamble like "Here is the JSON:" before the object
+  // Skip any preamble before the first { or [
   const firstBrace = cleaned.search(/[{[]/);
   if (firstBrace > 0) cleaned = cleaned.slice(firstBrace);
 
-  try { return JSON.parse(cleaned) as T; } catch {
-    // Last-resort: extract the largest {...} or [...] block
-    const m = cleaned.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-    if (m) {
-      try { return JSON.parse(m[0]) as T; } catch { /* fall through */ }
-    }
-    throw new Error('JSON parse failed — the AI returned an unexpected format. Please try again.');
+  // Trim trailing content after the last } or ]
+  const lastClose = Math.max(cleaned.lastIndexOf('}'), cleaned.lastIndexOf(']'));
+  if (lastClose >= 0 && lastClose < cleaned.length - 1) cleaned = cleaned.slice(0, lastClose + 1);
+
+  try { return JSON.parse(cleaned) as T; } catch { /* fall through */ }
+
+  // Try extracting the outermost {...} or [...]
+  const m = cleaned.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+  if (m) {
+    try { return JSON.parse(m[0]) as T; } catch { /* fall through */ }
   }
+
+  // Last resort: attempt to repair truncated JSON by closing open structures
+  const repaired = repairTruncatedJSON(cleaned);
+  if (repaired) {
+    try { return JSON.parse(repaired) as T; } catch { /* fall through */ }
+  }
+
+  throw new Error('JSON parse failed — the AI returned an unexpected format. Please try again.');
 }
 
-async function complete(prompt: string, maxTokens = 4000): Promise<string> {
+function repairTruncatedJSON(s: string): string | null {
+  const lastBrace   = s.lastIndexOf('}');
+  const lastBracket = s.lastIndexOf(']');
+  const cutAt = Math.max(lastBrace, lastBracket);
+  if (cutAt < 0) return null;
+
+  let candidate = s.slice(0, cutAt + 1);
+  const opens: string[] = [];
+  let inStr = false, escape = false;
+  for (const ch of candidate) {
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inStr) { escape = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === '{') opens.push('}');
+    else if (ch === '[') opens.push(']');
+    else if (ch === '}' || ch === ']') opens.pop();
+  }
+  return candidate + opens.reverse().join('');
+}
+
+async function complete(prompt: string, maxTokens = 8192): Promise<string> {
   if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
-  // Prefill assistant turn with '{' — forces Claude to output raw JSON from the first token,
-  // completely eliminating markdown fences and preamble text.
   const r = await client.messages.create({
     model: 'claude-sonnet-4-6', max_tokens: maxTokens,
     system: 'Return ONLY valid JSON. No markdown, no commentary.',
     messages: [
-      { role: 'user',      content: prompt },
-      { role: 'assistant', content: '{' },   // prefill: forces raw JSON output
+      { role: 'user', content: prompt },
     ],
   });
-  // Claude continues from '{', so we must prepend it back
-  const body = r.content.filter(b => b.type === 'text').map(b => b.text).join('');
-  return '{' + body;
+  return r.content.filter(b => b.type === 'text').map(b => b.text).join('');
 }
 
 // ── EXIT READINESS ─────────────────────────────────────────────────────────────

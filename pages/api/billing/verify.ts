@@ -4,6 +4,8 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import Stripe from 'stripe';
+import { getDb, ensureSchema, isDbConfigured } from '../../../lib/db';
+import { getSessionUser } from '../../../lib/session';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -34,6 +36,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const subscriptionId = typeof session.subscription === 'string'
       ? session.subscription
       : session.subscription?.id ?? '';
+
+    // Upgrade bos_users.plan_id for the authenticated user
+    if (isDbConfigured()) {
+      try {
+        await ensureSchema();
+        const sql = getDb();
+        // Prefer session user; fall back to Stripe customer email
+        const sessionUser = await getSessionUser(req);
+        const emailToUpdate = sessionUser?.email ?? customerEmail.toLowerCase();
+        if (emailToUpdate) {
+          await sql`
+            UPDATE bos_users SET plan_id = ${planId}, updated_at = now()
+            WHERE email = ${emailToUpdate}
+          `;
+        }
+      } catch { /* non-fatal */ }
+    }
 
     return res.status(200).json({
       planId,

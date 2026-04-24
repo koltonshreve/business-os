@@ -118,13 +118,25 @@ Requirements:
       .map(b => (b as { type: 'text'; text: string }).text)
       .join('')
       .trim();
-    // Strip markdown code fences if present
-    const jsonStr = raw.replace(/^```json?\n?/, '').replace(/\n?```$/, '');
+
     let parsed: Omit<DigestPayload, 'date'>;
     try {
-      parsed = JSON.parse(jsonStr) as Omit<DigestPayload, 'date'>;
+      // Strip all markdown fences, skip preamble, trim trailing garbage
+      let cleaned = raw.replace(/```(?:json)?\s*/gi, '').replace(/```\s*/g, '').trim();
+      const firstBrace = cleaned.indexOf('{');
+      if (firstBrace > 0) cleaned = cleaned.slice(firstBrace);
+      const lastBrace = cleaned.lastIndexOf('}');
+      if (lastBrace >= 0 && lastBrace < cleaned.length - 1) cleaned = cleaned.slice(0, lastBrace + 1);
+
+      try {
+        parsed = JSON.parse(cleaned) as Omit<DigestPayload, 'date'>;
+      } catch {
+        const m = cleaned.match(/\{[\s\S]*\}/);
+        if (!m) throw new Error('No JSON object found');
+        parsed = JSON.parse(m[0]) as Omit<DigestPayload, 'date'>;
+      }
     } catch {
-      throw new Error(`Claude returned non-JSON response: ${jsonStr.slice(0, 200)}`);
+      throw new Error(`Claude returned non-JSON response: ${raw.slice(0, 200)}`);
     }
 
     const payload: DigestPayload = {

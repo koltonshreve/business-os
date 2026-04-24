@@ -3,8 +3,8 @@
 // Full CRUD: create, complete, dismiss, snooze.
 
 import { useState, useEffect, useCallback } from 'react';
-import type { Task, TaskPriority, TaskStatus } from '../../lib/tasks';
-import { fetchTasks, createTask, updateTask, dismissTask, completeTask, PRIORITY_LABEL, PRIORITY_COLOR } from '../../lib/tasks';
+import type { Task, TaskPriority, TaskStatus, TaskRecurrence } from '../../lib/tasks';
+import { fetchTasks, createTask, updateTask, dismissTask, completeTask, PRIORITY_LABEL, PRIORITY_COLOR, RECURRENCE_LABEL } from '../../lib/tasks';
 import type { UnifiedBusinessData } from '../../types';
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -44,15 +44,21 @@ function CreateTaskForm({ onCreated }: { onCreated: (task: Task) => void }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('p2');
+  const [dueDate, setDueDate] = useState('');
+  const [recurrence, setRecurrence] = useState<TaskRecurrence>('none');
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
     if (!title.trim()) return;
     setSaving(true);
     try {
-      const task = await createTask({ title: title.trim(), priority, created_by: 'user' });
+      const task = await createTask({
+        title: title.trim(), priority, created_by: 'user',
+        ...(dueDate ? { due_date: dueDate } : {}),
+        recurrence,
+      });
       onCreated(task);
-      setTitle('');
+      setTitle(''); setDueDate(''); setRecurrence('none');
       setOpen(false);
     } catch { /* ignore */ } finally {
       setSaving(false);
@@ -82,7 +88,7 @@ function CreateTaskForm({ onCreated }: { onCreated: (task: Task) => void }) {
         placeholder="What needs to happen?"
         className="w-full bg-slate-900/60 border border-slate-700/50 rounded-lg px-3 py-2 text-[13px] text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/60"
       />
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         {(['p1','p2','p3'] as TaskPriority[]).map(p => (
           <button
             key={p}
@@ -96,6 +102,14 @@ function CreateTaskForm({ onCreated }: { onCreated: (task: Task) => void }) {
             {PRIORITY_LABEL[p]}
           </button>
         ))}
+        <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
+          className="bg-slate-900/60 border border-slate-700/40 rounded-lg px-2 py-1 text-[11px] text-slate-400 focus:outline-none focus:border-indigo-500/60"/>
+        <select value={recurrence} onChange={e => setRecurrence(e.target.value as TaskRecurrence)}
+          className="bg-slate-900/60 border border-slate-700/40 rounded-lg px-2 py-1 text-[11px] text-slate-400 focus:outline-none">
+          {(['none','weekly','monthly','daily'] as TaskRecurrence[]).map(r => (
+            <option key={r} value={r}>{RECURRENCE_LABEL[r]}</option>
+          ))}
+        </select>
         <div className="flex-1"/>
         <button onClick={() => setOpen(false)} className="text-[11px] text-slate-600 hover:text-slate-400 px-2 py-1">Cancel</button>
         <button
@@ -191,6 +205,13 @@ function TaskCard({ task, onUpdate, onAskAI }: {
                   isOverdue ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-slate-800/60 border-slate-700/40 text-slate-500'
                 }`}>
                   {dueStr}
+                </span>
+              )}
+              {/* Recurrence badge */}
+              {task.recurrence && task.recurrence !== 'none' && (
+                <span className="flex items-center gap-0.5 text-[9px] font-semibold px-1.5 py-0.5 rounded border bg-violet-500/8 border-violet-500/20 text-violet-400 uppercase tracking-wide">
+                  <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" className="w-2 h-2"><path d="M9 5A4 4 0 112 2.5M9 5V2M9 5H6"/></svg>
+                  {RECURRENCE_LABEL[task.recurrence]}
                 </span>
               )}
               {/* Status */}

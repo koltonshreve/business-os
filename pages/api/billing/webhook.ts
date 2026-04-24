@@ -70,6 +70,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             subscription_id = EXCLUDED.subscription_id,
             updated_at      = now()
         `;
+        // Also update bos_users.plan_id if we can match by email on the subscription
+        const subEmail = (sub as unknown as { customer_email?: string }).customer_email
+          ?? (sub.metadata as Record<string, string | undefined>)?.email;
+        if (subEmail) {
+          await sql`
+            UPDATE bos_users SET plan_id = ${planId}, updated_at = now()
+            WHERE email = ${subEmail.toLowerCase()}
+          `;
+        }
       }
     }
 

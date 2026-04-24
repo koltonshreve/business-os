@@ -1,11 +1,20 @@
 // ─── Task Execution Engine ────────────────────────────────────────────────────
+import { authHeaders } from './auth';
 // The system of record for everything that needs to happen.
 // Tasks are created by AI (from rules) or by users.
 // Completion triggers events that feed back into the system.
 
-export type TaskPriority = 'p1' | 'p2' | 'p3';
-export type TaskStatus   = 'open' | 'active' | 'done' | 'blocked' | 'dismissed';
-export type TaskCreator  = 'ai' | 'user';
+export type TaskPriority  = 'p1' | 'p2' | 'p3';
+export type TaskStatus    = 'open' | 'active' | 'done' | 'blocked' | 'dismissed';
+export type TaskCreator   = 'ai' | 'user';
+export type TaskRecurrence = 'none' | 'daily' | 'weekly' | 'monthly';
+
+export const RECURRENCE_LABEL: Record<TaskRecurrence, string> = {
+  none:    'Once',
+  daily:   'Daily',
+  weekly:  'Weekly',
+  monthly: 'Monthly',
+};
 
 export interface Task {
   id:           string;
@@ -23,6 +32,7 @@ export interface Task {
   due_date?:    string;
   completed_at?: string;
   snoozed_until?: string;
+  recurrence:   TaskRecurrence;
   metadata:     Record<string, unknown>;
   created_at:   string;
   updated_at:   string;
@@ -45,7 +55,7 @@ export async function fetchTasks(filter?: {
   }
   if (filter?.priority) params.set('priority', filter.priority);
 
-  const res = await fetch(`/api/tasks?${params}`);
+  const res = await fetch(`/api/tasks?${params}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch tasks');
   return res.json();
 }
@@ -53,7 +63,7 @@ export async function fetchTasks(filter?: {
 export async function createTask(input: Partial<CreateTaskInput> & { title: string }): Promise<Task> {
   const res = await fetch('/api/tasks', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify({
       priority: 'p2',
       status: 'open',
@@ -70,7 +80,7 @@ export async function createTask(input: Partial<CreateTaskInput> & { title: stri
 export async function updateTask(id: string, patch: Partial<Pick<Task, 'status' | 'priority' | 'assignee' | 'due_date' | 'title' | 'context' | 'snoozed_until'>>): Promise<Task> {
   const res = await fetch(`/api/tasks/${id}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(patch),
   });
   if (!res.ok) throw new Error('Failed to update task');
