@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { parseCSVUpload, mergeDataSources } from '../../../lib/data-connectors';
 import type { CSVUpload, UnifiedBusinessData } from '../../../types';
+import { getSessionUser } from '../../../lib/session';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '5mb' } },
@@ -8,6 +9,9 @@ export const config = {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  const user = await getSessionUser(req);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
   try {
     const { uploads, existingData } = req.body as {
