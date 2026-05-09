@@ -436,12 +436,138 @@ Generate 4+ growth levers with specific dollar amounts. Use actual company numbe
   return parseJSON(raw);
 }
 
+// ── CFO SCORECARD ──────────────────────────────────────────────────────────────
+async function cfoScorecard(data: UnifiedBusinessData, prev?: UnifiedBusinessData, companyName?: string, companyProfile?: CompanyProfile) {
+  const prompt = `${TONE}
+
+You are a CFO conducting a monthly financial health review for a lower-middle-market company.
+
+COMPANY DATA:
+${dataSummary(data, prev, companyName, companyProfile)}
+
+Return ONLY valid JSON with this exact structure:
+
+{
+  "overallHealth": "GREEN",
+  "headline": "One sentence: the single most important thing the CEO needs to know this month",
+  "kpis": [
+    {
+      "name": "Gross Margin",
+      "value": "41.2%",
+      "benchmark": "42% LMM median",
+      "status": "YELLOW",
+      "trend": "FLAT",
+      "insight": "One sentence on what this means operationally",
+      "action": "Specific action to improve this KPI"
+    }
+  ],
+  "topRisks": [
+    { "risk": "Specific risk title", "detail": "One sentence on severity and impact", "urgency": "IMMEDIATE" }
+  ],
+  "topOpportunities": [
+    { "opportunity": "Specific opportunity", "impact": "$45k additional EBITDA", "effort": "LOW" }
+  ],
+  "cfoPriorities": [
+    { "priority": "Specific CFO action", "why": "One sentence rationale", "by": "End of month" }
+  ],
+  "cashPosition": {
+    "status": "GREEN",
+    "insight": "One sentence on cash health and runway",
+    "action": "Specific action if needed, or null"
+  }
+}
+
+Rules:
+- status must be "GREEN", "YELLOW", or "RED"
+- trend must be "UP", "DOWN", or "FLAT"
+- urgency must be "IMMEDIATE", "THIS_MONTH", or "THIS_QUARTER"
+- effort must be "LOW", "MEDIUM", or "HIGH"
+- Include exactly 8 KPIs covering: Gross Margin, EBITDA Margin, Revenue Growth, Customer Retention, Customer Concentration (top customer %), Revenue Per Employee, OpEx Ratio, New Customer Acquisition
+- overallHealth is the worst status across all KPIs
+- Use actual numbers from the data. Every "value" must be a real calculated number.
+- "action" must start with a verb and be specific (not generic advice)`;
+
+  const raw = await complete(prompt, 3000);
+  return parseJSON(raw);
+}
+
+// ── CASH & WORKING CAPITAL ─────────────────────────────────────────────────────
+async function cashAndWorkingCapital(data: UnifiedBusinessData, prev?: UnifiedBusinessData, companyName?: string, companyProfile?: CompanyProfile) {
+  const prompt = `${TONE}
+
+You are a CFO analyzing cash flow and working capital for a lower-middle-market company. This is an operational analysis, not M&A prep.
+
+COMPANY DATA:
+${dataSummary(data, prev, companyName, companyProfile)}
+
+Return ONLY valid JSON with this exact structure:
+
+{
+  "headline": "One sentence on the most important cash finding",
+  "cashHealth": "GREEN",
+  "runwayMonths": 8.5,
+  "workingCapitalScore": 72,
+  "dso": {
+    "estimate": 42,
+    "benchmark": "30-45 days for this sector",
+    "status": "YELLOW",
+    "insight": "One sentence on what this means",
+    "action": "Specific action to reduce DSO"
+  },
+  "dpo": {
+    "estimate": 28,
+    "benchmark": "30-45 days is healthy",
+    "status": "GREEN",
+    "insight": "One sentence on DPO health",
+    "action": "Specific action or null if healthy"
+  },
+  "cashConversionCycle": {
+    "estimate": 45,
+    "insight": "One sentence on what this means for the business",
+    "improvement": "Specific change to shorten the cycle"
+  },
+  "cashFlowRisks": [
+    { "risk": "Specific cash risk", "impact": "Dollar or percentage impact", "likelihood": "HIGH", "mitigation": "Specific mitigation action" }
+  ],
+  "workingCapitalActions": [
+    { "action": "Specific working capital improvement", "cashImpact": "$30k freed up", "timeframe": "30 days", "effort": "LOW" }
+  ],
+  "thirteenWeekOutlook": {
+    "trend": "IMPROVING",
+    "keyAssumptions": ["Assumption 1 based on data", "Assumption 2"],
+    "risks": ["Specific risk to the outlook"],
+    "recommendation": "One sentence CFO recommendation"
+  },
+  "vendorTerms": {
+    "opportunity": "Specific vendor payment term optimization",
+    "estimatedCashBenefit": "$20k",
+    "action": "Specific negotiation approach"
+  }
+}
+
+Rules:
+- cashHealth and likelihood must be "GREEN", "YELLOW", or "RED" / "HIGH", "MEDIUM", "LOW"
+- thirteenWeekOutlook.trend must be "IMPROVING", "STABLE", or "DETERIORATING"
+- effort must be "LOW", "MEDIUM", or "HIGH"
+- All dollar estimates must be calculated from the actual data
+- DSO/DPO estimates should be derived from the revenue and cost data provided
+- Include 2+ cash flow risks and 3+ working capital actions
+- Be specific: "Collect from [top customer] faster" not "Improve collections"`;
+
+  const raw = await complete(prompt, 3000);
+  return parseJSON(raw);
+}
+
 // ── Progress steps per agent ───────────────────────────────────────────────────
+const VALID_AGENTS = new Set(['exit-readiness', 'board-prep', 'action-plan', 'growth-playbook', 'cfo-scorecard', 'cash-working-capital']);
+
 const AGENT_STEPS: Record<string, string[]> = {
-  'exit-readiness':  ['Reading financial data…', 'Scoring exit readiness…', 'Calculating valuation range…', 'Building risk matrix…'],
-  'board-prep':      ['Analyzing business metrics…', 'Drafting talking points…', 'Anticipating board questions…'],
-  'action-plan':     ['Assessing current performance…', 'Identifying priority actions…', 'Building sprint schedule…'],
-  'growth-playbook': ['Analyzing revenue drivers…', 'Identifying growth levers…', 'Building priority matrix…'],
+  'exit-readiness':        ['Reading financial data…', 'Scoring exit readiness…', 'Calculating valuation range…', 'Building risk matrix…'],
+  'board-prep':            ['Analyzing business metrics…', 'Drafting talking points…', 'Anticipating board questions…'],
+  'action-plan':           ['Assessing current performance…', 'Identifying priority actions…', 'Building sprint schedule…'],
+  'growth-playbook':       ['Analyzing revenue drivers…', 'Identifying growth levers…', 'Building priority matrix…'],
+  'cfo-scorecard':         ['Reading KPI data…', 'Benchmarking performance…', 'Scoring financial health…'],
+  'cash-working-capital':  ['Analyzing cash position…', 'Estimating DSO and DPO…', 'Building 13-week outlook…'],
 };
 
 // ── Handler ────────────────────────────────────────────────────────────────────
@@ -474,6 +600,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     agent: string; data: UnifiedBusinessData; previousData?: UnifiedBusinessData;
     companyName?: string; companyProfile?: CompanyProfile;
   } = req.body;
+
+  // Validate agent ID before writing SSE headers (so we can still return a proper JSON error)
+  if (!agent || !VALID_AGENTS.has(agent)) {
+    return res.status(400).json({ error: `Unknown agent: ${agent}` });
+  }
 
   // Sanitize user-provided text to prevent prompt injection
   const companyName = sanitizeText(rawCompanyName);
@@ -511,11 +642,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     let result;
-    if      (agent === 'exit-readiness')  result = await exitReadiness(data, previousData, name, profile);
-    else if (agent === 'board-prep')      result = await boardMeetingPrep(data, previousData, name, profile);
-    else if (agent === 'action-plan')     result = await actionPlan90Day(data, previousData, name, profile);
-    else if (agent === 'growth-playbook') result = await growthPlaybook(data, previousData, name, profile);
+    if      (agent === 'exit-readiness')       result = await exitReadiness(data, previousData, name, profile);
+    else if (agent === 'board-prep')           result = await boardMeetingPrep(data, previousData, name, profile);
+    else if (agent === 'action-plan')          result = await actionPlan90Day(data, previousData, name, profile);
+    else if (agent === 'growth-playbook')      result = await growthPlaybook(data, previousData, name, profile);
+    else if (agent === 'cfo-scorecard')        result = await cfoScorecard(data, previousData, name, profile);
+    else if (agent === 'cash-working-capital') result = await cashAndWorkingCapital(data, previousData, name, profile);
     else {
+      // Should never reach here — validated above before SSE headers
       clearInterval(progressInterval);
       send({ type: 'error', error: 'Unknown agent' });
       res.write('data: [DONE]\n\n');

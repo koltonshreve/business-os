@@ -30,12 +30,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   if (!isDbConfigured()) {
-    return res.status(503).json({ error: 'Database not configured — connect Neon in Vercel Storage.' });
+    return res.status(503).json({ error: 'Account creation is not available in this preview. Please continue exploring the demo dashboard.' });
   }
 
   const { email, password, name } = req.body as { email?: string; password?: string; name?: string };
 
-  if (!email || !email.includes('@')) return res.status(400).json({ error: 'Valid email required' });
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
   if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
 
   try {

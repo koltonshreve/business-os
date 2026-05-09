@@ -41,9 +41,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const raw = await buffer(req);
   const sig = req.headers['stripe-signature'];
 
+  if (!sig || typeof sig !== 'string') {
+    return res.status(400).json({ error: 'Missing stripe-signature header' });
+  }
+
   let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(raw, sig as string, webhookSecret);
+    event = stripe.webhooks.constructEvent(raw, sig, webhookSecret);
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Webhook signature verification failed';
     return res.status(400).json({ error: msg });

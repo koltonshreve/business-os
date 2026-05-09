@@ -41,6 +41,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       VALUES (${id}, ${user.email}, ${label}, ${JSON.stringify(data)})
       ON CONFLICT (id) DO UPDATE
         SET label = EXCLUDED.label, data = EXCLUDED.data, updated_at = now()
+        WHERE bos_snapshots.user_email = ${user.email}
     `;
     return res.status(201).json({ ok: true });
   }

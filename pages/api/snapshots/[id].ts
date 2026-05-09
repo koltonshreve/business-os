@@ -9,6 +9,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
   const { id } = req.query as { id: string };
+  if (!id || typeof id !== 'string' || !/^[a-zA-Z0-9_-]{4,80}$/.test(id)) {
+    return res.status(400).json({ error: 'Invalid snapshot ID' });
+  }
   const sql = getDb();
 
   // ── PATCH: rename ────────────────────────────────────────────────────────

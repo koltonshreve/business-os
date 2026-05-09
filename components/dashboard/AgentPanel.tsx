@@ -584,6 +584,35 @@ function buildPlainText(agentId: string, result: Record<string, unknown>): strin
     lines.push('KEY ASKS');
     asks.forEach(a => { lines.push(`• ${a.ask}`); lines.push(`  ${a.rationale}`); });
     if (dns.length) { lines.push(''); lines.push('DO NOT SAY'); dns.forEach(d => lines.push(`✕ ${d}`)); }
+  } else if (agentId === 'cfo-scorecard') {
+    const kpis    = (result.kpis as {name:string;value:string;status:string;trend:string;insight:string;action:string}[]) ?? [];
+    const risks   = (result.topRisks as {risk:string;detail:string;urgency:string}[]) ?? [];
+    const cfoPris = (result.cfoPriorities as {priority:string;why:string;by:string}[]) ?? [];
+    lines.push(`CFO SCORECARD — ${date}`);
+    lines.push(`Overall Health: ${result.overallHealth as string}`);
+    lines.push(`${result.headline as string}`);
+    lines.push(''); lines.push('KPIs');
+    kpis.forEach(k => lines.push(`[${k.status}] ${k.name}: ${k.value} (${k.trend})${k.status !== 'GREEN' ? ` → ${k.action}` : ''}`));
+    lines.push(''); lines.push('TOP RISKS');
+    risks.forEach(r => lines.push(`[${r.urgency}] ${r.risk}: ${r.detail}`));
+    lines.push(''); lines.push('CFO PRIORITIES');
+    cfoPris.forEach(p => lines.push(`• ${p.priority} (${p.by}) — ${p.why}`));
+  } else if (agentId === 'cash-working-capital') {
+    const dso  = result.dso as {estimate:number;status:string;insight:string;action:string} | undefined;
+    const dpo  = result.dpo as {estimate:number;status:string;insight:string} | undefined;
+    const ccc  = result.cashConversionCycle as {estimate:number;insight:string;improvement:string} | undefined;
+    const wca  = (result.workingCapitalActions as {action:string;cashImpact:string;timeframe:string}[]) ?? [];
+    const cfRisks = (result.cashFlowRisks as {risk:string;impact:string;mitigation:string}[]) ?? [];
+    lines.push(`CASH & WORKING CAPITAL ANALYSIS — ${date}`);
+    lines.push(`Cash Health: ${result.cashHealth as string} | Runway: ${result.runwayMonths} months`);
+    lines.push(result.headline as string);
+    if (dso) lines.push(`DSO: ${dso.estimate} days [${dso.status}] — ${dso.insight}`);
+    if (dpo) lines.push(`DPO: ${dpo.estimate} days [${dpo.status}] — ${dpo.insight}`);
+    if (ccc) lines.push(`CCC: ${ccc.estimate} days — ${ccc.insight}`);
+    lines.push(''); lines.push('WORKING CAPITAL ACTIONS');
+    wca.forEach(a => lines.push(`• ${a.action} (${a.cashImpact}, ${a.timeframe})`));
+    lines.push(''); lines.push('CASH FLOW RISKS');
+    cfRisks.forEach(r => lines.push(`⚠ ${r.risk} (${r.impact}) → ${r.mitigation}`));
   }
   return lines.join('\n');
 }
@@ -695,6 +724,322 @@ function exportBoardPrep(result: Record<string, unknown>) {
   openPrintWindow('Board Meeting Prep', body);
 }
 
+function exportCfoScorecard(result: Record<string, unknown>) {
+  const kpis    = (result.kpis as {name:string;value:string;benchmark:string;status:string;trend:string;insight:string;action:string}[]) ?? [];
+  const risks   = (result.topRisks as {risk:string;detail:string;urgency:string}[]) ?? [];
+  const cfoPris = (result.cfoPriorities as {priority:string;why:string;by:string}[]) ?? [];
+  const date    = new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  const statusColor = (s: string) => s === 'GREEN' ? '#10b981' : s === 'YELLOW' ? '#f59e0b' : '#ef4444';
+  const body = `
+    <h1>CFO Scorecard — Overall: ${result.overallHealth as string}</h1>
+    <div class="meta">Generated ${date}</div>
+    <p>${result.headline as string}</p>
+    <hr>
+    <h2>KPI Dashboard</h2>
+    ${kpis.map(k => `<p style="border-left:3px solid ${statusColor(k.status)};padding-left:8px;margin:8px 0"><strong>[${k.status}] ${k.name}: ${k.value}</strong><br><em>${k.benchmark}</em><br>${k.insight}${k.status !== 'GREEN' ? `<br>→ ${k.action}` : ''}</p>`).join('')}
+    <hr>
+    <h2>Top Risks</h2>
+    ${risks.map(r => `<p><strong>[${r.urgency}] ${r.risk}</strong><br>${r.detail}</p>`).join('')}
+    <hr>
+    <h2>CFO Priorities</h2>
+    ${cfoPris.map(p => `<p><strong>${p.priority}</strong> (${p.by})<br>${p.why}</p>`).join('')}
+  `;
+  openPrintWindow('CFO Scorecard', body);
+}
+
+function exportCashWorkingCapital(result: Record<string, unknown>) {
+  const dso   = result.dso as {estimate:number;status:string;insight:string;action:string} | undefined;
+  const dpo   = result.dpo as {estimate:number;status:string;insight:string} | undefined;
+  const ccc   = result.cashConversionCycle as {estimate:number;insight:string;improvement:string} | undefined;
+  const wca   = (result.workingCapitalActions as {action:string;cashImpact:string;timeframe:string}[]) ?? [];
+  const cfRisks = (result.cashFlowRisks as {risk:string;impact:string;mitigation:string}[]) ?? [];
+  const outlook = result.thirteenWeekOutlook as {trend:string;recommendation:string} | undefined;
+  const date  = new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  const body = `
+    <h1>Cash &amp; Working Capital Analysis</h1>
+    <div class="meta">Generated ${date}</div>
+    <p><strong>Cash Health: ${result.cashHealth as string}</strong> | Runway: ${result.runwayMonths} months</p>
+    <p>${result.headline as string}</p>
+    <hr>
+    <h2>Working Capital Metrics</h2>
+    ${dso ? `<p><strong>DSO: ${dso.estimate} days [${dso.status}]</strong><br>${dso.insight}<br>→ ${dso.action}</p>` : ''}
+    ${dpo ? `<p><strong>DPO: ${dpo.estimate} days [${dpo.status}]</strong><br>${dpo.insight}</p>` : ''}
+    ${ccc ? `<p><strong>Cash Conversion Cycle: ${ccc.estimate} days</strong><br>${ccc.insight}<br>→ ${ccc.improvement}</p>` : ''}
+    <hr>
+    <h2>Working Capital Actions</h2>
+    ${wca.map(a => `<p>• ${a.action} — <strong>${a.cashImpact}</strong> (${a.timeframe})</p>`).join('')}
+    <hr>
+    <h2>Cash Flow Risks</h2>
+    ${cfRisks.map(r => `<p>⚠ <strong>${r.risk}</strong> (${r.impact})<br>→ ${r.mitigation}</p>`).join('')}
+    ${outlook ? `<hr><h2>13-Week Outlook: ${outlook.trend}</h2><p>${outlook.recommendation}</p>` : ''}
+  `;
+  openPrintWindow('Cash & Working Capital', body);
+}
+
+// ── CFO Scorecard Result ─────────────────────────────────────────────────────
+function CfoScorecardResult({ result }: { result: Record<string, unknown> }) {
+  const kpis    = (result.kpis as {name:string;value:string;benchmark:string;status:string;trend:string;insight:string;action:string}[]) ?? [];
+  const risks   = (result.topRisks as {risk:string;detail:string;urgency:string}[]) ?? [];
+  const opps    = (result.topOpportunities as {opportunity:string;impact:string;effort:string}[]) ?? [];
+  const cfoPris = (result.cfoPriorities as {priority:string;why:string;by:string}[]) ?? [];
+  const cash    = result.cashPosition as {status:string;insight:string;action:string|null} | undefined;
+
+  const statusDot = (s: string) =>
+    s === 'GREEN'  ? 'bg-emerald-400' :
+    s === 'YELLOW' ? 'bg-amber-400' :
+    'bg-red-400';
+  const statusText = (s: string) =>
+    s === 'GREEN'  ? 'text-emerald-400' :
+    s === 'YELLOW' ? 'text-amber-400' :
+    'text-red-400';
+  const trendArrow = (t: string) => t === 'UP' ? '↑' : t === 'DOWN' ? '↓' : '→';
+  const urgencyColor = (u: string) => u === 'IMMEDIATE' ? 'text-red-400 bg-red-500/10 border-red-500/25' : u === 'THIS_MONTH' ? 'text-amber-400 bg-amber-500/10 border-amber-500/25' : 'text-slate-400 bg-slate-800/60 border-slate-700/40';
+
+  const overall = result.overallHealth as string;
+
+  return (
+    <div className="space-y-5">
+      {/* Hero */}
+      <div className="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-5">
+        <div className="flex items-center gap-4 mb-3">
+          <div className={`w-4 h-4 rounded-full ${statusDot(overall)} flex-shrink-0`}/>
+          <div className={`text-[15px] font-bold ${statusText(overall)}`}>Overall: {overall}</div>
+        </div>
+        <div className="text-[13px] text-slate-300 leading-relaxed">{result.headline as string}</div>
+      </div>
+
+      {/* KPI Grid */}
+      <div>
+        <div className="text-[11px] font-semibold text-slate-600 uppercase tracking-widest mb-3">Financial KPIs</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {kpis.map((kpi, i) => (
+            <div key={i} className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${statusDot(kpi.status)}`}/>
+                  <span className="text-[11px] font-semibold text-slate-400">{kpi.name}</span>
+                </div>
+                <span className="text-[10px] text-slate-600">{trendArrow(kpi.trend)}</span>
+              </div>
+              <div className={`text-[18px] font-black ${statusText(kpi.status)} mb-0.5`}>{kpi.value}</div>
+              <div className="text-[10px] text-slate-600 mb-2">{kpi.benchmark}</div>
+              <div className="text-[11px] text-slate-400 leading-snug mb-1.5">{kpi.insight}</div>
+              {kpi.status !== 'GREEN' && (
+                <div className="text-[10px] text-indigo-400 bg-indigo-500/8 border border-indigo-500/20 rounded-lg px-2 py-1">
+                  → {kpi.action}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Cash + Risks side by side */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {cash && (
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className={`w-2 h-2 rounded-full ${statusDot(cash.status)}`}/>
+              <div className="text-[11px] font-semibold text-slate-400">Cash Position</div>
+            </div>
+            <div className="text-[12px] text-slate-300 leading-snug mb-2">{cash.insight}</div>
+            {cash.action && <div className="text-[10px] text-indigo-400">→ {cash.action}</div>}
+          </div>
+        )}
+        <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
+          <div className="text-[11px] font-semibold text-slate-600 uppercase tracking-widest mb-2">Top Risks</div>
+          <div className="space-y-2">
+            {risks.slice(0,3).map((r, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border flex-shrink-0 mt-0.5 ${urgencyColor(r.urgency)}`}>{r.urgency.replace('_',' ')}</span>
+                <div>
+                  <div className="text-[11px] font-semibold text-slate-300">{r.risk}</div>
+                  <div className="text-[10px] text-slate-500">{r.detail}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Opportunities + CFO Priorities */}
+      {opps.length > 0 && (
+        <div>
+          <div className="text-[11px] font-semibold text-slate-600 uppercase tracking-widest mb-3">Top Opportunities</div>
+          <div className="space-y-2">
+            {opps.map((o, i) => (
+              <div key={i} className="bg-emerald-500/5 border border-emerald-500/15 rounded-xl px-4 py-3 flex items-center justify-between gap-4">
+                <div className="text-[12px] text-slate-300">{o.opportunity}</div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-[11px] font-bold text-emerald-400">{o.impact}</span>
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${o.effort === 'LOW' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/25' : o.effort === 'HIGH' ? 'text-red-400 bg-red-500/10 border-red-500/25' : 'text-amber-400 bg-amber-500/10 border-amber-500/25'}`}>{o.effort}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {cfoPris.length > 0 && (
+        <div>
+          <div className="text-[11px] font-semibold text-slate-600 uppercase tracking-widest mb-3">CFO Priorities This Month</div>
+          <div className="space-y-2">
+            {cfoPris.map((p, i) => (
+              <div key={i} className="bg-slate-900/50 border border-slate-800/50 rounded-xl px-4 py-3">
+                <div className="flex items-start justify-between gap-3 mb-1">
+                  <div className="text-[12px] font-semibold text-slate-200">{i+1}. {p.priority}</div>
+                  <span className="text-[10px] text-slate-600 flex-shrink-0">{p.by}</span>
+                </div>
+                <div className="text-[11px] text-slate-500">{p.why}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Cash & Working Capital Result ─────────────────────────────────────────────
+function CashWorkingCapitalResult({ result }: { result: Record<string, unknown> }) {
+  const dso    = result.dso as {estimate:number;benchmark:string;status:string;insight:string;action:string} | undefined;
+  const dpo    = result.dpo as {estimate:number;benchmark:string;status:string;insight:string;action:string|null} | undefined;
+  const ccc    = result.cashConversionCycle as {estimate:number;insight:string;improvement:string} | undefined;
+  const risks  = (result.cashFlowRisks as {risk:string;impact:string;likelihood:string;mitigation:string}[]) ?? [];
+  const wca    = (result.workingCapitalActions as {action:string;cashImpact:string;timeframe:string;effort:string}[]) ?? [];
+  const outlook = result.thirteenWeekOutlook as {trend:string;keyAssumptions:string[];risks:string[];recommendation:string} | undefined;
+  const vendor = result.vendorTerms as {opportunity:string;estimatedCashBenefit:string;action:string} | undefined;
+
+  const statusDot  = (s: string) => s === 'GREEN' ? 'bg-emerald-400' : s === 'YELLOW' ? 'bg-amber-400' : 'bg-red-400';
+  const statusText = (s: string) => s === 'GREEN' ? 'text-emerald-400' : s === 'YELLOW' ? 'text-amber-400' : 'text-red-400';
+  const trendColor = (t: string) => t === 'IMPROVING' ? 'text-emerald-400' : t === 'DETERIORATING' ? 'text-red-400' : 'text-slate-400';
+  const effortColor = (e: string) => e === 'LOW' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/25' : e === 'HIGH' ? 'text-red-400 bg-red-500/10 border-red-500/25' : 'text-amber-400 bg-amber-500/10 border-amber-500/25';
+
+  return (
+    <div className="space-y-5">
+      {/* Hero */}
+      <div className="bg-slate-900/60 border border-slate-800/50 rounded-2xl p-5">
+        <div className="flex items-center gap-3 mb-2">
+          <div className={`w-3 h-3 rounded-full ${statusDot(result.cashHealth as string)}`}/>
+          <span className={`text-[13px] font-bold ${statusText(result.cashHealth as string)}`}>Cash Health: {result.cashHealth as string}</span>
+          {result.runwayMonths != null && <span className="text-[11px] text-slate-500 ml-auto">{Number(result.runwayMonths).toFixed(1)} mo runway</span>}
+        </div>
+        <div className="text-[13px] text-slate-300 leading-relaxed">{result.headline as string}</div>
+      </div>
+
+      {/* DSO / DPO / CCC row */}
+      <div className="grid grid-cols-3 gap-3">
+        {dso && (
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-3">
+            <div className="text-[10px] text-slate-600 font-semibold uppercase tracking-wider mb-1">DSO</div>
+            <div className={`text-[22px] font-black ${statusText(dso.status)}`}>{dso.estimate}d</div>
+            <div className="text-[10px] text-slate-600">{dso.benchmark}</div>
+          </div>
+        )}
+        {dpo && (
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-3">
+            <div className="text-[10px] text-slate-600 font-semibold uppercase tracking-wider mb-1">DPO</div>
+            <div className={`text-[22px] font-black ${statusText(dpo.status)}`}>{dpo.estimate}d</div>
+            <div className="text-[10px] text-slate-600">{dpo.benchmark}</div>
+          </div>
+        )}
+        {ccc && (
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-3">
+            <div className="text-[10px] text-slate-600 font-semibold uppercase tracking-wider mb-1">CCC</div>
+            <div className="text-[22px] font-black text-slate-200">{ccc.estimate}d</div>
+            <div className="text-[10px] text-slate-600">Cash conversion</div>
+          </div>
+        )}
+      </div>
+
+      {/* Insights for DSO/DPO/CCC */}
+      <div className="space-y-2">
+        {[dso, dpo].filter(Boolean).map((m, i) => m && (
+          <div key={i} className="bg-slate-900/50 border border-slate-800/50 rounded-xl px-4 py-3">
+            <div className="text-[11px] text-slate-400 mb-1">{m.insight}</div>
+            {m.action && <div className="text-[10px] text-indigo-400">→ {m.action}</div>}
+          </div>
+        ))}
+        {ccc && (
+          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl px-4 py-3">
+            <div className="text-[11px] text-slate-400 mb-1">{ccc.insight}</div>
+            <div className="text-[10px] text-indigo-400">→ {ccc.improvement}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Working Capital Actions */}
+      {wca.length > 0 && (
+        <div>
+          <div className="text-[11px] font-semibold text-slate-600 uppercase tracking-widest mb-3">Working Capital Actions</div>
+          <div className="space-y-2">
+            {wca.map((a, i) => (
+              <div key={i} className="bg-teal-500/5 border border-teal-500/15 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] text-slate-300">{a.action}</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">{a.timeframe}</div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-[11px] font-bold text-teal-400">{a.cashImpact}</span>
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${effortColor(a.effort)}`}>{a.effort}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Cash Flow Risks */}
+      {risks.length > 0 && (
+        <div>
+          <div className="text-[11px] font-semibold text-slate-600 uppercase tracking-widest mb-3">Cash Flow Risks</div>
+          <div className="space-y-2">
+            {risks.map((r, i) => (
+              <div key={i} className="bg-slate-900/50 border border-red-500/15 rounded-xl px-4 py-3">
+                <div className="flex items-start justify-between gap-3 mb-1">
+                  <div className="text-[12px] font-semibold text-slate-300">{r.risk}</div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <span className="text-[10px] text-slate-500">{r.impact}</span>
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${r.likelihood === 'HIGH' ? 'text-red-400 bg-red-500/10 border-red-500/25' : r.likelihood === 'LOW' ? 'text-slate-400 bg-slate-800/60 border-slate-700/40' : 'text-amber-400 bg-amber-500/10 border-amber-500/25'}`}>{r.likelihood}</span>
+                  </div>
+                </div>
+                <div className="text-[10px] text-indigo-400">→ {r.mitigation}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 13-week outlook */}
+      {outlook && (
+        <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="text-[11px] font-semibold text-slate-600 uppercase tracking-widest">13-Week Outlook</div>
+            <span className={`text-[10px] font-bold ml-auto ${trendColor(outlook.trend)}`}>{outlook.trend}</span>
+          </div>
+          <div className="text-[12px] text-slate-300 mb-3">{outlook.recommendation}</div>
+          {outlook.risks.length > 0 && (
+            <div className="space-y-1">
+              {outlook.risks.map((r, i) => (
+                <div key={i} className="text-[11px] text-slate-500">⚠ {r}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Vendor terms */}
+      {vendor && (
+        <div className="bg-teal-500/5 border border-teal-500/15 rounded-xl px-4 py-3">
+          <div className="text-[11px] font-semibold text-teal-400 mb-1">Vendor Term Opportunity · {vendor.estimatedCashBenefit}</div>
+          <div className="text-[12px] text-slate-300 mb-1.5">{vendor.opportunity}</div>
+          <div className="text-[10px] text-indigo-400">→ {vendor.action}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Agent Card (idle state) ──────────────────────────────────────────────────
 interface AgentConfig {
   id: string;
@@ -757,6 +1102,30 @@ const AGENTS: AgentConfig[] = [
     accentBorder: 'border-indigo-500/20',
     estimatedTime: '~18 seconds',
     outputPreview: ['Opening + closing statement', '6+ talking points', '5+ Q&A pairs', 'Key board asks', 'Do-not-say list'],
+  },
+  {
+    id:           'cfo-scorecard',
+    label:        'CFO Scorecard',
+    tagline:      'Monthly red/yellow/green health check',
+    description:  'Instant financial health dashboard across 8 KPIs — gross margin, EBITDA, retention, concentration, and more — each benchmarked against LMM peers with a specific action for every yellow or red.',
+    emoji:        '📊',
+    accent:       'text-amber-400',
+    accentBg:     'bg-amber-500/8',
+    accentBorder: 'border-amber-500/20',
+    estimatedTime: '~15 seconds',
+    outputPreview: ['8 KPIs with RED/YELLOW/GREEN status', 'LMM benchmark per KPI', 'Top risks + opportunities', 'CFO priority actions', 'Cash position assessment'],
+  },
+  {
+    id:           'cash-working-capital',
+    label:        'Cash & Working Capital',
+    tagline:      'Know your cash position inside-out',
+    description:  'Deep working capital analysis: DSO/DPO estimates, cash conversion cycle, 13-week outlook, and specific actions to free up cash — without waiting for your accountant.',
+    emoji:        '💵',
+    accent:       'text-teal-400',
+    accentBg:     'bg-teal-500/8',
+    accentBorder: 'border-teal-500/20',
+    estimatedTime: '~15 seconds',
+    outputPreview: ['DSO + DPO estimates', 'Cash conversion cycle', '13-week trend outlook', 'Working capital actions', 'Vendor term opportunities'],
   },
 ];
 
@@ -994,6 +1363,8 @@ export default function AgentPanel({ data, previousData, companyName, companyPro
                   else if (activeAgent === 'growth-playbook') exportGrowthPlaybook(r);
                   else if (activeAgent === 'action-plan') exportActionPlan(r);
                   else if (activeAgent === 'board-prep') exportBoardPrep(r);
+                  else if (activeAgent === 'cfo-scorecard') exportCfoScorecard(r);
+                  else if (activeAgent === 'cash-working-capital') exportCashWorkingCapital(r);
                 }}
                 className="flex items-center gap-1.5 text-[12px] text-slate-500 hover:text-slate-300 border border-slate-800 hover:border-slate-600 px-3 py-1.5 rounded-lg transition-all font-medium">
                 ↓ Export PDF
@@ -1006,10 +1377,12 @@ export default function AgentPanel({ data, previousData, companyName, companyPro
               </button>
             </div>
           </div>
-          {activeAgent === 'exit-readiness' && <ExitReadinessResult result={results[activeAgent]}/>}
-          {activeAgent === 'growth-playbook' && <GrowthPlaybookResult result={results[activeAgent]}/>}
-          {activeAgent === 'action-plan'     && <ActionPlanResult result={results[activeAgent]}/>}
-          {activeAgent === 'board-prep'      && <BoardPrepResult result={results[activeAgent]}/>}
+          {activeAgent === 'exit-readiness'       && <ExitReadinessResult result={results[activeAgent]}/>}
+          {activeAgent === 'growth-playbook'      && <GrowthPlaybookResult result={results[activeAgent]}/>}
+          {activeAgent === 'action-plan'          && <ActionPlanResult result={results[activeAgent]}/>}
+          {activeAgent === 'board-prep'           && <BoardPrepResult result={results[activeAgent]}/>}
+          {activeAgent === 'cfo-scorecard'        && <CfoScorecardResult result={results[activeAgent]}/>}
+          {activeAgent === 'cash-working-capital' && <CashWorkingCapitalResult result={results[activeAgent]}/>}
         </div>
       ) : (
         /* Agent cards grid */
