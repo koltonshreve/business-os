@@ -5,6 +5,7 @@ import { useRouter } from 'next/router';
 import type { UnifiedBusinessData, KPIDashboard, WeeklyInsight, BoardDeck, Goals, Budget, CustomKPI, OnboardingData } from '../types';
 import { DEMO_CUSTOMERS } from '../lib/demo-customers';
 import { loadSession, saveSession, defaultSession } from '../lib/plan';
+import { getLS } from '../lib/storage';
 import { loadAuthSession, signOut, authHeaders } from '../lib/auth';
 import KPIGrid from '../components/dashboard/KPIGrid';
 import AlertFeed from '../components/dashboard/AlertFeed';
@@ -70,37 +71,64 @@ function TabSkeleton() {
 const SKELETON = { loading: TabSkeleton };
 
 // ── Dynamic imports (code-split heavy/tab-specific components) ────────────────
-const RevenueChart        = dynamic(() => import('../components/charts/RevenueChart'),                     { ssr: false });
-const CostBreakdownChart  = dynamic(() => import('../components/charts/CostBreakdownChart'),               { ssr: false });
-const CustomerMetricsChart= dynamic(() => import('../components/charts/CustomerMetricsChart'),             { ssr: false });
+const RevenueChart        = dynamic(() => import('../components/charts/RevenueChart'),                     { ...SKELETON, ssr: false });
+const CostBreakdownChart  = dynamic(() => import('../components/charts/CostBreakdownChart'),               { ...SKELETON, ssr: false });
+const CustomerMetricsChart= dynamic(() => import('../components/charts/CustomerMetricsChart'),             { ...SKELETON, ssr: false });
 const FinancialDashboard  = dynamic(() => import('../components/dashboard/FinancialDashboard'),            { ...SKELETON, ssr: false });
 const CustomerDashboard   = dynamic(() => import('../components/dashboard/CustomerDashboard'),             { ...SKELETON, ssr: false });
 const OperationsDashboard = dynamic(() => import('../components/dashboard/OperationsDashboard'),           { ...SKELETON, ssr: false });
 const IntelligenceDashboard=dynamic(() => import('../components/dashboard/IntelligenceDashboard'),        { ...SKELETON, ssr: false });
 const DataSourcePanel     = dynamic(() => import('../components/dashboard/DataSourcePanel'),               { ...SKELETON, ssr: false });
 const ScenarioModeler     = dynamic(() => import('../components/dashboard/ScenarioModeler'),               { ...SKELETON, ssr: false });
-const CustomKPIPanel      = dynamic(() => import('../components/dashboard/CustomKPIPanel'),                { ssr: false });
-const TrendSignalsPanel   = dynamic(() => import('../components/dashboard/TrendSignalsPanel'),             { ssr: false });
-const TransactionLedger   = dynamic(() => import('../components/dashboard/TransactionLedger'),             { ssr: false });
-const MetricThresholdsPanel=dynamic(() => import('../components/dashboard/MetricThresholdsPanel'),        { ssr: false });
-const AgentPanel          = dynamic(() => import('../components/dashboard/AgentPanel'),                    { ssr: false });
-const IndustryBenchmarksPanel=dynamic(() => import('../components/dashboard/IndustryBenchmarksPanel'),    { ssr: false });
-const PLStatement         = dynamic(() => import('../components/PLStatement'),                             { ssr: false });
-const BudgetPanel         = dynamic(() => import('../components/dashboard/BudgetPanel'),                   { ssr: false });
+const CustomKPIPanel      = dynamic(() => import('../components/dashboard/CustomKPIPanel'),                { ...SKELETON, ssr: false });
+const TrendSignalsPanel   = dynamic(() => import('../components/dashboard/TrendSignalsPanel'),             { ...SKELETON, ssr: false });
+const TransactionLedger   = dynamic(() => import('../components/dashboard/TransactionLedger'),             { ...SKELETON, ssr: false });
+const MetricThresholdsPanel=dynamic(() => import('../components/dashboard/MetricThresholdsPanel'),        { ...SKELETON, ssr: false });
+const AgentPanel          = dynamic(() => import('../components/dashboard/AgentPanel'),                    { ...SKELETON, ssr: false });
+const IndustryBenchmarksPanel=dynamic(() => import('../components/dashboard/IndustryBenchmarksPanel'),    { ...SKELETON, ssr: false });
+const PLStatement         = dynamic(() => import('../components/PLStatement'),                             { ...SKELETON, ssr: false });
+const BudgetPanel         = dynamic(() => import('../components/dashboard/BudgetPanel'),                   { ...SKELETON, ssr: false });
 const KanbanBoard         = dynamic(() => import('../components/crm/KanbanBoard'),                         { ...SKELETON, ssr: false });
 const AutomationBuilder   = dynamic(() => import('../components/automation/AutomationBuilder'),             { ...SKELETON, ssr: false });
 const AcquisitionPipeline = dynamic(() => import('../components/acquisition/AcquisitionPipeline'),         { ...SKELETON, ssr: false });
 const GoalEngine          = dynamic(() => import('../components/goals/GoalEngine'),                        { ...SKELETON, ssr: false });
-const DecisionEngine      = dynamic(() => import('../components/intelligence/DecisionEngine'),             { ssr: false });
+const DecisionEngine      = dynamic(() => import('../components/intelligence/DecisionEngine'),             { ...SKELETON, ssr: false });
 const TeamFeed            = dynamic(() => import('../components/team/TeamFeed'),                           { ...SKELETON, ssr: false });
 const CashRunway          = dynamic(() => import('../components/dashboard/CashRunway'),                    { ...SKELETON, ssr: false });
+const CashFlowForecast       = dynamic(() => import('../components/dashboard/CashFlowForecast'),            { ...SKELETON, ssr: false });
+const CustomerChurnRisk      = dynamic(() => import('../components/dashboard/CustomerChurnRisk'),           { ...SKELETON, ssr: false });
+const ProfitabilityWaterfall = dynamic(() => import('../components/dashboard/ProfitabilityWaterfall'),      { ...SKELETON, ssr: false });
+const FinancialRatiosPanel   = dynamic(() => import('../components/dashboard/FinancialRatiosPanel'),        { ...SKELETON, ssr: false });
+const WorkingCapitalTracker   = dynamic(() => import('../components/dashboard/WorkingCapitalTracker'),       { ...SKELETON, ssr: false });
+const RecurringRevenuePanel   = dynamic(() => import('../components/dashboard/RecurringRevenuePanel'),       { ...SKELETON, ssr: false });
+const ExecutiveSnapshot       = dynamic(() => import('../components/dashboard/ExecutiveSnapshot'),           { ...SKELETON, ssr: false });
+const MAReadinessScore        = dynamic(() => import('../components/dashboard/MAReadinessScore'),              { ...SKELETON, ssr: false });
+const ValueCreationScorecard  = dynamic(() => import('../components/dashboard/ValueCreationScorecard'),        { ...SKELETON, ssr: false });
+const DebtTracker             = dynamic(() => import('../components/dashboard/DebtTracker'),                   { ...SKELETON, ssr: false });
+const ProductLineMargin       = dynamic(() => import('../components/dashboard/ProductLineMargin'),             { ...SKELETON, ssr: false });
+const ContractRenewalCalendar = dynamic(() => import('../components/dashboard/ContractRenewalCalendar'),       { ...SKELETON, ssr: false });
+const PricingIntelligence     = dynamic(() => import('../components/dashboard/PricingIntelligence'),           { ...SKELETON, ssr: false });
+const TaxEstimator            = dynamic(() => import('../components/dashboard/TaxEstimator'),                  { ...SKELETON, ssr: false });
+const GrossMarginBridge       = dynamic(() => import('../components/dashboard/GrossMarginBridge'),             { ...SKELETON, ssr: false });
+const RiskRegister            = dynamic(() => import('../components/dashboard/RiskRegister'),                  { ...SKELETON, ssr: false });
+const InsuranceTracker          = dynamic(() => import('../components/dashboard/InsuranceTracker'),             { ...SKELETON, ssr: false });
+const EmployeeRetentionTracker  = dynamic(() => import('../components/dashboard/EmployeeRetentionTracker'),      { ...SKELETON, ssr: false });
+const OwnerCompPlanner          = dynamic(() => import('../components/dashboard/OwnerCompPlanner'),              { ...SKELETON, ssr: false });
+const PriceIncreaseSimulator    = dynamic(() => import('../components/dashboard/PriceIncreaseSimulator'),        { ...SKELETON, ssr: false });
+const JobProfitabilityTracker   = dynamic(() => import('../components/dashboard/JobProfitabilityTracker'),       { ...SKELETON, ssr: false });
+const MarketingChannelTracker   = dynamic(() => import('../components/dashboard/MarketingChannelTracker'),       { ...SKELETON, ssr: false });
+const BonusPoolPlanner          = dynamic(() => import('../components/dashboard/BonusPoolPlanner'),              { ...SKELETON, ssr: false });
+const ExpenseLineItemTracker    = dynamic(() => import('../components/dashboard/ExpenseLineItemTracker'),         { ...SKELETON, ssr: false });
+const HeadcountPlanner        = dynamic(() => import('../components/dashboard/HeadcountPlanner'),               { ...SKELETON, ssr: false });
+const CapacityPlanningModel   = dynamic(() => import('../components/dashboard/CapacityPlanningModel'),          { ...SKELETON, ssr: false });
 const TaskBoard           = dynamic(() => import('../components/tasks/TaskBoard'),                         { ...SKELETON, ssr: false });
 const DealList            = dynamic(() => import('../components/deals/DealList'),                          { ...SKELETON, ssr: false });
+const DealAnalytics       = dynamic(() => import('../components/deals/DealAnalytics'),                      { ...SKELETON, ssr: false });
 const SupplierDashboard   = dynamic(() => import('../components/dashboard/SupplierDashboard'),              { ...SKELETON, ssr: false });
 const SKUAnalyzer         = dynamic(() => import('../components/dashboard/SKUAnalyzer'),                    { ...SKELETON, ssr: false });
 const CapacityAnalyzer    = dynamic(() => import('../components/dashboard/CapacityAnalyzer'),                { ...SKELETON, ssr: false });
 const CapitalImpactSummary= dynamic(() => import('../components/dashboard/CapitalImpactSummary'),             { ...SKELETON, ssr: false });
-const BenchmarkFeed       = dynamic(() => import('../components/dashboard/BenchmarkFeed'),                    { ssr: false });
+const BenchmarkFeed       = dynamic(() => import('../components/dashboard/BenchmarkFeed'),                    { ...SKELETON, ssr: false });
 const ValuationEstimator  = dynamic(() => import('../components/dashboard/ValuationEstimator'),               { ...SKELETON, ssr: false });
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -952,8 +980,8 @@ const PREV_DEMO: UnifiedBusinessData = {
   ],
 };
 
-const DEMO_SNAPSHOT: PeriodSnapshot = { id: 'demo', label: 'Q2 2026 (Demo)', data: DEMO_DATA, createdAt: new Date().toISOString() };
-const PREV_SNAPSHOT: PeriodSnapshot = { id: 'prev-demo', label: 'H2 2025 (Demo)', data: PREV_DEMO, createdAt: new Date().toISOString() };
+const DEMO_SNAPSHOT: PeriodSnapshot = { id: 'demo', label: 'Sample Data', data: DEMO_DATA, createdAt: new Date().toISOString() };
+const PREV_SNAPSHOT: PeriodSnapshot = { id: 'prev-demo', label: 'Prior Period Sample', data: PREV_DEMO, createdAt: new Date().toISOString() };
 
 // ── Goals Panel ───────────────────────────────────────────────────────────────
 type GoalKey = keyof Goals;
@@ -2848,7 +2876,7 @@ export default function BusinessOS() {
     setAuthEmail('');
   }
 
-  const [activeView, setActiveView]             = useState<ActiveView>('deals');
+  const [activeView, setActiveView]             = useState<ActiveView>('overview');
   const [jumpDealId, setJumpDealId]             = useState<string | null>(null);
   const [snapshots, setSnapshots]               = useState<PeriodSnapshot[]>([DEMO_SNAPSHOT, PREV_SNAPSHOT]);
   const [activeSnapshotId, setActiveSnapshotId] = useState(DEMO_SNAPSHOT.id);
@@ -2860,7 +2888,7 @@ export default function BusinessOS() {
   const [alerts, setAlerts]                     = useState<{ severity: string; title: string; message: string; action: string }[]>([]);
   const [loading, setLoading]                   = useState<string | null>(null);
   const [toasts, setToasts]                     = useState<ToastItem[]>([]);
-  const [companyName, setCompanyName]           = useState('Apex Advisory Group');
+  const [companyName, setCompanyName]           = useState('My Company');
   const [chatOpen, setChatOpen]                 = useState(false);
   const [chatInitialMsg, setChatInitialMsg]     = useState<string | undefined>(undefined);
   const [mobileNavOpen, setMobileNavOpen]       = useState(false);
@@ -2902,6 +2930,20 @@ export default function BusinessOS() {
   const [scenarioAdj, setScenarioAdj] = useState<ScenarioAdjustment | null>(null);
 
   // ── Lifted IIFE states (avoid hooks-in-conditional error #310) ──────────────
+  // Financial tab sub-navigation
+  const [finTab, setFinTab] = useState<'pl'|'revenue'|'costs'|'pricing'|'owner'|'analysis'>('pl');
+  // Customers tab sub-navigation
+  const [custTab, setCustTab] = useState<'overview'|'health'>('overview');
+  // Operations tab sub-navigation
+  const [opsTab, setOpsTab] = useState<'overview'|'workforce'|'capacity'|'tools'>('overview');
+  // Intelligence tab sub-navigation
+  const [intellTab, setIntellTab] = useState<'reports'|'strategy'|'investor'>('reports');
+  // Goals tab sub-navigation
+  const [goalsTab, setGoalsTab] = useState<'goals'|'risk'>('goals');
+  const [pipelineTab, setPipelineTab] = useState<'pipeline'|'analytics'|'tools'>('pipeline');
+  const [teamTab, setTeamTab] = useState<'overview'|'compensation'|'milestones'>('overview');
+  const [cashTab, setCashTab] = useState<'overview'|'forecast'>('overview');
+  const [dealsTab, setDealsTab] = useState<'deals'|'pricing'|'marketing'>('deals');
   // Pricing Power Analyzer (Financial tab)
   const [pricingAnswer, setPricingAnswer] = useState('');
   const [pricingLoading, setPricingLoading] = useState(false);
@@ -2913,6 +2955,8 @@ export default function BusinessOS() {
   const [investorDraft, setInvestorDraft] = useState('');
   const [investorDraftLoading, setInvestorDraftLoading] = useState(false);
   const [investorAudience, setInvestorAudience] = useState<'lp'|'board'|'pe'>('board');
+  const [investorEmailSending, setInvestorEmailSending] = useState(false);
+  const [investorEmailStatus, setInvestorEmailStatus] = useState<'idle'|'ok'|'err'>('idle');
   // Deal Sourcing Brief (Acquisitions tab)
   const [dealBrief, setDealBrief] = useState('');
   const [dealBriefLoading, setDealBriefLoading] = useState(false);
@@ -3049,72 +3093,301 @@ export default function BusinessOS() {
         }
       }
     }
-    // Seed demo localStorage data on first visit (so Customer, NPS, Add-back, Qual QoE sections have content)
-    if (!localStorage.getItem('bos_demo_seeded_v2')) {
+    // Seed demo localStorage data on first visit (all dashboard components have example data)
+    if (!localStorage.getItem('bos_demo_seeded_v4')) {
       try {
         // NPS history
-        if (!localStorage.getItem('bos_nps_history')) {
-          localStorage.setItem('bos_nps_history', JSON.stringify([
-            { date: '2025-10-01', score: 44, respondents: 28, notes: 'Q3 survey — slower response times flagged' },
-            { date: '2025-12-15', score: 48, respondents: 31, notes: 'Q4 survey — improvement in deliverable quality' },
-            { date: '2026-03-01', score: 52, respondents: 35, notes: 'Q1 2026 — new client portal well received' },
-            { date: '2026-06-15', score: 56, respondents: 38, notes: 'Q2 2026 — all-time high, added exec sponsor program' },
-          ]));
-        }
-        // Contract renewals
-        if (!localStorage.getItem('bos_contracts')) {
-          localStorage.setItem('bos_contracts', JSON.stringify([
-            { id: 'c1', customer: 'Acme Corp',              revenue: 228000, renewalDate: '2026-09-30', status: 'renewing',   notes: 'Multi-year preferred — likely expand scope' },
-            { id: 'c2', customer: 'Pinnacle Manufacturing',  revenue: 192000, renewalDate: '2026-08-15', status: 'at-risk',    notes: 'CFO change — confirm relationship with new contact' },
-            { id: 'c3', customer: 'Summit Capital Partners', revenue: 168000, renewalDate: '2026-10-31', status: 'renewing',   notes: 'Signed LOI for 3-year deal' },
-            { id: 'c4', customer: 'Metro Health Partners',   revenue: 144000, renewalDate: '2026-12-31', status: 'negotiating',notes: 'Expanded scope under discussion' },
-            { id: 'c5', customer: 'Global Logistics LLC',    revenue: 132000, renewalDate: '2026-11-30', status: 'renewing',   notes: 'Phase 3 in scope — auto-renew clause' },
-            { id: 'c6', customer: 'Beta Industries',         revenue: 96000,  renewalDate: '2026-07-31', status: 'at-risk',    notes: 'Budget freeze Q3 — escalate to CEO' },
-          ]));
-        }
+        localStorage.setItem('bos_nps_history', JSON.stringify([
+          { date: '2025-10-01', score: 44, respondents: 28, notes: 'Q3 survey — slower response times flagged' },
+          { date: '2025-12-15', score: 48, respondents: 31, notes: 'Q4 survey — improvement in deliverable quality' },
+          { date: '2026-03-01', score: 52, respondents: 35, notes: 'Q1 2026 — new client portal well received' },
+          { date: '2026-06-15', score: 56, respondents: 38, notes: 'Q2 2026 — all-time high, added exec sponsor program' },
+        ]));
+        // Contract renewals (inline tracker in Customers tab)
+        localStorage.setItem('bos_contracts', JSON.stringify([
+          { id: 'c1', customer: 'Acme Corp',              revenue: 228000, renewalDate: '2026-09-30', status: 'renewing',   notes: 'Multi-year preferred — likely expand scope' },
+          { id: 'c2', customer: 'Pinnacle Manufacturing',  revenue: 192000, renewalDate: '2026-08-15', status: 'at-risk',    notes: 'CFO change — confirm relationship with new contact' },
+          { id: 'c3', customer: 'Summit Capital Partners', revenue: 168000, renewalDate: '2026-10-31', status: 'renewing',   notes: 'Signed LOI for 3-year deal' },
+          { id: 'c4', customer: 'Metro Health Partners',   revenue: 144000, renewalDate: '2026-12-31', status: 'negotiating',notes: 'Expanded scope under discussion' },
+          { id: 'c5', customer: 'Global Logistics LLC',    revenue: 132000, renewalDate: '2026-11-30', status: 'renewing',   notes: 'Phase 3 in scope — auto-renew clause' },
+          { id: 'c6', customer: 'Beta Industries',         revenue: 96000,  renewalDate: '2026-07-31', status: 'at-risk',    notes: 'Budget freeze Q3 — escalate to CEO' },
+        ]));
+        // ContractRenewalCalendar component (separate key)
+        localStorage.setItem('bos_contract_renewals', JSON.stringify([
+          { id: 'cr1', customer: 'Acme Corp',              arr: 228000, renewalDate: '2026-09-30', status: 'active',   daysNotice: 60, notes: 'Auto-renew unless cancelled 60 days out' },
+          { id: 'cr2', customer: 'Pinnacle Manufacturing',  arr: 192000, renewalDate: '2026-08-15', status: 'at-risk', daysNotice: 30, notes: 'New CFO reviewing vendor contracts' },
+          { id: 'cr3', customer: 'Summit Capital Partners', arr: 168000, renewalDate: '2026-10-31', status: 'active',  daysNotice: 60, notes: '3-year renewal LOI signed' },
+          { id: 'cr4', customer: 'Metro Health Partners',   arr: 144000, renewalDate: '2026-12-31', status: 'active',  daysNotice: 90, notes: 'Expanded scope in negotiation' },
+          { id: 'cr5', customer: 'Global Logistics LLC',    arr: 132000, renewalDate: '2026-11-30', status: 'active',  daysNotice: 30, notes: 'Phase 3 auto-renew clause' },
+          { id: 'cr6', customer: 'Beta Industries',         arr: 96000,  renewalDate: '2026-07-31', status: 'at-risk', daysNotice: 30, notes: 'Q3 budget freeze — escalate to CEO' },
+        ]));
         // Add-back tracker
-        if (!localStorage.getItem('bos_addbacks')) {
-          localStorage.setItem('bos_addbacks', JSON.stringify([
-            { id: 'ab1', category: 'owner_comp',    description: 'Owner salary above market CEO comp', amount: 95000,  oneTime: false, notes: 'Market rate ~$185k vs $280k paid' },
-            { id: 'ab2', category: 'non_recurring', description: 'M&A legal & advisory fees (one-time)', amount: 42000, oneTime: true,  notes: 'Q1 2026 target evaluation costs' },
-            { id: 'ab3', category: 'non_cash',      description: 'Depreciation & amortization',         amount: 28000,  oneTime: false, notes: 'Software capitalization amortization' },
-            { id: 'ab4', category: 'related_party', description: 'Owner vehicle — above arm\'s length',  amount: 14400,  oneTime: false, notes: '$1,200/mo personal vehicle on P&L' },
-            { id: 'ab5', category: 'non_recurring', description: 'Office relocation costs',              amount: 18500,  oneTime: true,  notes: 'One-time move to downtown office Feb 2026' },
+        localStorage.setItem('bos_addbacks', JSON.stringify([
+          { id: 'ab1', category: 'owner_comp',    description: 'Owner salary above market CEO comp', amount: 95000,  oneTime: false, notes: 'Market rate ~$185k vs $280k paid' },
+          { id: 'ab2', category: 'non_recurring', description: 'M&A legal & advisory fees (one-time)', amount: 42000, oneTime: true,  notes: 'Q1 2026 target evaluation costs' },
+          { id: 'ab3', category: 'non_cash',      description: 'Depreciation & amortization',         amount: 28000,  oneTime: false, notes: 'Software capitalization amortization' },
+          { id: 'ab4', category: 'related_party', description: 'Owner vehicle — above arm\'s length',  amount: 14400,  oneTime: false, notes: '$1,200/mo personal vehicle on P&L' },
+          { id: 'ab5', category: 'non_recurring', description: 'Office relocation costs',              amount: 18500,  oneTime: true,  notes: 'One-time move to downtown office Feb 2026' },
+        ]));
+        // Qualitative Q of E
+        const qualRatings: Record<string,string> = {
+          recurring: 'yellow', multiyear: 'green',  diversified: 'yellow', growing_rev: 'green',  backlog: 'green',
+          mgmt_depth: 'yellow', owner_dep: 'red',   retention: 'green',   mgmt_stay: 'green',
+          audited: 'yellow',   gaap: 'green',       ar_quality: 'green',  margin_stable: 'green',
+          sops: 'yellow',      systems: 'green',    scalable: 'yellow',
+          market_growth: 'green', moat: 'yellow',   regulatory: 'green',
+        };
+        localStorage.setItem('bos_qual_qoe', JSON.stringify([
+          { id: 'recurring',     group: 'Revenue Quality',   label: 'High recurring revenue',            hint: '>70% subscription/contract/retainer',   rating: qualRatings['recurring'] },
+          { id: 'multiyear',     group: 'Revenue Quality',   label: 'Multi-year contracts in place',     hint: 'Signed agreements with >1yr remaining', rating: qualRatings['multiyear'] },
+          { id: 'diversified',   group: 'Revenue Quality',   label: 'Diversified customer base',         hint: 'No single customer >15% of revenue',   rating: qualRatings['diversified'] },
+          { id: 'growing_rev',   group: 'Revenue Quality',   label: 'Revenue growth trend',              hint: 'YoY revenue growing for 2+ years',     rating: qualRatings['growing_rev'] },
+          { id: 'backlog',       group: 'Revenue Quality',   label: 'Backlog / contracted pipeline',     hint: 'Visible forward revenue >3 months',    rating: qualRatings['backlog'] },
+          { id: 'mgmt_depth',    group: 'Management',        label: 'Strong #2 leadership',              hint: 'Non-owner GM/COO running day-to-day',  rating: qualRatings['mgmt_depth'] },
+          { id: 'owner_dep',     group: 'Management',        label: 'Low owner dependency',              hint: 'Business runs without owner in sales/ops', rating: qualRatings['owner_dep'] },
+          { id: 'retention',     group: 'Management',        label: 'Low key-person turnover',           hint: 'Core team has been stable 3+ years',   rating: qualRatings['retention'] },
+          { id: 'mgmt_stay',     group: 'Management',        label: 'Management willing to stay',        hint: 'Leadership committed post-close',       rating: qualRatings['mgmt_stay'] },
+          { id: 'audited',       group: 'Financial Quality', label: 'Audited or reviewed financials',    hint: 'CPA-prepared with at least a review',  rating: qualRatings['audited'] },
+          { id: 'gaap',          group: 'Financial Quality', label: 'Clean GAAP accounting',             hint: 'No revenue recognition issues',         rating: qualRatings['gaap'] },
+          { id: 'ar_quality',    group: 'Financial Quality', label: 'Clean AR aging',                    hint: '<15% AR over 90 days past due',         rating: qualRatings['ar_quality'] },
+          { id: 'margin_stable', group: 'Financial Quality', label: 'Stable or improving margins',       hint: 'GM% consistent or trending up 2+ years',rating: qualRatings['margin_stable'] },
+          { id: 'sops',          group: 'Operations',        label: 'Documented SOPs / processes',       hint: 'Written playbooks for key functions',   rating: qualRatings['sops'] },
+          { id: 'systems',       group: 'Operations',        label: 'Modern tech & systems',             hint: 'CRM, ERP, or PM tools in active use',  rating: qualRatings['systems'] },
+          { id: 'scalable',      group: 'Operations',        label: 'Scalable without linear headcount', hint: 'Revenue can grow faster than headcount',rating: qualRatings['scalable'] },
+          { id: 'market_growth', group: 'Market',            label: 'Growing addressable market',        hint: 'Industry tailwinds / favorable macro',  rating: qualRatings['market_growth'] },
+          { id: 'moat',          group: 'Market',            label: 'Defensible competitive moat',       hint: 'Switching costs, brand, IP, or network',rating: qualRatings['moat'] },
+          { id: 'regulatory',    group: 'Market',            label: 'Low regulatory / litigation risk',  hint: 'No pending suits or compliance issues', rating: qualRatings['regulatory'] },
+        ]));
+        // Debt Tracker
+        localStorage.setItem('bos_debt_tracker', JSON.stringify([
+          { id: 'l1', name: 'SBA 7(a) Term Loan', lender: 'First National Bank', type: 'sba-7a', originalBalance: 450000, currentBalance: 264000, interestRate: 5.75, monthlyPayment: 8640, maturityDate: '2028-06', covenantDSCR: 1.25, covenantLeverage: 3.5, notes: 'Primary acquisition financing, balloon payment 2028' },
+          { id: 'l2', name: 'Equipment Line — Server Hardware', lender: 'Commerce Credit', type: 'equipment', originalBalance: 82000, currentBalance: 48000, interestRate: 7.2, monthlyPayment: 1720, maturityDate: '2027-03', notes: 'Dell server farm + network infrastructure' },
+          { id: 'l3', name: 'Operating Line of Credit', lender: 'First National Bank', type: 'revolver', originalBalance: 200000, currentBalance: 0, interestRate: 8.5, monthlyPayment: 0, maturityDate: '2027-01', notes: 'Unused — available for seasonal working capital draws' },
+        ]));
+        // Insurance Tracker
+        localStorage.setItem('bos_insurance', JSON.stringify([
+          { id: 'i1', type: 'general-liability',      carrier: 'Travelers',         coverageLimit: 2000000, annualPremium: 4800,  deductible: 5000,  renewalDate: '2026-11-01', status: 'active',    notes: 'BOP bundled policy' },
+          { id: 'i2', type: 'professional-liability', carrier: 'Chubb',             coverageLimit: 3000000, annualPremium: 8200,  deductible: 10000, renewalDate: '2026-10-15', status: 'active',    notes: 'E&O for advisory and consulting services' },
+          { id: 'i3', type: 'cyber',                  carrier: 'Coalition',         coverageLimit: 1000000, annualPremium: 3600,  deductible: 25000, renewalDate: '2026-09-30', status: 'expiring',  notes: 'Review coverage limits — grew 40% since last renewal' },
+          { id: 'i4', type: 'workers-comp',           carrier: 'State Compensation', coverageLimit: 1000000, annualPremium: 6400,  deductible: 1000,  renewalDate: '2027-01-01', status: 'active',    notes: '14 employees — class code 8810' },
+          { id: 'i5', type: 'commercial-property',    carrier: 'Travelers',         coverageLimit: 500000,  annualPremium: 2200,  deductible: 5000,  renewalDate: '2026-11-01', status: 'active',    notes: 'Leased office — tenant\'s contents only' },
+          { id: 'i6', type: 'key-person-life',        carrier: 'MassMutual',        coverageLimit: 2000000, annualPremium: 4100,  deductible: 0,     renewalDate: '2027-04-01', status: 'active',    notes: 'Founder/CEO — SBA lender requirement' },
+        ]));
+        localStorage.setItem('bos_insurance_settings', JSON.stringify({ annualRevenue: 1228000 }));
+        // Risk Register
+        localStorage.setItem('bos_risk_register', JSON.stringify([
+          { id: 'r1', title: 'Key employee departure — VP Delivery',   category: 'people',      probability: 3, impact: 4, status: 'mitigating', owner: 'CEO',     mitigation: 'Retention bonus in place through 2027; cross-training junior staff',            notes: 'Handles 60% of top client relationships', dueDate: '2026-09-30', nextAction: 'Complete cross-training by Q3' },
+          { id: 'r2', title: 'Customer concentration — Acme Corp 18%', category: 'customer',    probability: 2, impact: 5, status: 'mitigating', owner: 'CEO',     mitigation: 'Active pipeline to reduce Acme below 15%; exec sponsor program for renewal',    notes: 'Contract renewal Q3 2026', dueDate: '2026-08-31', nextAction: 'Close 2 new $100k+ clients by Q4' },
+          { id: 'r3', title: 'Subcontractor capacity crunch (TechAlliance)', category: 'operational', probability: 4, impact: 3, status: 'open',      owner: 'COO',    mitigation: 'Qualify 2 backup vendors; begin in-sourcing senior dev role Q3',               notes: 'Represents 36% of subcontractor spend', dueDate: '2026-07-31', nextAction: 'RFP to 3 alternative firms by July' },
+          { id: 'r4', title: 'Margin pressure from rising labor costs', category: 'financial',   probability: 4, impact: 3, status: 'mitigating', owner: 'CFO',    mitigation: 'Annual price increase 8% Jan 2027; renegotiating subcontractor rates',         notes: 'LMM benchmark GM is 38-44%; we are at 40%', dueDate: '2026-10-01', nextAction: 'Model price increase impact' },
+          { id: 'r5', title: 'Cyber incident — client data exposure',    category: 'technology',  probability: 2, impact: 5, status: 'mitigating', owner: 'CTO',    mitigation: 'SOC 2 Type II in progress; MFA enforced; cyber policy $1M limit',             notes: 'One client contract requires SOC 2 by 2027', dueDate: '2026-12-31', nextAction: 'Complete SOC 2 readiness assessment' },
+          { id: 'r6', title: 'SBA covenant breach — DSCR below 1.25',   category: 'financial',   probability: 2, impact: 4, status: 'open',      owner: 'CFO',    mitigation: 'Monitor monthly; EBITDA at $184k vs $175k minimum trigger',                    notes: 'Current DSCR 1.31x — 6 basis points above floor', dueDate: '2026-09-30', nextAction: 'Review with lender at Q3 call' },
+        ]));
+        // Marketing Channel Tracker
+        localStorage.setItem('bos_marketing_channels', JSON.stringify([
+          { id: 'ch1', name: 'Referrals / Word of Mouth', type: 'referral',     monthlySpend: 0,     leadsGenerated: 4, closeRate: 65, avgDealSize: 185000, active: true },
+          { id: 'ch2', name: 'LinkedIn Outbound',         type: 'outbound',     monthlySpend: 3800,  leadsGenerated: 8, closeRate: 22, avgDealSize: 125000, active: true },
+          { id: 'ch3', name: 'Industry Events',           type: 'events',       monthlySpend: 4200,  leadsGenerated: 3, closeRate: 40, avgDealSize: 210000, active: true },
+          { id: 'ch4', name: 'SEO / Content Blog',        type: 'seo-content',  monthlySpend: 1800,  leadsGenerated: 6, closeRate: 12, avgDealSize: 85000,  active: true },
+          { id: 'ch5', name: 'Partner Referrals',         type: 'partnerships', monthlySpend: 800,   leadsGenerated: 2, closeRate: 55, avgDealSize: 165000, active: true },
+          { id: 'ch6', name: 'Paid Search (Google Ads)',  type: 'paid-search',  monthlySpend: 2400,  leadsGenerated: 5, closeRate: 8,  avgDealSize: 72000,  active: false },
+        ]));
+        // Headcount Planner
+        localStorage.setItem('bos_headcount_plan', JSON.stringify([
+          { id: 'hp1', title: 'Senior Consultant',         department: 'Operations', salary: 115000, startQuarter: 'Q3 2026', status: 'interviewing', revenueImpact: 240000, recruiterFee: 0, rampMonths: 3 },
+          { id: 'hp2', title: 'Account Executive',         department: 'Sales',      salary: 80000,  startQuarter: 'Q3 2026', status: 'offer-out',    revenueImpact: 350000, recruiterFee: 12000, rampMonths: 6 },
+          { id: 'hp3', title: 'Marketing Manager',         department: 'Marketing',  salary: 90000,  startQuarter: 'Q4 2026', status: 'planned',      revenueImpact: 0,      recruiterFee: 0, rampMonths: 4 },
+          { id: 'hp4', title: 'Junior Analyst',            department: 'Operations', salary: 65000,  startQuarter: 'Q4 2026', status: 'planned',      revenueImpact: 120000, recruiterFee: 0, rampMonths: 3 },
+          { id: 'hp5', title: 'Director of Client Success',department: 'Customer Success', salary: 130000, startQuarter: 'Q1 2027', status: 'on-hold', revenueImpact: 180000, recruiterFee: 19500, rampMonths: 5 },
+        ]));
+        // Employee Retention Tracker
+        localStorage.setItem('bos_employee_depts', JSON.stringify([
+          { id: 'ed1', name: 'Delivery / Operations', headcount: 5,  avgTenureMonths: 38 },
+          { id: 'ed2', name: 'Sales',                 headcount: 3,  avgTenureMonths: 22 },
+          { id: 'ed3', name: 'Engineering',           headcount: 3,  avgTenureMonths: 31 },
+          { id: 'ed4', name: 'G&A / Admin',           headcount: 2,  avgTenureMonths: 48 },
+          { id: 'ed5', name: 'Leadership',            headcount: 1,  avgTenureMonths: 72 },
+        ]));
+        localStorage.setItem('bos_employee_exits', JSON.stringify([
+          { id: 'ex1', month: '2025-09', department: 'Sales',                 reason: 'voluntary',   level: 'mid',    salary: 82000,  tenure: 14 },
+          { id: 'ex2', month: '2025-11', department: 'Delivery / Operations', reason: 'voluntary',   level: 'mid',    salary: 95000,  tenure: 28 },
+          { id: 'ex3', month: '2025-12', department: 'Engineering',           reason: 'voluntary',   level: 'senior', salary: 128000, tenure: 19 },
+          { id: 'ex4', month: '2026-01', department: 'G&A / Admin',          reason: 'involuntary', level: 'mid',    salary: 58000,  tenure: 8  },
+          { id: 'ex5', month: '2026-03', department: 'Sales',                 reason: 'voluntary',   level: 'mid',    salary: 78000,  tenure: 11 },
+          { id: 'ex6', month: '2026-05', department: 'Delivery / Operations', reason: 'voluntary',   level: 'mid',    salary: 105000, tenure: 33 },
+        ]));
+        // Job Profitability Tracker
+        localStorage.setItem('bos_jobs', JSON.stringify([
+          { id: 'j1', name: 'Global Logistics — Ops Transformation Phase 2', client: 'Global Logistics LLC',    type: 'fixed-fee',    status: 'active',    contractRevenue: 220000, billedToDate: 145000, budgetedLaborCost: 88000,  actualLaborCost: 91200,  directExpenses: 8400,  startDate: '2026-03-01', endDate: '2026-09-30', invoiceStatus: 'partial', amountCollected: 120000, notes: 'Phase 2 of 3 — milestone billing' },
+          { id: 'j2', name: 'Metro Health — EHR Implementation',             client: 'Metro Health Partners',  type: 'milestone',    status: 'active',    contractRevenue: 180000, billedToDate: 96000,  budgetedLaborCost: 72000,  actualLaborCost: 68500,  directExpenses: 12200, startDate: '2026-04-15', endDate: '2026-10-31', invoiceStatus: 'sent',    amountCollected: 96000,  notes: '3 of 5 milestones delivered' },
+          { id: 'j3', name: 'Acme Corp — Managed Services Q2',               client: 'Acme Corp',             type: 'retainer',     status: 'active',    contractRevenue: 114000, billedToDate: 114000, budgetedLaborCost: 52000,  actualLaborCost: 49800,  directExpenses: 1200,  startDate: '2026-01-01', endDate: '2026-06-30', invoiceStatus: 'paid',    amountCollected: 114000, notes: 'Ongoing retainer — full margin' },
+          { id: 'j4', name: 'Summit Capital — Strategy Workshop Series',     client: 'Summit Capital Partners',type: 'time-material', status: 'completed', contractRevenue: 88000,  billedToDate: 88000,  budgetedLaborCost: 35000,  actualLaborCost: 38400,  directExpenses: 4800,  startDate: '2026-01-15', endDate: '2026-03-31', invoiceStatus: 'paid',    amountCollected: 88000,  notes: 'Closed — slight labor overrun' },
+          { id: 'j5', name: 'Pinnacle Mfg — Q1 Strategy & Annual Review',    client: 'Pinnacle Manufacturing', type: 'fixed-fee',    status: 'completed', contractRevenue: 103000, billedToDate: 103000, budgetedLaborCost: 42000,  actualLaborCost: 40200,  directExpenses: 2100,  startDate: '2025-11-01', endDate: '2026-03-31', invoiceStatus: 'paid',    amountCollected: 103000, notes: 'On budget — great margin' },
+          { id: 'j6', name: 'Westfield Retail — Digital Strategy',           client: 'Westfield Retail Group', type: 'fixed-fee',    status: 'on-hold',   contractRevenue: 72000,  billedToDate: 18000,  budgetedLaborCost: 28000,  actualLaborCost: 14200,  directExpenses: 1800,  startDate: '2026-04-01', notes: 'Client paused scope review — decision pending Q3' },
+        ]));
+        // Owner Comp Planner draws
+        localStorage.setItem('bos_owner_draws', JSON.stringify([
+          { id: 'od1', date: '2026-01-15', amount: 18000, type: 'owner-salary',   note: 'Jan W-2 salary draw' },
+          { id: 'od2', date: '2026-01-31', amount: 12500, type: 'distribution',   note: 'Q4 2025 distribution final payment' },
+          { id: 'od3', date: '2026-02-15', amount: 18000, type: 'owner-salary',   note: 'Feb W-2 salary draw' },
+          { id: 'od4', date: '2026-03-15', amount: 18000, type: 'owner-salary',   note: 'Mar W-2 salary draw' },
+          { id: 'od5', date: '2026-03-31', amount: 20000, type: 'distribution',   note: 'Q1 distribution — above plan' },
+          { id: 'od6', date: '2026-04-15', amount: 18000, type: 'owner-salary',   note: 'Apr W-2 salary draw' },
+          { id: 'od7', date: '2026-04-15', amount: 4800,  type: 'benefit',        note: 'Health insurance + HSA reimbursement' },
+          { id: 'od8', date: '2026-05-15', amount: 18000, type: 'owner-salary',   note: 'May W-2 salary draw' },
+          { id: 'od9', date: '2026-06-15', amount: 18000, type: 'owner-salary',   note: 'Jun W-2 salary draw' },
+        ]));
+        // Bonus Pool Planner
+        localStorage.setItem('bos_bonus_pool', JSON.stringify({
+          poolMethod: 'pct-ebitda',
+          ebitdaPct: 12,
+          ebitdaThreshold: 150000,
+          fixedPool: 0,
+          depts: [
+            { id: 'd-sales',  name: 'Sales',             headcount: 3, allocated: 32000, paid: 0,     q1: false, q2: false, q3: false, q4: true, gated: false },
+            { id: 'd-ops',    name: 'Delivery / Ops',    headcount: 5, allocated: 48000, paid: 0,     q1: false, q2: false, q3: false, q4: true, gated: false },
+            { id: 'd-eng',    name: 'Engineering',       headcount: 3, allocated: 28000, paid: 14000, q1: false, q2: true,  q3: false, q4: true, gated: false },
+            { id: 'd-admin',  name: 'G&A / Admin',       headcount: 2, allocated: 14400, paid: 0,     q1: false, q2: false, q3: false, q4: true, gated: true  },
+          ],
+        }));
+        // Cash Flow Forecast events
+        localStorage.setItem('bos_cash_events', JSON.stringify([
+          { id: 'ce1', label: 'Q2 Estimated Tax Payment',    month: '2026-06', amount: -18500 },
+          { id: 'ce2', label: 'Annual Insurance Renewals',   month: '2026-10', amount: -24800 },
+          { id: 'ce3', label: 'SBA Balloon Pre-Payment',     month: '2026-12', amount: -36000 },
+          { id: 'ce4', label: 'New Server Purchase',         month: '2026-09', amount: -22000 },
+          { id: 'ce5', label: 'Global Logistics Phase 3 Deposit', month: '2026-08', amount: 75000 },
+        ]));
+        // AP Aging
+        localStorage.setItem('bos_ap_aging', JSON.stringify([
+          { vendor: 'TechAlliance LLC',    current: 28000, days30: 6000,  days60: 0,    days90: 0,    over90: 0    },
+          { vendor: 'ProStaff Group',      current: 24000, days30: 0,     days60: 0,    days90: 0,    over90: 0    },
+          { vendor: 'City Center Realty',  current: 7000,  days30: 0,     days60: 0,    days90: 0,    over90: 0    },
+          { vendor: 'DataEdge Consulting', current: 18000, days30: 12000, days60: 0,    days90: 0,    over90: 0    },
+          { vendor: 'LexCounsel LLC',      current: 4200,  days30: 0,     days60: 3000, days90: 0,    over90: 0    },
+          { vendor: 'DigitalReach Agency', current: 5200,  days30: 0,     days60: 0,    days90: 0,    over90: 0    },
+          { vendor: 'Salesforce',          current: 1200,  days30: 0,     days60: 0,    days90: 0,    over90: 0    },
+          { vendor: 'CloudHost Pro',       current: 980,   days30: 0,     days60: 0,    days90: 0,    over90: 0    },
+        ]));
+        // Cost Reduction Initiatives
+        localStorage.setItem('bos_cost_initiatives', JSON.stringify([
+          { id: 'ci1', name: 'SaaS Stack Audit',           category: 'Technology',  targetSavings: 18000, owner: 'CFO',   status: 'in-progress', actualSavings: 6000  },
+          { id: 'ci2', name: 'Staffing Agency Renegotiate', category: 'Vendor',      targetSavings: 32000, owner: 'COO',   status: 'planned',     actualSavings: 0     },
+          { id: 'ci3', name: 'Office Sublease',             category: 'Facilities',  targetSavings: 48000, owner: 'CEO',   status: 'planned',     actualSavings: 0     },
+          { id: 'ci4', name: 'Benefits Broker Switch',      category: 'Headcount',   targetSavings: 22000, owner: 'HR',    status: 'completed',   actualSavings: 22000 },
+          { id: 'ci5', name: 'Consolidate Marketing Tools', category: 'Technology',  targetSavings: 9600,  owner: 'CMO',   status: 'in-progress', actualSavings: 0     },
+          { id: 'ci6', name: 'Freight Carrier Rebid',       category: 'COGS',        targetSavings: 15000, owner: 'Ops',   status: 'stalled',     actualSavings: 0     },
+        ]));
+        // Vendor Scorecard
+        localStorage.setItem('bos_vendor_scorecard', JSON.stringify([
+          { id: 'v1', name: 'Salesforce',          category: 'Software',               annualSpend: 24000,  rating: 4, renewalDate: '2026-09-30', status: 'active',    notes: 'CRM — evaluate HubSpot alternative' },
+          { id: 'v2', name: 'ProStaff Group',       category: 'Staffing',               annualSpend: 96000,  rating: 3, renewalDate: '2026-12-31', status: 'reviewing', notes: 'Contract labor — pricing above market' },
+          { id: 'v3', name: 'TechAlliance LLC',     category: 'Professional Services',  annualSpend: 72000,  rating: 5, renewalDate: '2027-03-31', status: 'active',    notes: 'IT managed services' },
+          { id: 'v4', name: 'City Center Realty',   category: 'Facilities',             annualSpend: 84000,  rating: 3, renewalDate: '2026-06-30', status: 'at-risk',   notes: 'Lease up — sublease opportunity' },
+          { id: 'v5', name: 'DigitalReach Agency',  category: 'Marketing',              annualSpend: 36000,  rating: 4, renewalDate: '2026-08-31', status: 'active',    notes: 'SEO and content' },
+          { id: 'v6', name: 'CloudHost Pro',        category: 'Software',               annualSpend: 11760,  rating: 4, renewalDate: '2027-01-31', status: 'active',    notes: 'Hosting and CDN' },
+          { id: 'v7', name: 'LexCounsel LLC',       category: 'Professional Services',  annualSpend: 28000,  rating: 4, renewalDate: '',           status: 'active',    notes: 'Outside counsel — M&A and contracts' },
+        ]));
+        localStorage.setItem('bos_demo_seeded_v4', '1');
+      } catch { /* ignore */ }
+    }
+
+    // v5 — seed demo CRM deals for Pipeline analytics
+    if (!localStorage.getItem('bos_demo_seeded_v5')) {
+      try {
+        const now = new Date();
+        const d = (offsetDays: number) => new Date(now.getTime() - offsetDays * 86400000).toISOString();
+        const existingDeals = getLS<unknown[]>('bos_deals', []);
+        if (!existingDeals.length) {
+          localStorage.setItem('bos_deals', JSON.stringify([
+            // Active pipeline
+            { id: 'deal-1', name: 'Managed IT Services Expansion', company: 'Apex Manufacturing', value: 84000,  stage: 'negotiation', probability: 75, closeDate: d(-14), owner: 'Sarah K.', source: 'referral',  createdAt: d(62), updatedAt: d(3)  },
+            { id: 'deal-2', name: 'Annual Compliance Retainer',    company: 'Ridgeline Financial', value: 48000,  stage: 'proposal',    probability: 50, closeDate: d(-7),  owner: 'Mike T.', source: 'outbound', createdAt: d(44), updatedAt: d(8)  },
+            { id: 'deal-3', name: 'HR Software Implementation',    company: 'Crestview Logistics', value: 32000,  stage: 'qualified',   probability: 30, closeDate: d(14),  owner: 'Sarah K.', source: 'inbound',  createdAt: d(28), updatedAt: d(12) },
+            { id: 'deal-4', name: 'Q3 Marketing Campaign',         company: 'BlueStone Retail',    value: 21000,  stage: 'lead',        probability: 15, closeDate: d(30),  owner: 'James L.', source: 'inbound',  createdAt: d(10), updatedAt: d(10) },
+            { id: 'deal-5', name: 'CFO Advisory Package',          company: 'Summit Construction', value: 60000,  stage: 'proposal',    probability: 45, closeDate: d(21),  owner: 'Mike T.', source: 'referral',  createdAt: d(35), updatedAt: d(5)  },
+            { id: 'deal-6', name: 'ERP Integration Project',       company: 'Harmon Industries',   value: 115000, stage: 'negotiation', probability: 80, closeDate: d(-5),  owner: 'Sarah K.', source: 'referral',  createdAt: d(75), updatedAt: d(1)  },
+            // Closed won
+            { id: 'deal-7', name: 'Annual Bookkeeping Services',   company: 'Pinewood Holdings',   value: 36000,  stage: 'closed-won',  probability: 100, closeDate: d(60), owner: 'Sarah K.', source: 'referral',  createdAt: d(120), updatedAt: d(58), lostReason: '' },
+            { id: 'deal-8', name: 'Payroll Processing Contract',   company: 'NorthStar Staffing',  value: 28800,  stage: 'closed-won',  probability: 100, closeDate: d(45), owner: 'Mike T.', source: 'outbound', createdAt: d(90),  updatedAt: d(43), lostReason: '' },
+            { id: 'deal-9', name: 'Tax Planning & Filing',         company: 'Lakeview Partners',   value: 19500,  stage: 'closed-won',  probability: 100, closeDate: d(30), owner: 'James L.', source: 'inbound',  createdAt: d(55),  updatedAt: d(28), lostReason: '' },
+            { id: 'deal-10', name: 'Strategic Growth Roadmap',     company: 'Oakfield Ventures',   value: 54000,  stage: 'closed-won',  probability: 100, closeDate: d(15), owner: 'Sarah K.', source: 'referral',  createdAt: d(70),  updatedAt: d(13), lostReason: '' },
+            { id: 'deal-11', name: 'M&A Due Diligence Support',    company: 'Clearwater Capital',  value: 92000,  stage: 'closed-won',  probability: 100, closeDate: d(8),  owner: 'Mike T.', source: 'referral',  createdAt: d(85),  updatedAt: d(6),  lostReason: '' },
+            // Closed lost
+            { id: 'deal-12', name: 'Cloud Migration Consulting',   company: 'Redwood Systems',     value: 67000,  stage: 'closed-lost', probability: 0, closeDate: d(20),  owner: 'James L.', source: 'outbound', createdAt: d(65),  updatedAt: d(18), lostReason: 'Went with a larger national firm' },
+            { id: 'deal-13', name: 'Fractional CMO Engagement',    company: 'Briar Group',         value: 31200,  stage: 'closed-lost', probability: 0, closeDate: d(35),  owner: 'Sarah K.', source: 'inbound',  createdAt: d(55),  updatedAt: d(33), lostReason: 'Budget cut — revisit Q1' },
           ]));
         }
-        // Qualitative Q of E — set a realistic mix
-        if (!localStorage.getItem('bos_qual_qoe')) {
-          const qualRatings: Record<string,string> = {
-            recurring: 'yellow', multiyear: 'green',  diversified: 'yellow', growing_rev: 'green',  backlog: 'green',
-            mgmt_depth: 'yellow', owner_dep: 'red',   retention: 'green',   mgmt_stay: 'green',
-            audited: 'yellow',   gaap: 'green',       ar_quality: 'green',  margin_stable: 'green',
-            sops: 'yellow',      systems: 'green',    scalable: 'yellow',
-            market_growth: 'green', moat: 'yellow',   regulatory: 'green',
-          };
-          const factors = [
-            { id: 'recurring',     group: 'Revenue Quality',   label: 'High recurring revenue',            hint: '>70% subscription/contract/retainer',   rating: qualRatings['recurring'] },
-            { id: 'multiyear',     group: 'Revenue Quality',   label: 'Multi-year contracts in place',     hint: 'Signed agreements with >1yr remaining', rating: qualRatings['multiyear'] },
-            { id: 'diversified',   group: 'Revenue Quality',   label: 'Diversified customer base',         hint: 'No single customer >15% of revenue',   rating: qualRatings['diversified'] },
-            { id: 'growing_rev',   group: 'Revenue Quality',   label: 'Revenue growth trend',              hint: 'YoY revenue growing for 2+ years',     rating: qualRatings['growing_rev'] },
-            { id: 'backlog',       group: 'Revenue Quality',   label: 'Backlog / contracted pipeline',     hint: 'Visible forward revenue >3 months',    rating: qualRatings['backlog'] },
-            { id: 'mgmt_depth',    group: 'Management',        label: 'Strong #2 leadership',              hint: 'Non-owner GM/COO running day-to-day',  rating: qualRatings['mgmt_depth'] },
-            { id: 'owner_dep',     group: 'Management',        label: 'Low owner dependency',              hint: 'Business runs without owner in sales/ops', rating: qualRatings['owner_dep'] },
-            { id: 'retention',     group: 'Management',        label: 'Low key-person turnover',           hint: 'Core team has been stable 3+ years',   rating: qualRatings['retention'] },
-            { id: 'mgmt_stay',     group: 'Management',        label: 'Management willing to stay',        hint: 'Leadership committed post-close',       rating: qualRatings['mgmt_stay'] },
-            { id: 'audited',       group: 'Financial Quality', label: 'Audited or reviewed financials',    hint: 'CPA-prepared with at least a review',  rating: qualRatings['audited'] },
-            { id: 'gaap',          group: 'Financial Quality', label: 'Clean GAAP accounting',             hint: 'No revenue recognition issues',         rating: qualRatings['gaap'] },
-            { id: 'ar_quality',    group: 'Financial Quality', label: 'Clean AR aging',                    hint: '<15% AR over 90 days past due',         rating: qualRatings['ar_quality'] },
-            { id: 'margin_stable', group: 'Financial Quality', label: 'Stable or improving margins',       hint: 'GM% consistent or trending up 2+ years',rating: qualRatings['margin_stable'] },
-            { id: 'sops',          group: 'Operations',        label: 'Documented SOPs / processes',       hint: 'Written playbooks for key functions',   rating: qualRatings['sops'] },
-            { id: 'systems',       group: 'Operations',        label: 'Modern tech & systems',             hint: 'CRM, ERP, or PM tools in active use',  rating: qualRatings['systems'] },
-            { id: 'scalable',      group: 'Operations',        label: 'Scalable without linear headcount', hint: 'Revenue can grow faster than headcount',rating: qualRatings['scalable'] },
-            { id: 'market_growth', group: 'Market',            label: 'Growing addressable market',        hint: 'Industry tailwinds / favorable macro',  rating: qualRatings['market_growth'] },
-            { id: 'moat',          group: 'Market',            label: 'Defensible competitive moat',       hint: 'Switching costs, brand, IP, or network',rating: qualRatings['moat'] },
-            { id: 'regulatory',    group: 'Market',            label: 'Low regulatory / litigation risk',  hint: 'No pending suits or compliance issues', rating: qualRatings['regulatory'] },
-          ];
-          localStorage.setItem('bos_qual_qoe', JSON.stringify(factors));
+        localStorage.setItem('bos_demo_seeded_v5', '1');
+      } catch { /* ignore */ }
+    }
+
+    // v6 — seed demo tasks (Execute tab standup generator) and sprint board (Goals → 90-Day Sprint)
+    if (!localStorage.getItem('bos_demo_seeded_v6')) {
+      try {
+        const now6 = new Date();
+        const d6 = (offsetDays: number) => new Date(now6.getTime() + offsetDays * 86400000).toISOString().split('T')[0];
+        const dt6 = (offsetDays: number) => new Date(now6.getTime() - offsetDays * 86400000).toISOString();
+
+        // Seed bos_tasks for Standup Generator + AI overview (only if empty)
+        const existingTasks = getLS<unknown[]>('bos_tasks', []);
+        if (!existingTasks.length) {
+          localStorage.setItem('bos_tasks', JSON.stringify([
+            { id: 'task-1', title: 'Review and approve Q2 budget variance report', status: 'done',        assignee: 'you',     dueDate: d6(-3), createdAt: dt6(10), updatedAt: dt6(2) },
+            { id: 'task-2', title: 'Follow up on Apex Manufacturing proposal',      status: 'done',        assignee: 'Sarah K.', dueDate: d6(-1), createdAt: dt6(8),  updatedAt: dt6(1) },
+            { id: 'task-3', title: 'Finalize ERP integration scope with Harmon',    status: 'active',      assignee: 'you',     dueDate: d6(2),  createdAt: dt6(5),  updatedAt: dt6(0) },
+            { id: 'task-4', title: 'Send Q2 investor update to LP group',           status: 'active',      assignee: 'you',     dueDate: d6(4),  createdAt: dt6(3),  updatedAt: dt6(0) },
+            { id: 'task-5', title: 'Hire operations analyst — post job description', status: 'open',        assignee: 'you',     dueDate: d6(7),  createdAt: dt6(2),  updatedAt: dt6(2) },
+            { id: 'task-6', title: 'Renegotiate primary vendor contract (saves ~12%)', status: 'open',      assignee: 'Mike T.', dueDate: d6(10), createdAt: dt6(4),  updatedAt: dt6(4) },
+            { id: 'task-7', title: 'Update commission structure for Q3',            status: 'open',        assignee: 'you',     dueDate: d6(14), createdAt: dt6(1),  updatedAt: dt6(1) },
+            { id: 'task-8', title: 'Integrate Stripe data into dashboard',          status: 'blocked',     assignee: 'you',     dueDate: d6(5),  createdAt: dt6(6),  updatedAt: dt6(0) },
+          ]));
         }
-        localStorage.setItem('bos_demo_seeded_v2', '1');
+
+        // Seed bos_sprint_board for 90-Day Sprint Board (only if empty)
+        const existingSprint = getLS<{initiatives?: unknown[]}|null>('bos_sprint_board', null);
+        if (!existingSprint || !existingSprint.initiatives?.length) {
+          const qtr6 = `Q${Math.ceil((now6.getMonth()+1)/3)} ${now6.getFullYear()}`;
+          localStorage.setItem('bos_sprint_board', JSON.stringify({
+            quarter: qtr6,
+            initiatives: [
+              {
+                id: 'init-1', title: 'Grow revenue to $2.4M run-rate', owner: 'you', status: 'on-track',
+                milestones: [
+                  { id: 'm1a', label: 'Close Apex Manufacturing deal ($84k)', done: false },
+                  { id: 'm1b', label: 'Launch price increase for top 20 accounts', done: false },
+                  { id: 'm1c', label: 'Add 3 new referral partnerships', done: false },
+                ],
+              },
+              {
+                id: 'init-2', title: 'Reduce COGS by 8% through vendor renegotiation', owner: 'Mike T.', status: 'on-track',
+                milestones: [
+                  { id: 'm2a', label: 'Audit top 5 vendor contracts', done: true },
+                  { id: 'm2b', label: 'Renegotiate primary supplier (target -12%)', done: false },
+                  { id: 'm2c', label: 'Consolidate 2 redundant software tools', done: false },
+                ],
+              },
+              {
+                id: 'init-3', title: 'Hire and onboard operations analyst', owner: 'you', status: 'at-risk',
+                milestones: [
+                  { id: 'm3a', label: 'Write and post job description', done: false },
+                  { id: 'm3b', label: 'Complete first-round interviews', done: false },
+                  { id: 'm3c', label: 'Make offer and onboard', done: false },
+                ],
+              },
+              {
+                id: 'init-4', title: 'Implement ERP system for Harmon Industries', owner: 'Sarah K.', status: 'on-track',
+                milestones: [
+                  { id: 'm4a', label: 'Finalize project scope and SOW', done: true },
+                  { id: 'm4b', label: 'Complete data migration planning', done: false },
+                  { id: 'm4c', label: 'Go-live and client sign-off', done: false },
+                ],
+              },
+            ],
+          }));
+        }
+
+        localStorage.setItem('bos_demo_seeded_v6', '1');
       } catch { /* ignore */ }
     }
 
@@ -3166,7 +3439,7 @@ export default function BusinessOS() {
       // Load goals, budget, customKPIs, thresholds from DB prefs (overrides localStorage)
       fetch('/api/user/prefs', { headers: authHeaders() })
         .then(r => r.ok ? r.json() : null)
-        .then((prefs: { goals?: Record<string, number>; budget?: Record<string, unknown>; customKPIs?: CustomKPI[]; thresholds?: Threshold[]; panelNotes?: Record<string, string>; annotations?: Record<string, string> } | null) => {
+        .then((prefs: { goals?: Record<string, number>; budget?: Record<string, unknown>; customKPIs?: CustomKPI[]; thresholds?: Threshold[]; panelNotes?: Record<string, string>; annotations?: Record<string, string>; marketSizing?: Record<string, string>; debtLines?: unknown[]; contracts?: unknown[]; npsHistory?: unknown[]; moatScores?: Record<string, number>; exitReadiness?: Record<string, boolean>; plan100?: unknown[]; sprintBoard?: unknown; costInitiatives?: unknown[]; dataroomChecklist?: Record<string, boolean>; ceoNotes?: Record<string, string> } | null) => {
           if (!prefs) return;
           if (prefs.goals && Object.keys(prefs.goals).length > 0) {
             setGoals(prefs.goals as Record<string, number>);
@@ -3191,6 +3464,41 @@ export default function BusinessOS() {
           if (prefs.annotations && Object.keys(prefs.annotations).length > 0) {
             setAnnotations(prefs.annotations);
             try { localStorage.setItem('bos_annotations', JSON.stringify(prefs.annotations)); } catch { /* ignore */ }
+          }
+          if (prefs.marketSizing && Object.keys(prefs.marketSizing).length > 0) {
+            setMktInputs(prev => ({ ...prev, ...prefs.marketSizing }));
+            try { localStorage.setItem('bos_market_sizing', JSON.stringify(prefs.marketSizing)); } catch { /* ignore */ }
+          }
+          if (Array.isArray(prefs.debtLines) && prefs.debtLines.length > 0) {
+            setDebtLines(prefs.debtLines as typeof debtLines);
+            try { localStorage.setItem('bos_debt_lines', JSON.stringify(prefs.debtLines)); } catch { /* ignore */ }
+          }
+          if (Array.isArray(prefs.contracts) && prefs.contracts.length > 0) {
+            try { localStorage.setItem('bos_contracts', JSON.stringify(prefs.contracts)); } catch { /* ignore */ }
+          }
+          if (Array.isArray(prefs.npsHistory) && prefs.npsHistory.length > 0) {
+            try { localStorage.setItem('bos_nps_history', JSON.stringify(prefs.npsHistory)); } catch { /* ignore */ }
+          }
+          if (prefs.moatScores && Object.keys(prefs.moatScores).length > 0) {
+            try { localStorage.setItem('bos_moat_scores', JSON.stringify(prefs.moatScores)); } catch { /* ignore */ }
+          }
+          if (prefs.exitReadiness && Object.keys(prefs.exitReadiness).length > 0) {
+            try { localStorage.setItem('bos_exit_readiness', JSON.stringify(prefs.exitReadiness)); } catch { /* ignore */ }
+          }
+          if (Array.isArray(prefs.plan100) && prefs.plan100.length > 0) {
+            try { localStorage.setItem('bos_100day_plan', JSON.stringify(prefs.plan100)); } catch { /* ignore */ }
+          }
+          if (prefs.sprintBoard) {
+            try { localStorage.setItem('bos_sprint_board', JSON.stringify(prefs.sprintBoard)); } catch { /* ignore */ }
+          }
+          if (Array.isArray(prefs.costInitiatives) && prefs.costInitiatives.length > 0) {
+            try { localStorage.setItem('bos_cost_initiatives', JSON.stringify(prefs.costInitiatives)); } catch { /* ignore */ }
+          }
+          if (prefs.dataroomChecklist && Object.keys(prefs.dataroomChecklist).length > 0) {
+            try { localStorage.setItem('bos_dataroom_checklist', JSON.stringify(prefs.dataroomChecklist)); } catch { /* ignore */ }
+          }
+          if (prefs.ceoNotes && Object.keys(prefs.ceoNotes).length > 0) {
+            try { localStorage.setItem('bos_ceo_notes', JSON.stringify(prefs.ceoNotes)); } catch { /* ignore */ }
           }
         })
         .catch(() => { /* use localStorage fallback */ });
@@ -3356,6 +3664,23 @@ export default function BusinessOS() {
     }
   }, [addToast]);
 
+  // ── URL hash deep-linking — ?tab=financials or #financials ────────────────
+  const VALID_VIEWS: ActiveView[] = ['deals','today','overview','financial','customers','operations','intelligence','scenarios','data','pipeline','automations','acquisitions','goals','team','cash','execute','suppliers','skus','capacity','purchasing','valuation'];
+  useEffect(() => {
+    // Read initial tab from URL hash or query param on first mount
+    const hash = window.location.hash.replace('#', '');
+    const qTab = router.query.tab as string | undefined;
+    const candidate = (qTab ?? hash) as ActiveView;
+    if (candidate && VALID_VIEWS.includes(candidate)) setActiveView(candidate);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    // Keep URL hash in sync when tab changes (without reloading)
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', `#${activeView}`);
+    }
+  }, [activeView]);
+
   // Derived state
   const activeSnapshot  = snapshots.find(s => s.id === activeSnapshotId) ?? snapshots[0];
   const data            = activeSnapshot.data;
@@ -3406,6 +3731,21 @@ export default function BusinessOS() {
   }, [thresholds, data]);
   const idleDealCount   = idleDeals.crm + idleDeals.acq;
   const triggeredCount  = triggeredAlerts.length + idleDealCount;
+
+  // Email threshold alerts once per session when they first fire (authenticated users only)
+  const emailedAlertKey = React.useRef<string>('');
+  React.useEffect(() => {
+    if (triggeredAlerts.length === 0) return;
+    if (!loadAuthSession()) return;
+    const key = triggeredAlerts.map(a => a.id).sort().join(',');
+    if (emailedAlertKey.current === key) return;
+    emailedAlertKey.current = key;
+    fetch('/api/alerts/email', {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alerts: triggeredAlerts, companyName }),
+    }).catch(() => null);
+  }, [triggeredAlerts, companyName]);
 
   const dismissAlert = useCallback((index: number) => {
     setDismissedAlerts(prev => [...prev, index]);
@@ -3764,29 +4104,37 @@ export default function BusinessOS() {
 
   // Primary: 6 items always visible in header nav
   // Secondary: everything else, exposed via "More ⌄" dropdown
-  const navItems: { id: ActiveView; label: string; Icon: () => JSX.Element; badge?: number; activeClass: string; primary?: boolean }[] = [
+  const navItems: { id: ActiveView; label: string; Icon: () => JSX.Element; badge?: number; activeClass: string; primary?: boolean; group?: string }[] = [
     { id: 'today',         label: 'Today',         Icon: Icons.Today,         activeClass: 'bg-amber-500/15 text-amber-300 border border-amber-500/20',    primary: true },
     { id: 'overview',      label: 'Overview',      Icon: Icons.Overview,      activeClass: 'bg-slate-800/80 text-slate-100',  badge: triggeredCount || undefined, primary: true },
     { id: 'deals',         label: 'Deals',         Icon: Icons.Deals,         activeClass: 'bg-blue-500/15 text-blue-300 border border-blue-500/20',       primary: true },
     { id: 'financial',     label: 'Financial',     Icon: Icons.Financial,     activeClass: 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/20', primary: true },
     { id: 'customers',     label: 'Customers',     Icon: Icons.Customers,     activeClass: 'bg-violet-500/15 text-violet-300 border border-violet-500/20', primary: true },
     { id: 'intelligence',  label: 'Intelligence',  Icon: Icons.Intelligence,  activeClass: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20', badge: highAlerts.length || undefined, primary: true },
-    // ── Secondary ("More" dropdown) ──
-    { id: 'acquisitions',  label: 'Acquisitions',  Icon: Icons.Acquisitions,  activeClass: 'bg-sky-500/15 text-sky-300 border border-sky-500/20' },
-    { id: 'cash',          label: 'Cash',          Icon: Icons.Cash,          activeClass: 'bg-teal-500/15 text-teal-300 border border-teal-500/20' },
-    { id: 'goals',         label: 'Goals',         Icon: Icons.Goals,         activeClass: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20' },
-    { id: 'operations',    label: 'Operations',    Icon: Icons.Operations,    activeClass: 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/20' },
-    { id: 'scenarios',     label: 'Scenarios',     Icon: Icons.Scenarios,     activeClass: 'bg-amber-500/15 text-amber-300 border border-amber-500/20' },
-    { id: 'pipeline',      label: 'CRM',           Icon: Icons.Pipeline,      activeClass: 'bg-sky-500/15 text-sky-300 border border-sky-500/20' },
-    { id: 'execute',       label: 'Execute',       Icon: Icons.Execute,       activeClass: 'bg-orange-500/15 text-orange-300 border border-orange-500/20' },
-    { id: 'automations',   label: 'Automations',   Icon: Icons.Automations,   activeClass: 'bg-rose-500/15 text-rose-300 border border-rose-500/20' },
-    { id: 'team',          label: 'Team',          Icon: Icons.Team,          activeClass: 'bg-violet-500/15 text-violet-300 border border-violet-500/20' },
-    { id: 'suppliers',     label: 'Suppliers',     Icon: Icons.Suppliers,     activeClass: 'bg-lime-500/15 text-lime-300 border border-lime-500/20' },
-    { id: 'skus',          label: 'SKUs',          Icon: Icons.SKUs,          activeClass: 'bg-fuchsia-500/15 text-fuchsia-300 border border-fuchsia-500/20' },
-    { id: 'capacity',      label: 'Capacity',      Icon: Icons.Capacity,      activeClass: 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/20' },
-    { id: 'purchasing',    label: 'Purchasing',    Icon: Icons.Suppliers,     activeClass: 'bg-orange-500/15 text-orange-300 border border-orange-500/20' },
-    { id: 'valuation',     label: 'Valuation',     Icon: Icons.Acquisitions,  activeClass: 'bg-purple-500/15 text-purple-300 border border-purple-500/20' },
-    { id: 'data',          label: 'Data',          Icon: Icons.Data,          activeClass: 'bg-slate-800/80 text-slate-100' },
+    // ── Secondary (grouped in sidebar "Tools" section) ──
+    { id: 'cash',          label: 'Cash',          Icon: Icons.Cash,          activeClass: 'bg-teal-500/15 text-teal-300 border border-teal-500/20',       group: 'finance' },
+    { id: 'scenarios',     label: 'Scenarios',     Icon: Icons.Scenarios,     activeClass: 'bg-amber-500/15 text-amber-300 border border-amber-500/20',    group: 'finance' },
+    { id: 'purchasing',    label: 'Purchasing',    Icon: Icons.Suppliers,     activeClass: 'bg-orange-500/15 text-orange-300 border border-orange-500/20', group: 'finance' },
+    { id: 'valuation',     label: 'Valuation',     Icon: Icons.Acquisitions,  activeClass: 'bg-purple-500/15 text-purple-300 border border-purple-500/20', group: 'finance' },
+    { id: 'operations',    label: 'Operations',    Icon: Icons.Operations,    activeClass: 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/20',       group: 'operations' },
+    { id: 'suppliers',     label: 'Suppliers',     Icon: Icons.Suppliers,     activeClass: 'bg-lime-500/15 text-lime-300 border border-lime-500/20',       group: 'operations' },
+    { id: 'skus',          label: 'SKUs',          Icon: Icons.SKUs,          activeClass: 'bg-fuchsia-500/15 text-fuchsia-300 border border-fuchsia-500/20', group: 'operations' },
+    { id: 'capacity',      label: 'Capacity',      Icon: Icons.Capacity,      activeClass: 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/20',       group: 'operations' },
+    { id: 'pipeline',      label: 'CRM',           Icon: Icons.Pipeline,      activeClass: 'bg-sky-500/15 text-sky-300 border border-sky-500/20',          group: 'growth' },
+    { id: 'acquisitions',  label: 'Acquisitions',  Icon: Icons.Acquisitions,  activeClass: 'bg-sky-500/15 text-sky-300 border border-sky-500/20',          group: 'growth' },
+    { id: 'goals',         label: 'Goals',         Icon: Icons.Goals,         activeClass: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20', group: 'growth' },
+    { id: 'execute',       label: 'Execute',       Icon: Icons.Execute,       activeClass: 'bg-orange-500/15 text-orange-300 border border-orange-500/20', group: 'execution' },
+    { id: 'automations',   label: 'Automations',   Icon: Icons.Automations,   activeClass: 'bg-rose-500/15 text-rose-300 border border-rose-500/20',       group: 'execution' },
+    { id: 'team',          label: 'Team',          Icon: Icons.Team,          activeClass: 'bg-violet-500/15 text-violet-300 border border-violet-500/20', group: 'execution' },
+    { id: 'data',          label: 'Data',          Icon: Icons.Data,          activeClass: 'bg-slate-800/80 text-slate-100',                               group: 'settings' },
+  ];
+
+  const TOOL_GROUPS: { key: string; label: string }[] = [
+    { key: 'finance',    label: 'Finance' },
+    { key: 'operations', label: 'Operations' },
+    { key: 'growth',     label: 'Growth' },
+    { key: 'execution',  label: 'Execution' },
+    { key: 'settings',   label: 'Settings' },
   ];
 
   const pageTitle: Record<ActiveView, string> = {
@@ -3920,11 +4268,6 @@ export default function BusinessOS() {
                 <span className="hidden md:inline text-[11px]">Search</span>
                 <kbd className="text-[10px] font-mono text-slate-600">⌘K</kbd>
               </button>
-              {usingDemo && (
-                <span className="hidden lg:flex items-center gap-1.5 text-[11px] font-medium bg-amber-500/8 text-amber-400/80 border border-amber-500/15 px-2.5 py-[5px] rounded-full">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400/80 animate-pulse"/>Demo
-                </span>
-              )}
               <PeriodSelector snapshots={snapshots} activeId={activeSnapshotId} onSelect={id => { setActiveSnapshotId(id); localStorage.setItem('bos_active_id', id); addToast('info', `Viewing: ${snapshots.find(s => s.id === id)?.label}`); }} onDelete={handleDeleteSnapshot} onRename={handleRenameSnapshot} onDuplicate={handleDuplicateSnapshot}/>
               {snapshots.length >= 2 && (
                 <button
@@ -4049,8 +4392,8 @@ export default function BusinessOS() {
           {/* Mobile nav drawer — shows all sections (bottom tab bar handles primary 5) */}
           {mobileNavOpen && (
             <div className="md:hidden border-t border-slate-800/60 bg-[#060a12]/98 px-3 py-2.5 flex flex-col gap-0.5 animate-fade-in max-h-[70vh] overflow-y-auto">
-              <div className="text-[10px] font-semibold text-slate-700 uppercase tracking-[0.1em] px-3 pt-1 pb-0.5">All Sections</div>
-              {navItems.map(({ id, label, Icon, badge, activeClass }) => (
+              <div className="text-[10px] font-semibold text-slate-700 uppercase tracking-[0.1em] px-3 pt-1 pb-0.5">Main</div>
+              {navItems.filter(n => n.primary).map(({ id, label, Icon, badge, activeClass }) => (
                 <button key={id} onClick={() => { setActiveView(id); setMobileNavOpen(false); if (simpleMode) toggleSimpleMode(); }}
                   className={`flex items-center gap-2.5 px-3 py-3 rounded-xl text-[13px] font-medium transition-all min-h-[44px] ${
                     activeView === id ? activeClass : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/40 border border-transparent'}`}>
@@ -4058,6 +4401,23 @@ export default function BusinessOS() {
                   {badge ? <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ml-auto">{badge}</span> : null}
                 </button>
               ))}
+              {TOOL_GROUPS.map(({ key, label: groupLabel }) => {
+                const groupItems = navItems.filter(n => n.group === key);
+                if (groupItems.length === 0) return null;
+                return (
+                  <React.Fragment key={key}>
+                    <div className="text-[10px] font-semibold text-slate-700 uppercase tracking-[0.1em] px-3 pt-3 pb-0.5">{groupLabel}</div>
+                    {groupItems.map(({ id, label, Icon, badge, activeClass }) => (
+                      <button key={id} onClick={() => { setActiveView(id); setMobileNavOpen(false); if (simpleMode) toggleSimpleMode(); }}
+                        className={`flex items-center gap-2.5 px-3 py-3 rounded-xl text-[13px] font-medium transition-all min-h-[44px] ${
+                          activeView === id ? activeClass : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/40 border border-transparent'}`}>
+                        <Icon/>{label}
+                        {badge ? <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ml-auto">{badge}</span> : null}
+                      </button>
+                    ))}
+                  </React.Fragment>
+                );
+              })}
               {/* Sign out — mobile */}
               <div className="border-t border-slate-800/50 mt-1 pt-1">
                 {authEmail && <div className="px-3 py-1.5 text-[11px] text-slate-600 truncate">{authEmail}</div>}
@@ -4068,6 +4428,11 @@ export default function BusinessOS() {
                   <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-4 h-4 flex-shrink-0"><path d="M5 2H2v10h3M9 4l3 3-3 3M6 7h6"/></svg>
                   Sign out
                 </button>
+                <div className="flex items-center gap-3 px-3 py-2">
+                  <a href="/privacy" className="text-[10px] text-slate-700 hover:text-slate-500 transition-colors">Privacy</a>
+                  <span className="text-slate-800">·</span>
+                  <a href="/terms" className="text-[10px] text-slate-700 hover:text-slate-500 transition-colors">Terms</a>
+                </div>
               </div>
             </div>
           )}
@@ -4096,29 +4461,60 @@ export default function BusinessOS() {
                 </button>
               );
             })}
-            <div className="px-2 pt-3 pb-1.5 text-[9px] font-semibold tracking-widest uppercase text-slate-600">Tools</div>
-            {navItems.filter(n => !n.primary).map(({ id, label, Icon, badge, activeClass }) => {
-              const SideIcon = Icon;
+            {TOOL_GROUPS.map(({ key, label: groupLabel }) => {
+              const groupItems = navItems.filter(n => n.group === key);
+              if (groupItems.length === 0) return null;
               return (
-                <button key={id} onClick={() => { setActiveView(id); if (simpleMode) toggleSimpleMode(); }}
-                  className={`flex items-center gap-2 w-full px-2.5 py-[7px] rounded-lg text-[12px] font-medium transition-all text-left mb-0.5 ${
-                    activeView === id ? activeClass : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/40 border border-transparent'
-                  }`}>
-                  <SideIcon/>
-                  <span className="flex-1 truncate">{label}</span>
-                  {badge ? <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">{badge}</span> : null}
-                </button>
+                <React.Fragment key={key}>
+                  <div className="px-2 pt-3 pb-1 text-[9px] font-semibold tracking-widest uppercase text-slate-700">{groupLabel}</div>
+                  {groupItems.map(({ id, label, Icon, badge, activeClass }) => {
+                    const SideIcon = Icon;
+                    return (
+                      <button key={id} onClick={() => { setActiveView(id); if (simpleMode) toggleSimpleMode(); }}
+                        className={`flex items-center gap-2 w-full px-2.5 py-[7px] rounded-lg text-[12px] font-medium transition-all text-left mb-0.5 ${
+                          activeView === id ? activeClass : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/40 border border-transparent'
+                        }`}>
+                        <SideIcon/>
+                        <span className="flex-1 truncate">{label}</span>
+                        {badge ? <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">{badge}</span> : null}
+                      </button>
+                    );
+                  })}
+                </React.Fragment>
               );
             })}
           </nav>
           {/* Company switcher — pinned to bottom of sidebar */}
           <div className="mt-auto border-t border-slate-800/50 pt-2">
             <CompanySwitcher/>
+            <div className="flex items-center gap-3 px-3 py-2">
+              <a href="/privacy" className="text-[10px] text-slate-700 hover:text-slate-500 transition-colors">Privacy</a>
+              <span className="text-slate-800 text-[10px]">·</span>
+              <a href="/terms" className="text-[10px] text-slate-700 hover:text-slate-500 transition-colors">Terms</a>
+            </div>
           </div>
         </aside>
 
         {/* Content column */}
         <div className="flex-1 min-w-0 flex flex-col" onClick={() => bellOpen && setBellOpen(false)}>
+
+        {/* ── Sample data nudge — shown when viewing demo data ── */}
+        {usingDemo && (
+          <div className="bg-indigo-600/10 border-b border-indigo-500/20 px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3 no-print">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0"/>
+              <span className="text-[12px] text-indigo-300/80 truncate">
+                You&apos;re viewing sample data — upload your own CSV in the <span className="font-semibold">Data</span> tab to see your real numbers.
+              </span>
+            </div>
+            <button
+              onClick={() => setActiveView('data')}
+              className="flex-shrink-0 text-[11px] font-semibold px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors whitespace-nowrap"
+            >
+              Add your data →
+            </button>
+          </div>
+        )}
 
         {/* ── Breadcrumb / page bar ── */}
         <div className="border-b border-slate-800/40 bg-slate-900/15">
@@ -4137,7 +4533,6 @@ export default function BusinessOS() {
                   </span>
                 </>
               )}
-              {usingDemo && <span className="text-[11px] text-amber-400/60 flex-shrink-0">Demo data</span>}
             </div>
             {/* Action buttons */}
             <div className="flex items-center gap-1.5 no-print">
@@ -4289,21 +4684,6 @@ export default function BusinessOS() {
           {companyName} · Business OS Report · {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
         </div>
 
-        {/* ── Demo data banner (non-overview tabs) ── */}
-        {usingDemo && activeView !== 'overview' && activeView !== 'data' && activeView !== 'pipeline' && activeView !== 'automations' && activeView !== 'acquisitions' && activeView !== 'goals' && activeView !== 'team' && activeView !== 'cash' && activeView !== 'execute' && (
-          <div className="no-print border-b border-amber-500/10 bg-amber-500/[0.03]">
-            <div className="px-4 sm:px-6 py-2 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400/70 animate-pulse flex-shrink-0"/>
-                <span className="text-[11px] text-amber-400/70">You're viewing demo data — analysis below reflects simulated numbers</span>
-              </div>
-              <button onClick={() => setActiveView('data')}
-                className="text-[11px] font-semibold text-amber-400/80 hover:text-amber-300 border border-amber-500/20 hover:border-amber-500/40 px-2.5 py-1 rounded-lg transition-all flex-shrink-0 whitespace-nowrap">
-                Use my data →
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* ── Content ── */}
         <main className="px-4 sm:px-6 py-5 sm:py-6 flex-1 w-full pb-20 md:pb-6">
@@ -4435,6 +4815,7 @@ export default function BusinessOS() {
               <DailyBriefing data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} companyName={companyName} onAskAI={openChat} onNavigate={(v) => setActiveView(v as ActiveView)}/>
               <DecisionEngine data={effectiveData} companyName={companyName} onAskAI={openChat} onNavigate={(v) => setActiveView(v as ActiveView)}/>
               <CEOWatchlist data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO}/>
+              <ExecutiveSnapshot data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} companyName={companyName} onAskAI={openChat}/>
 
               {/* Data quality warnings */}
               {effectiveData.metadata.warnings.length > 0 && (
@@ -4727,10 +5108,27 @@ export default function BusinessOS() {
                 <SectionNote noteKey="financial" notes={panelNotes} onSave={setPanelNote}/>
                 <div className="h-px flex-1 bg-indigo-500/10"/>
               </div>
+              {/* ── Financial Sub-Navigation ── */}
+              <div className="flex items-center gap-1 p-1 bg-slate-900/50 border border-slate-800/40 rounded-xl overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {([
+                  { id: 'pl',       label: 'P&L Overview' },
+                  { id: 'revenue',  label: 'Revenue & Margins' },
+                  { id: 'costs',    label: 'Costs & Cash' },
+                  { id: 'pricing',  label: 'Pricing' },
+                  { id: 'owner',    label: 'Tax & Owner' },
+                  { id: 'analysis', label: 'Intelligence' },
+                ] as const).map(t => (
+                  <button key={t.id} onClick={() => setFinTab(t.id)}
+                    className={`flex-shrink-0 px-3 py-1.5 text-[11px] font-semibold rounded-lg transition-colors ${finTab === t.id ? 'bg-indigo-600/30 text-indigo-200 border border-indigo-500/40' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
               {/* ── AI P&L Narrative Generator ── */}
               {(() => {
                 const [narrative, setNarrative] = React.useState('');
                 const [narLoading, setNarLoading] = React.useState(false);
+                if (finTab !== 'pl') return null;
                 const rev = data.revenue.total; const cogs = data.costs.totalCOGS; const opex = data.costs.totalOpEx;
                 const gp = rev - cogs; const ebitda = gp - opex;
                 const fmtN = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : `$${Math.round(n).toLocaleString()}`;
@@ -4772,10 +5170,20 @@ export default function BusinessOS() {
                 );
               })()}
 
-              <FinancialDashboard data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} dashboard={dashboard} budget={budget} onSetBudget={setBudgetLine} annotations={annotations} onAnnotate={setAnnotation} onAskAI={openChat}/>
-              <PLStatement data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} showChange showPct/>
+              {finTab === 'pl' && <ProfitabilityWaterfall data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>}
+              {finTab === 'pl' && <FinancialRatiosPanel data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>}
+              {finTab === 'pl' && <FinancialDashboard data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} dashboard={dashboard} budget={budget} onSetBudget={setBudgetLine} annotations={annotations} onAnnotate={setAnnotation} onAskAI={openChat}/>}
+              {finTab === 'pl' && <PLStatement data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} showChange showPct/>}
 
-              <BudgetPanel data={data} budget={budget} onSetBudget={setBudgetLine} onAskAI={openChat}/>
+              {finTab === 'costs' && <BudgetPanel data={data} budget={budget} onSetBudget={setBudgetLine} onAskAI={openChat}/>}
+              {finTab === 'costs' && <ExpenseLineItemTracker data={effectiveData} onAskAI={openChat}/>}
+              {finTab === 'costs' && <WorkingCapitalTracker data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>}
+              {finTab === 'revenue' && <RecurringRevenuePanel data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>}
+              {finTab === 'revenue' && <GrossMarginBridge data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>}
+              {finTab === 'revenue' && <ProductLineMargin data={effectiveData} onAskAI={openChat}/>}
+              {finTab === 'costs' && <DebtTracker data={effectiveData} onAskAI={openChat}/>}
+              {finTab === 'owner' && <TaxEstimator data={effectiveData} onAskAI={openChat}/>}
+              {finTab === 'owner' && <OwnerCompPlanner data={effectiveData} onAskAI={openChat}/>}
 
               {/* ── AR Follow-up Task Generator ── */}
               {(() => {
@@ -4788,6 +5196,7 @@ export default function BusinessOS() {
                 const [emailText, setEmailText] = React.useState('');
                 const [emailLoading, setEmailLoading] = React.useState(false);
 
+                if (finTab !== 'costs') return null;
                 if (overdue.length === 0) return null;
 
                 const totalOverdue = overdue.reduce((s, b) => s + b.days60 + b.days90 + b.over90, 0);
@@ -4810,6 +5219,23 @@ export default function BusinessOS() {
                     const existing = JSON.parse(localStorage.getItem('bos_ar_tasks') ?? '[]');
                     localStorage.setItem('bos_ar_tasks', JSON.stringify([...existing, ...tasks]));
                   } catch { /* ignore */ }
+                  // Sync AR follow-up tasks to Neon for authenticated users
+                  if (loadAuthSession()) {
+                    tasks.forEach(t => {
+                      fetch('/api/tasks', {
+                        method: 'POST',
+                        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          title: t.title,
+                          priority: t.priority === 'high' ? 'p1' : 'p2',
+                          due_date: t.due,
+                          context: 'AR Collections follow-up generated by Business OS',
+                          entity_type: 'ar-collection',
+                          created_by: 'system',
+                        }),
+                      }).catch(() => null);
+                    });
+                  }
                   setTaskCount(tasks.length);
                   setGenerated(true);
                   setTimeout(() => setGenerated(false), 4000);
@@ -4894,7 +5320,7 @@ export default function BusinessOS() {
               })()}
 
               {/* ── AP Aging & Cash Conversion Cycle ── */}
-              {(() => {
+              {finTab === 'costs' && (() => {
                 const rev   = data.revenue.total;
                 const cogs  = data.costs.totalCOGS;
                 const periods = data.revenue.byPeriod ?? [];
@@ -5068,7 +5494,7 @@ export default function BusinessOS() {
               })()}
 
               {/* ── Year-over-Year Same-Period Comparison ── */}
-              {(() => {
+              {finTab === 'pl' && (() => {
                 const periods = data.revenue.byPeriod ?? [];
                 if (periods.length < 2) return null;
 
@@ -5158,7 +5584,7 @@ export default function BusinessOS() {
               })()}
 
               {/* ── Pricing Power Analyzer (uses component-level state) ── */}
-              {(() => {
+              {finTab === 'pricing' && (() => {
                 // pricingAnswer, setPricingAnswer, pricingLoading, setPricingLoading, pricingAnswers, setPricingAnswers — lifted to component level
                 const questions = [
                   { id: 'q1', label: 'What is your primary offering?', placeholder: 'e.g. B2B SaaS analytics platform' },
@@ -5230,6 +5656,7 @@ Respond with: (1) Recommended price increase % and rationale, (2) How to frame i
                 const [pricePct, setPricePct] = React.useState(5);
                 const [churnPct, setChurnPct] = React.useState(3);
                 const [costPassPct, setCostPassPct] = React.useState(0);
+                if (finTab !== 'pricing') return null;
 
                 const rev   = effectiveData.revenue.total;
                 const cogs  = effectiveData.costs.totalCOGS;
@@ -5312,13 +5739,13 @@ Respond with: (1) Recommended price increase % and rationale, (2) How to frame i
                 );
               })()}
 
-              <EBITDABridge data={effectiveData}/>
-              <RevenueBridge data={effectiveData}/>
-              <AddBackTracker data={effectiveData} onAskAI={openChat}/>
-              <BenchmarkFeed data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onNavigate={v => setActiveView(v as ActiveView)} onAskAI={openChat}/>
-              <IndustryBenchmarksPanel data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
-              <MetricThresholdsPanel data={data} thresholds={thresholds} onChange={saveThresholds}/>
-              {data.transactions && data.transactions.length > 0 && (
+              {finTab === 'revenue' && <EBITDABridge data={effectiveData}/>}
+              {finTab === 'revenue' && <RevenueBridge data={effectiveData}/>}
+              {finTab === 'owner' && <AddBackTracker data={effectiveData} onAskAI={openChat}/>}
+              {finTab === 'analysis' && <BenchmarkFeed data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onNavigate={v => setActiveView(v as ActiveView)} onAskAI={openChat}/>}
+              {finTab === 'analysis' && <IndustryBenchmarksPanel data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>}
+              {finTab === 'analysis' && <MetricThresholdsPanel data={data} thresholds={thresholds} onChange={saveThresholds}/>}
+              {finTab === 'analysis' && data.transactions && data.transactions.length > 0 && (
                 <div>
                   <div className="flex items-center gap-3 mb-3">
                     <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.1em]">Transaction Ledger</div>
@@ -5347,145 +5774,21 @@ Respond with: (1) Recommended price increase % and rationale, (2) How to frame i
                 <SectionNote noteKey="customers" notes={panelNotes} onSave={setPanelNote}/>
                 <div className="h-px flex-1 bg-violet-500/10"/>
               </div>
-              <CustomerDashboard data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
-
-              {/* ── Contract Renewal Tracker ── */}
-              {(() => {
-                const CONTRACTS_KEY = 'bos_contracts';
-                type Contract = { id: string; customer: string; value: number; renewalDate: string; status: 'active' | 'at-risk' | 'renewed'; notes?: string };
-                const [contracts, setContracts] = React.useState<Contract[]>(() => {
-                  try { const s = localStorage.getItem(CONTRACTS_KEY); return s ? JSON.parse(s) : []; } catch { return []; }
-                });
-                const [showAdd, setShowAdd] = React.useState(false);
-                const [newContract, setNewContract] = React.useState<Omit<Contract,'id'>>({ customer: '', value: 0, renewalDate: '', status: 'active' });
-
-                const save = (updated: Contract[]) => {
-                  setContracts(updated);
-                  try { localStorage.setItem(CONTRACTS_KEY, JSON.stringify(updated)); } catch { /* ignore */ }
-                };
-
-                const addContract = () => {
-                  if (!newContract.customer || !newContract.renewalDate) return;
-                  const next = [...contracts, { ...newContract, id: `c${Date.now()}` }];
-                  save(next);
-                  setNewContract({ customer: '', value: 0, renewalDate: '', status: 'active' });
-                  setShowAdd(false);
-                };
-
-                const removeContract = (id: string) => save(contracts.filter(c => c.id !== id));
-                const toggleStatus = (id: string) => save(contracts.map(c => c.id === id ? { ...c, status: c.status === 'active' ? 'at-risk' : c.status === 'at-risk' ? 'renewed' : 'active' } : c));
-
-                const now = new Date(); now.setHours(0,0,0,0);
-                const sorted = [...contracts].sort((a,b) => new Date(a.renewalDate).getTime() - new Date(b.renewalDate).getTime());
-                const upcoming30  = sorted.filter(c => { const d = new Date(c.renewalDate); const diff = Math.ceil((d.getTime()-now.getTime())/86400000); return diff >= 0 && diff <= 30; });
-                const upcoming90  = sorted.filter(c => { const d = new Date(c.renewalDate); const diff = Math.ceil((d.getTime()-now.getTime())/86400000); return diff > 30 && diff <= 90; });
-                const overdue     = sorted.filter(c => new Date(c.renewalDate) < now && c.status !== 'renewed');
-                const totalAtRisk = sorted.filter(c => c.status !== 'renewed').reduce((s,c) => s+c.value, 0);
-                const fmtV = (n: number) => n >= 1_000_000 ? `$${(n/1_000_000).toFixed(1)}M` : n >= 1_000 ? `$${(n/1_000).toFixed(0)}k` : `$${n}`;
-
-                const statusColor = (s: Contract['status']) =>
-                  s === 'renewed' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
-                  s === 'at-risk' ? 'text-red-400 bg-red-500/10 border-red-500/20' :
-                                    'text-sky-400 bg-sky-500/10 border-sky-500/20';
-
-                const urgencyBg = (c: Contract) => {
-                  if (c.status === 'renewed') return 'opacity-50';
-                  const diff = Math.ceil((new Date(c.renewalDate).getTime()-now.getTime())/86400000);
-                  if (diff < 0) return 'border-red-500/30 bg-red-500/5';
-                  if (diff <= 30) return 'border-amber-500/25 bg-amber-500/5';
-                  return '';
-                };
-
-                return (
-                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
-                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
-                      <div>
-                        <div className="text-[12px] font-semibold text-slate-100">Contract Renewal Tracker</div>
-                        <div className="text-[10px] text-slate-500 mt-0.5">Upcoming expirations · stay ahead of renewals</div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        {contracts.length > 0 && (
-                          <div className="flex items-center gap-3 text-[11px]">
-                            {overdue.length > 0 && <span className="text-red-400 font-semibold">{overdue.length} overdue</span>}
-                            {upcoming30.length > 0 && <span className="text-amber-400">{upcoming30.length} due in 30d</span>}
-                            {totalAtRisk > 0 && <span className="text-slate-500">{fmtV(totalAtRisk)} at risk</span>}
-                          </div>
-                        )}
-                        <button onClick={() => setShowAdd(v => !v)}
-                          className="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 border border-indigo-500/30 hover:border-indigo-500/50 px-3 py-1.5 rounded-lg transition-colors">
-                          + Add Contract
-                        </button>
-                      </div>
-                    </div>
-
-                    {showAdd && (
-                      <div className="px-5 py-4 border-b border-slate-800/40 bg-slate-800/20">
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-                          <input placeholder="Customer name" value={newContract.customer}
-                            onChange={e => setNewContract(p => ({...p, customer: e.target.value}))}
-                            className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-3 py-2 text-[12px] text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 col-span-2"/>
-                          <input type="number" placeholder="Annual value ($)" value={newContract.value || ''}
-                            onChange={e => setNewContract(p => ({...p, value: Number(e.target.value)}))}
-                            className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-3 py-2 text-[12px] text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50"/>
-                          <input type="date" value={newContract.renewalDate}
-                            onChange={e => setNewContract(p => ({...p, renewalDate: e.target.value}))}
-                            className="bg-slate-800/60 border border-slate-700/60 rounded-lg px-3 py-2 text-[12px] text-slate-100 focus:outline-none focus:border-indigo-500/50"/>
-                        </div>
-                        <div className="flex gap-2">
-                          <button onClick={addContract} disabled={!newContract.customer || !newContract.renewalDate}
-                            className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-[12px] font-semibold rounded-lg transition-colors">
-                            Save
-                          </button>
-                          <button onClick={() => setShowAdd(false)}
-                            className="px-4 py-1.5 text-[12px] text-slate-400 border border-slate-700/50 rounded-lg hover:border-slate-600 transition-colors">
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {contracts.length === 0 ? (
-                      <div className="px-5 py-6 text-center">
-                        <div className="text-[12px] text-slate-500 mb-1">No contracts tracked yet</div>
-                        <div className="text-[11px] text-slate-600">Add customer contracts to get renewal alerts and track at-risk revenue</div>
-                      </div>
-                    ) : (
-                      <div className="divide-y divide-slate-800/40">
-                        {sorted.map(c => {
-                          const days = Math.ceil((new Date(c.renewalDate).getTime()-now.getTime())/86400000);
-                          return (
-                            <div key={c.id} className={`px-5 py-3.5 flex items-center gap-4 border ${urgencyBg(c)}`}>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-[12px] font-semibold text-slate-200">{c.customer}</span>
-                                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${statusColor(c.status)} capitalize`}>{c.status}</span>
-                                </div>
-                                <div className="text-[11px] text-slate-500 mt-0.5">
-                                  {c.value > 0 && <span className="text-slate-400 font-medium">{fmtV(c.value)}/yr · </span>}
-                                  Renews {new Date(c.renewalDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                  {c.status !== 'renewed' && (
-                                    <span className={` · ${days < 0 ? 'text-red-400 font-semibold' : days <= 30 ? 'text-amber-400' : 'text-slate-600'}`}>
-                                      {days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? 'Due today' : `${days}d`}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-2 flex-shrink-0">
-                                <button onClick={() => toggleStatus(c.id)}
-                                  className="text-[10px] text-slate-500 hover:text-slate-300 border border-slate-700/50 px-2 py-1 rounded transition-colors">
-                                  {c.status === 'renewed' ? 'Mark active' : c.status === 'at-risk' ? 'Mark renewed' : 'Mark at-risk'}
-                                </button>
-                                <button onClick={() => removeContract(c.id)}
-                                  className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors px-1">✕</button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
+              {/* Customers sub-nav */}
+              <div className="flex items-center gap-1 p-1 bg-slate-900/50 border border-slate-800/40 rounded-xl overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {([
+                  { id: 'overview', label: 'Overview & Contracts' },
+                  { id: 'health',   label: 'Health & Growth' },
+                ] as const).map(t => (
+                  <button key={t.id} onClick={() => setCustTab(t.id)}
+                    className={`flex-shrink-0 px-3 py-1.5 text-[11px] font-semibold rounded-lg transition-colors ${custTab === t.id ? 'bg-violet-600/30 text-violet-200 border border-violet-500/40' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              {custTab === 'overview' && <CustomerChurnRisk data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>}
+              {custTab === 'overview' && <CustomerDashboard data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>}
+              {custTab === 'overview' && <ContractRenewalCalendar/>}
 
               {/* ── NPS Tracker ── */}
               {(() => {
@@ -5497,6 +5800,7 @@ Respond with: (1) Recommended price increase % and rationale, (2) How to frame i
                 const [npsInput, setNpsInput] = React.useState('');
                 const [npsNote, setNpsNote] = React.useState('');
                 const [npsAdded, setNpsAdded] = React.useState(false);
+                if (custTab !== 'health') return null;
 
                 const latestNPS = data.customers.nps ?? null;
                 const allScores = latestNPS !== undefined && latestNPS !== null
@@ -5510,6 +5814,7 @@ Respond with: (1) Recommended price increase % and rationale, (2) How to frame i
                   const updated = [...npsHistory, entry].slice(-12);
                   setNpsHistory(updated);
                   try { localStorage.setItem(NPS_KEY, JSON.stringify(updated)); } catch { /* ignore */ }
+                  if (loadAuthSession()) fetch('/api/user/prefs', { method: 'PATCH', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ npsHistory: updated }) }).catch(() => null);
                   setNpsInput(''); setNpsNote('');
                   setNpsAdded(true); setTimeout(() => setNpsAdded(false), 2500);
                 };
@@ -5588,7 +5893,7 @@ Respond with: (1) Recommended price increase % and rationale, (2) How to frame i
               })()}
 
               {/* ── CAC / LTV Dashboard ── */}
-              {(() => {
+              {custTab === 'health' && (() => {
                 const rev = effectiveData.revenue.total;
                 const customers = effectiveData.customers.totalCount || 1;
                 const retention = effectiveData.customers.retentionRate ?? 0.88;
@@ -5652,7 +5957,7 @@ Respond with: (1) Recommended price increase % and rationale, (2) How to frame i
               })()}
 
               {/* ── AI Churn Risk Predictor (uses component-level state) ── */}
-              {(() => {
+              {custTab === 'health' && (() => {
                 // churnResult, setChurnResult, churnLoading, setChurnLoading — lifted to component level
                 const customers = effectiveData.customers.topCustomers;
                 const retention = effectiveData.customers.retentionRate ?? 0.88;
@@ -5660,8 +5965,8 @@ Respond with: (1) Recommended price increase % and rationale, (2) How to frame i
 
                 const runChurnPredict = async () => {
                   setChurnLoading(true); setChurnResult('');
-                  const contracts = (() => { try { const s = localStorage.getItem('bos_contracts'); return s ? JSON.parse(s) as {customer:string;value:number;renewalDate:string;status:string}[] : []; } catch { return []; } })();
-                  const npsHist = (() => { try { const s = localStorage.getItem('bos_nps_history'); return s ? JSON.parse(s) as {date:string;score:number}[] : []; } catch { return []; } })();
+                  const contracts = getLS<{customer:string;value:number;renewalDate:string;status:string}[]>('bos_contracts', []);
+                  const npsHist = getLS<{date:string;score:number}[]>('bos_nps_history', []);
                   const npsLatest = npsHist.length > 0 ? npsHist[npsHist.length-1].score : null;
                   const expiring90 = contracts.filter(c => { const d = new Date(c.renewalDate); const diff = (d.getTime()-Date.now())/86400000; return diff >= 0 && diff <= 90; });
                   const atRisk = contracts.filter(c => c.status === 'at-risk');
@@ -5713,7 +6018,7 @@ Be specific, use the actual names. 200 words max.`;
                       {/* Quick risk grid from data */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mb-4">
                         {customers.slice(0,6).map(c => {
-                          const contracts = (() => { try { const s = localStorage.getItem('bos_contracts'); return s ? JSON.parse(s) as {customer:string;status:string;renewalDate:string}[] : []; } catch { return []; } })();
+                          const contracts = getLS<{customer:string;status:string;renewalDate:string}[]>('bos_contracts', []);
                           const contract = contracts.find(ct => ct.customer.toLowerCase().includes(c.name.toLowerCase().split(' ')[0]));
                           const isAtRisk = contract?.status === 'at-risk';
                           const isExpiring = contract ? (new Date(contract.renewalDate).getTime()-Date.now())/86400000 < 60 : false;
@@ -5749,7 +6054,7 @@ Be specific, use the actual names. 200 words max.`;
                 );
               })()}
               {/* ── Customer Cohort Retention ── */}
-              {(() => {
+              {custTab === 'health' && (() => {
                 const retention = effectiveData.customers.retentionRate ?? 0.88;
                 const periods   = effectiveData.revenue.byPeriod.slice(-8);
                 if (periods.length < 3) return null;
@@ -5847,15 +6152,34 @@ Be specific, use the actual names. 200 words max.`;
               </ErrorBoundary>
             </div>
           <div className={activeView === 'operations' ? 'space-y-4' : 'hidden'}>
+              <ErrorBoundary label="Operations">
               <div className="flex items-center gap-2">
                 <div className="h-px flex-1 bg-cyan-500/10"/>
                 <SectionNote noteKey="operations" notes={panelNotes} onSave={setPanelNote}/>
                 <div className="h-px flex-1 bg-cyan-500/10"/>
               </div>
-              <OperationsDashboard data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>
+              {/* Operations sub-nav */}
+              <div className="flex items-center gap-1 p-1 bg-slate-900/50 border border-slate-800/40 rounded-xl overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {([
+                  { id: 'overview',  label: 'Overview' },
+                  { id: 'workforce', label: 'Workforce' },
+                  { id: 'capacity',  label: 'Capacity & Projects' },
+                  { id: 'tools',     label: 'Cost & Vendors' },
+                ] as const).map(t => (
+                  <button key={t.id} onClick={() => setOpsTab(t.id)}
+                    className={`flex-shrink-0 px-3 py-1.5 text-[11px] font-semibold rounded-lg transition-colors ${opsTab === t.id ? 'bg-cyan-600/30 text-cyan-200 border border-cyan-500/40' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              {opsTab === 'overview' && <OperationsDashboard data={effectiveData} previousData={prevSnapshot?.data ?? PREV_DEMO} onAskAI={openChat}/>}
+              {opsTab === 'overview' && <ValueCreationScorecard data={effectiveData} previousData={prevSnapshot?.data} onAskAI={openChat}/>}
+              {opsTab === 'workforce' && <HeadcountPlanner data={effectiveData} previousData={prevSnapshot?.data} onAskAI={openChat}/>}
+              {opsTab === 'capacity' && <CapacityPlanningModel data={effectiveData} previousData={prevSnapshot?.data} onAskAI={openChat}/>}
+              {opsTab === 'capacity' && <JobProfitabilityTracker onAskAI={openChat}/>}
 
               {/* ── Key Person Risk ── */}
-              {(() => {
+              {opsTab === 'workforce' && (() => {
                 const depts = effectiveData.payrollByDept ?? [];
                 const rev   = effectiveData.revenue.total;
                 if (depts.length < 2) return null;
@@ -5920,7 +6244,7 @@ Be specific, use the actual names. 200 words max.`;
               })()}
 
               {/* ── Payroll % of Revenue Trend ── */}
-              {(() => {
+              {opsTab === 'workforce' && (() => {
                 const periods = effectiveData.revenue.byPeriod ?? [];
                 const depts   = effectiveData.payrollByDept ?? [];
                 const rev     = effectiveData.revenue.total;
@@ -5968,7 +6292,7 @@ Be specific, use the actual names. 200 words max.`;
               })()}
 
               {/* ── Operating Leverage Analysis ── */}
-              {(() => {
+              {opsTab === 'capacity' && (() => {
                 const rev = data.revenue.total; const cogs = data.costs.totalCOGS; const opex = data.costs.totalOpEx;
                 if (rev <= 0) return null;
                 const gp = rev - cogs; const gm = gp / rev;
@@ -6013,8 +6337,9 @@ Be specific, use the actual names. 200 words max.`;
                 });
                 const [showAdd, setShowAdd] = React.useState(false);
                 const [newInit, setNewInit] = React.useState<Omit<Initiative,'id'>>({ name: '', category: 'SG&A', targetSavings: 0, owner: '', status: 'planned' });
+                if (opsTab !== 'tools') return null;
 
-                const save = (updated: Initiative[]) => { setInitiatives(updated); try { localStorage.setItem(COST_KEY, JSON.stringify(updated)); } catch { /* ignore */ } };
+                const save = (updated: Initiative[]) => { setInitiatives(updated); try { localStorage.setItem(COST_KEY, JSON.stringify(updated)); } catch { /* ignore */ } if (loadAuthSession()) fetch('/api/user/prefs', { method: 'PATCH', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ costInitiatives: updated }) }).catch(() => null); };
                 const addInit = () => { if (!newInit.name.trim()) return; save([...initiatives, { ...newInit, id: `ci${Date.now()}` }]); setNewInit({ name: '', category: 'SG&A', targetSavings: 0, owner: '', status: 'planned' }); setShowAdd(false); };
                 const cycleStatus = (id: string) => { const c: Initiative['status'][] = ['planned','in-progress','completed','stalled']; save(initiatives.map(i => i.id === id ? { ...i, status: c[(c.indexOf(i.status)+1)%4] } : i)); };
 
@@ -6095,6 +6420,7 @@ Be specific, use the actual names. 200 words max.`;
                 const [aiInput, setAiInput] = React.useState('');
                 const [aiResult, setAiResult] = React.useState('');
                 const [aiLoading, setAiLoading] = React.useState(false);
+                if (opsTab !== 'tools') return null;
 
                 const fmtN = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : `$${Math.round(n).toLocaleString()}`;
                 const rev = data.revenue.total; const headcount = data.operations.headcount ?? 0;
@@ -6190,6 +6516,7 @@ Be specific, use the actual names. 200 words max.`;
                 });
                 const [showAdd, setShowAdd] = React.useState(false);
                 const [blank, setBlank] = React.useState<Omit<Vendor,'id'>>({ name:'', category:'Software', annualSpend:0, rating:4, renewalDate:'', status:'active', notes:'' });
+                if (opsTab !== 'tools') return null;
 
                 const save = (v: Vendor[]) => { setVendors(v); try { localStorage.setItem(VEND_KEY, JSON.stringify(v)); } catch { /* ignore */ } };
                 const add = () => { if (!blank.name.trim()) return; save([...vendors, { ...blank, id: `v${Date.now()}` }]); setBlank({ name:'', category:'Software', annualSpend:0, rating:4, renewalDate:'', status:'active', notes:'' }); setShowAdd(false); };
@@ -6312,6 +6639,7 @@ Be specific, use the actual names. 200 words max.`;
                 const [salary, setSalary] = React.useState(80000);
                 const [benefits, setBenefits] = React.useState(25); // % of salary
                 const [overhead, setOverhead] = React.useState(10); // % of salary
+                if (opsTab !== 'capacity') return null;
 
                 const fullyLoaded = salary * (1 + benefits/100 + overhead/100);
                 const revenueNeeded = gmPct > 0 ? fullyLoaded / gmPct : 0;
@@ -6377,15 +6705,31 @@ Be specific, use the actual names. 200 words max.`;
                   </div>
                 );
               })()}
+              </ErrorBoundary>
             </div>
           <div className={activeView === 'intelligence' ? 'space-y-6' : 'hidden'}>
-              <IntelligenceDashboard weeklyInsight={weeklyInsight} boardDeck={boardDeck} alerts={alerts} loading={loading} onGenerate={runAction} reportTimestamps={reportTimestamps}/>
+              <ErrorBoundary label="Intelligence">
+              {/* Intelligence sub-nav */}
+              <div className="flex items-center gap-1 p-1 bg-slate-900/50 border border-slate-800/40 rounded-xl overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {([
+                  { id: 'reports',  label: 'AI Reports' },
+                  { id: 'strategy', label: 'Strategy' },
+                  { id: 'investor', label: 'Investor Tools' },
+                ] as const).map(t => (
+                  <button key={t.id} onClick={() => setIntellTab(t.id)}
+                    className={`flex-shrink-0 px-3 py-1.5 text-[11px] font-semibold rounded-lg transition-colors ${intellTab === t.id ? 'bg-emerald-600/30 text-emerald-200 border border-emerald-500/40' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              {intellTab === 'reports' && <IntelligenceDashboard weeklyInsight={weeklyInsight} boardDeck={boardDeck} alerts={alerts} loading={loading} onGenerate={runAction} reportTimestamps={reportTimestamps} companyName={companyName}/>}
 
               {/* ── AI Cross-Module Diagnostics ── */}
               {(() => {
                 const [diagnosis, setDiagnosis] = React.useState('');
                 const [diagLoading, setDiagLoading] = React.useState(false);
                 const [lastRun, setLastRun] = React.useState('');
+                if (intellTab !== 'reports') return null;
 
                 const runDiagnosis = async () => {
                   setDiagLoading(true); setDiagnosis('');
@@ -6426,7 +6770,7 @@ Be specific, use the actual names. 200 words max.`;
                   const ar90plus = arAging.reduce((s,b)=>s+b.days90+b.over90,0);
                   const dso = totalAR > 0 && rev > 0 ? (totalAR/(rev/30)).toFixed(0) : null;
                   const overdueAccounts = arAging.filter(b=>b.days60+b.days90+b.over90>0).map(b=>`${b.customer}: ${f(b.days60+b.days90+b.over90)}`);
-                  const apBuckets = (() => { try { const s = localStorage.getItem('bos_ap_aging'); return s ? JSON.parse(s) as {vendor:string;current:number;days30:number;days60:number;days90:number;over90:number}[] : []; } catch { return []; } })();
+                  const apBuckets = getLS<{vendor:string;current:number;days30:number;days60:number;days90:number;over90:number}[]>('bos_ap_aging', []);
                   const totalAP = apBuckets.reduce((s,b)=>s+b.current+b.days30+b.days60+b.days90+b.over90,0);
                   const dpo = totalAP > 0 && cogs > 0 ? (totalAP/(cogs/30)).toFixed(0) : null;
                   const ccc = dso && dpo ? (parseFloat(dso) - parseFloat(dpo)).toFixed(0) : null;
@@ -6443,12 +6787,12 @@ Be specific, use the actual names. 200 words max.`;
                   ).join(' | ');
                   const top3Pct = custs.topCustomers.slice(0,3).reduce((s,c)=>s+c.percentOfTotal,0);
                   const recurringCusts = custs.topCustomers.filter(c=>c.revenueType==='recurring').length;
-                  const npsHist = (() => { try { const s = localStorage.getItem('bos_nps_history'); return s ? JSON.parse(s) as {date:string;score:number;note?:string}[] : []; } catch { return []; } })();
+                  const npsHist = getLS<{date:string;score:number;note?:string}[]>('bos_nps_history', []);
                   const latestNPS = custs.nps ?? (npsHist.length > 0 ? npsHist[npsHist.length-1].score : null);
                   const npsTrend = npsHist.length >= 2 ? npsHist[npsHist.length-1].score - npsHist[npsHist.length-2].score : null;
 
                   // ── CONTRACTS ────────────────────────────────────────────────
-                  const contracts = (() => { try { const s = localStorage.getItem('bos_contracts'); return s ? JSON.parse(s) as {customer:string;value:number;renewalDate:string;status:string}[] : []; } catch { return []; } })();
+                  const contracts = getLS<{customer:string;value:number;renewalDate:string;status:string}[]>('bos_contracts', []);
                   const today = new Date();
                   const expiring90 = contracts.filter(c => { const d = new Date(c.renewalDate); return c.status !== 'renewed' && (d.getTime()-today.getTime())/86400000 <= 90; });
                   const atRiskContracts = contracts.filter(c=>c.status==='at-risk');
@@ -6456,7 +6800,7 @@ Be specific, use the actual names. 200 words max.`;
                   const expiring90Val = expiring90.reduce((s,c)=>s+c.value,0);
 
                   // ── CRM PIPELINE ─────────────────────────────────────────────
-                  const deals = (() => { try { return JSON.parse(localStorage.getItem('bos_deals') ?? '[]') as {name?:string;stage:string;value:number;probability:number;daysInStage?:number;owner?:string;closeDate?:string}[]; } catch { return []; } })();
+                  const deals = getLS<{name?:string;stage:string;value:number;probability:number;daysInStage?:number;owner?:string;closeDate?:string}[]>('bos_deals', []);
                   const activeDls = deals.filter(d=>d.stage!=='Closed Won'&&d.stage!=='Closed Lost');
                   const weighted = activeDls.reduce((s,d)=>s+(d.value*(d.probability/100)),0);
                   const staleDls = activeDls.filter(d=>(d.daysInStage??0)>30);
@@ -6472,30 +6816,30 @@ Be specific, use the actual names. 200 words max.`;
                   const onTimeDelivery: number | null = null;
 
                   // ── STRATEGIC / STORED ────────────────────────────────────────
-                  const moatScores = (() => { try { const s = localStorage.getItem('bos_moat_scores'); return s ? JSON.parse(s) as Record<string,number> : {}; } catch { return {}; } })();
+                  const moatScores = getLS<Record<string,number>>('bos_moat_scores', {});
                   const moatEntries = Object.entries(moatScores);
                   const moatAvg = moatEntries.length > 0 ? moatEntries.reduce((s,[,v])=>s+v,0)/moatEntries.length : null;
                   const moatWeak = moatEntries.filter(([,v])=>v<=4).map(([k])=>k);
                   const moatStrong = moatEntries.filter(([,v])=>v>=8).map(([k])=>k);
 
-                  const exitChecked = (() => { try { const s = localStorage.getItem('bos_exit_readiness'); return s ? JSON.parse(s) as Record<string,boolean> : {}; } catch { return {}; } })();
+                  const exitChecked = getLS<Record<string,boolean>>('bos_exit_readiness', {});
                   const exitScore = Object.values(exitChecked).filter(Boolean).length;
                   const totalExitItems = 15;
 
-                  const plan100 = (() => { try { const s = localStorage.getItem('bos_100day_plan'); return s ? JSON.parse(s) as {stream:string;done:boolean;day:number}[] : []; } catch { return []; } })();
+                  const plan100 = getLS<{stream:string;done:boolean;day:number}[]>('bos_100day_plan', []);
                   const plan100Done = plan100.filter(t=>t.done).length;
                   const plan100Overdue = plan100.filter(t=>!t.done && t.day < 100).length;
 
-                  const sprint = (() => { try { const s = localStorage.getItem('bos_sprint_board'); return s ? JSON.parse(s) as {quarter:string;initiatives:{title:string;status:string;milestones:{done:boolean}[]}[]} : null; } catch { return null; } })();
+                  const sprint = getLS<{quarter:string;initiatives:{title:string;status:string;milestones:{done:boolean}[]}[]}|null>('bos_sprint_board', null);
                   const sprintAtRisk = sprint?.initiatives.filter(i=>i.status==='at-risk') ?? [];
                   const sprintDone = sprint?.initiatives.filter(i=>i.status==='done') ?? [];
 
-                  const costInits = (() => { try { const s = localStorage.getItem('bos_cost_initiatives'); return s ? JSON.parse(s) as {name:string;status:string;targetSavings:number;actualSavings?:number}[] : []; } catch { return []; } })();
+                  const costInits = getLS<{name:string;status:string;targetSavings:number;actualSavings?:number}[]>('bos_cost_initiatives', []);
                   const initTarget = costInits.reduce((s,i)=>s+i.targetSavings,0);
                   const initActual = costInits.reduce((s,i)=>s+(i.actualSavings??0),0);
                   const stalledInits = costInits.filter(i=>i.status==='stalled');
 
-                  const execTasks = (() => { try { const s = localStorage.getItem('bos_tasks'); return s ? JSON.parse(s) as {title:string;status?:string;done?:boolean}[] : []; } catch { return []; } })();
+                  const execTasks = getLS<{title:string;status?:string;done?:boolean}[]>('bos_tasks', []);
                   const openTasks = execTasks.filter(t=>!t.done && t.status !== 'done');
 
                   const ceoNotes = (() => {
@@ -6507,7 +6851,7 @@ Be specific, use the actual names. 200 words max.`;
                     } catch { return null; }
                   })();
 
-                  const dataroom = (() => { try { const s = localStorage.getItem('bos_dataroom_checklist'); return s ? JSON.parse(s) as Record<string,boolean> : {}; } catch { return {}; } })();
+                  const dataroom = getLS<Record<string,boolean>>('bos_dataroom_checklist', {});
                   const dataroomDone = Object.values(dataroom).filter(Boolean).length;
 
                   // ── BUILD FULL CONTEXT ────────────────────────────────────────
@@ -6670,6 +7014,7 @@ Produce a structured diagnostic in EXACTLY this format. Be brutally specific. Ev
                   try { return (localStorage.getItem('bos_digest_freq') as 'daily'|'weekly') ?? 'weekly'; } catch { return 'weekly'; }
                 });
                 const [digestSaved, setDigestSaved] = React.useState(false);
+                if (intellTab !== 'reports') return null;
 
                 const saveDigest = () => {
                   try {
@@ -6740,10 +7085,12 @@ Produce a structured diagnostic in EXACTLY this format. Be brutally specific. Ev
                   try { const s = localStorage.getItem(MOAT_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
                 });
                 const [saved, setMoatSaved] = React.useState(false);
+                if (intellTab !== 'strategy') return null;
 
                 const setScore = (id: string, val: number) => setScores(prev => ({ ...prev, [id]: val }));
                 const saveScores = () => {
                   try { localStorage.setItem(MOAT_KEY, JSON.stringify(scores)); } catch { /* ignore */ }
+                  if (loadAuthSession()) fetch('/api/user/prefs', { method: 'PATCH', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ moatScores: scores }) }).catch(() => null);
                   setMoatSaved(true); setTimeout(() => setMoatSaved(false), 2500);
                 };
 
@@ -6823,6 +7170,7 @@ Produce a structured diagnostic in EXACTLY this format. Be brutally specific. Ev
                 });
                 const [showAdd, setShowAdd] = React.useState(false);
                 const [draft, setDraft] = React.useState<Omit<Competitor,'id'>>({ name: '', estRevenue: 0, pricing: '', strengths: '', weaknesses: '', notes: '' });
+                if (intellTab !== 'strategy') return null;
 
                 const save = (next: Competitor[]) => { setCompetitors(next); try { localStorage.setItem(COMP_KEY, JSON.stringify(next)); } catch { /* ignore */ } };
                 const add = () => { if (!draft.name.trim()) return; save([...competitors, { ...draft, id: `c${Date.now()}` }]); setDraft({ name: '', estRevenue: 0, pricing: '', strengths: '', weaknesses: '', notes: '' }); setShowAdd(false); };
@@ -6938,11 +7286,13 @@ Produce a structured diagnostic in EXACTLY this format. Be brutally specific. Ev
               })()}
 
               {/* ── Investor Update Drafter (uses component-level state) ── */}
-              {(() => {
+              {intellTab === 'investor' && (() => {
                 // investorDraft, setInvestorDraft, investorDraftLoading, setInvestorDraftLoading, investorAudience, setInvestorAudience — lifted to component level
                 const updateDraft = investorDraft; const setUpdateDraft = setInvestorDraft;
                 const updateLoading = investorDraftLoading; const setUpdateLoading = setInvestorDraftLoading;
                 const audience = investorAudience; const setAudience = setInvestorAudience;
+                const emailSending = investorEmailSending; const setEmailSending = setInvestorEmailSending;
+                const emailStatus = investorEmailStatus; const setEmailStatus = setInvestorEmailStatus;
 
                 const audienceOptions: { id: 'lp'|'board'|'pe'; label: string }[] = [
                   { id: 'board', label: 'Board of Directors' },
@@ -6961,10 +7311,10 @@ Produce a structured diagnostic in EXACTLY this format. Be brutally specific. Ev
                   const prevRevs = effectiveData.revenue.byPeriod.slice(-4);
                   const trendStr = prevRevs.map(p => `${p.period}: ${f(p.revenue)}`).join(' → ');
 
-                  const sprintData = (() => { try { const s = localStorage.getItem('bos_sprint_board'); return s ? JSON.parse(s) as {initiatives:{title:string;status:string}[]} : null; } catch { return null; } })();
+                  const sprintData = getLS<{initiatives:{title:string;status:string}[]}|null>('bos_sprint_board', null);
                   const initiatives = sprintData?.initiatives.slice(0,3).map(i => `${i.title} (${i.status})`).join('; ') ?? 'none tracked';
 
-                  const moatScores = (() => { try { const s = localStorage.getItem('bos_moat_scores'); return s ? JSON.parse(s) as Record<string,number> : {}; } catch { return {}; } })();
+                  const moatScores = getLS<Record<string,number>>('bos_moat_scores', {});
                   const moatAvg = Object.values(moatScores).length > 0 ? (Object.values(moatScores).reduce((a,b)=>a+b,0)/Object.values(moatScores).length).toFixed(1) : 'N/A';
 
                   const audienceLabel = audience === 'lp' ? 'limited partner / investor email' : audience === 'board' ? 'board of directors update memo' : 'PE sponsor operating update';
@@ -7019,6 +7369,24 @@ Rules: Every bullet has a number. No "we are pleased to report." No "it is worth
 
                 const copyToClipboard = () => { if (updateDraft) { void navigator.clipboard.writeText(updateDraft); } };
 
+                const emailDraft = async () => {
+                  if (!updateDraft || emailSending) return;
+                  // Extract subject from draft (first line starting with SUBJECT:)
+                  const subjectMatch = updateDraft.match(/^SUBJECT:\s*(.+)$/m);
+                  const subject = subjectMatch ? subjectMatch[1].trim() : `${companyName ?? 'Investor'} Update — ${new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
+                  setEmailSending(true); setEmailStatus('idle');
+                  try {
+                    const r = await fetch('/api/investor-update/email', {
+                      method: 'POST',
+                      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ subject, body: updateDraft, companyName }),
+                    });
+                    setEmailStatus(r.ok ? 'ok' : 'err');
+                  } catch { setEmailStatus('err'); }
+                  setEmailSending(false);
+                  setTimeout(() => setEmailStatus('idle'), 4000);
+                };
+
                 return (
                   <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
                     <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
@@ -7044,11 +7412,17 @@ Rules: Every bullet has a number. No "we are pleased to report." No "it is worth
                     {updateDraft && (
                       <div className="p-5">
                         <div className="bg-slate-800/40 border border-slate-700/30 rounded-lg p-4 text-[12px] text-slate-300 leading-relaxed whitespace-pre-wrap font-mono">{updateDraft}</div>
-                        <div className="flex gap-2 mt-3">
+                        <div className="flex gap-2 mt-3 flex-wrap">
                           <button onClick={copyToClipboard}
                             className="text-[11px] px-3 py-1.5 bg-slate-700/40 hover:bg-slate-700/60 border border-slate-600/40 text-slate-300 rounded-lg transition-colors">
                             Copy to Clipboard
                           </button>
+                          {loadAuthSession() && (
+                            <button onClick={() => void emailDraft()} disabled={emailSending}
+                              className={`text-[11px] px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-50 ${emailStatus === 'ok' ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' : emailStatus === 'err' ? 'bg-red-500/15 border-red-500/30 text-red-300' : 'bg-indigo-500/10 hover:bg-indigo-500/20 border-indigo-500/25 text-indigo-300'}`}>
+                              {emailSending ? 'Sending…' : emailStatus === 'ok' ? '✓ Sent to you' : emailStatus === 'err' ? 'Send failed' : 'Email to me'}
+                            </button>
+                          )}
                           <button onClick={draft}
                             className="text-[11px] px-3 py-1.5 text-slate-500 hover:text-slate-300 transition-colors">
                             Regenerate
@@ -7070,6 +7444,7 @@ Rules: Every bullet has a number. No "we are pleased to report." No "it is worth
                   try { const s = localStorage.getItem(SWOT_KEY); return s ? JSON.parse(s) : null; } catch { return null; }
                 });
                 const [swotLoading, setSwotLoading] = React.useState(false);
+                if (intellTab !== 'strategy') return null;
 
                 const runSwot = async () => {
                   setSwotLoading(true);
@@ -7170,14 +7545,18 @@ Each item should be one sentence, specific to the data above, and actionable. No
                 );
               })()}
 
-              <div className="flex items-center gap-3">
-                <div className="h-px flex-1 bg-slate-800/60"/>
-                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em]">AI Advisory Agents</div>
-                <div className="h-px flex-1 bg-slate-800/60"/>
-              </div>
-              <AgentPanel data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} companyName={companyName} companyProfile={companyProfile}/>
+              {intellTab === 'strategy' && (
+                <div className="flex items-center gap-3">
+                  <div className="h-px flex-1 bg-slate-800/60"/>
+                  <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em]">AI Advisory Agents</div>
+                  <div className="h-px flex-1 bg-slate-800/60"/>
+                </div>
+              )}
+              {intellTab === 'strategy' && <AgentPanel data={data} previousData={prevSnapshot?.data ?? PREV_DEMO} companyName={companyName} companyProfile={companyProfile}/>}
+              </ErrorBoundary>
             </div>
           <div className={activeView === 'scenarios' ? 'space-y-4' : 'hidden'}>
+              <ErrorBoundary label="Scenarios">
               <div className="flex items-center gap-2">
                 <div className="h-px flex-1 bg-amber-500/10"/>
                 <SectionNote noteKey="scenarios" notes={panelNotes} onSave={setPanelNote}/>
@@ -7258,10 +7637,25 @@ Each item should be one sentence, specific to the data above, and actionable. No
                   </div>
                 );
               })()}
+              </ErrorBoundary>
             </div>
           <div className={activeView === 'pipeline' ? 'space-y-4' : 'hidden'}>
+              <ErrorBoundary label="Pipeline">
+              {/* Pipeline sub-nav */}
+              <div className="flex items-center gap-1 p-1 bg-slate-900/50 border border-slate-800/40 rounded-xl overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {([
+                  { id: 'pipeline',  label: 'Pipeline' },
+                  { id: 'analytics', label: 'Sales Analytics' },
+                  { id: 'tools',     label: 'Sales Tools' },
+                ] as const).map(t => (
+                  <button key={t.id} onClick={() => setPipelineTab(t.id)}
+                    className={`flex-shrink-0 px-3 py-1.5 text-[11px] font-semibold rounded-lg transition-colors ${pipelineTab === t.id ? 'bg-sky-600/30 text-sky-200 border border-sky-500/40' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
               {/* ── Pipeline Velocity & Analytics ── */}
-              {(() => {
+              {pipelineTab === 'pipeline' && (() => {
                 type LocalDeal = { id: string; name: string; company: string; value: number; stage: string; probability: number; closeDate?: string; owner?: string; createdAt: string; updatedAt: string; source?: string; lostReason?: string };
                 let deals: LocalDeal[] = [];
                 try { const s = localStorage.getItem('bos_deals'); if (s) deals = JSON.parse(s); } catch { /* ignore */ }
@@ -7397,7 +7791,7 @@ Each item should be one sentence, specific to the data above, and actionable. No
               })()}
 
               {/* ── Referral Source ROI ── */}
-              {(() => {
+              {pipelineTab === 'pipeline' && (() => {
                 type LocalDeal = { id: string; name: string; value: number; stage: string; source?: string; probability: number };
                 let deals: LocalDeal[] = [];
                 try { const s = localStorage.getItem('bos_deals'); if (s) deals = JSON.parse(s); } catch { /* ignore */ }
@@ -7457,7 +7851,7 @@ Each item should be one sentence, specific to the data above, and actionable. No
               })()}
 
               {/* ── Sales Velocity Calculator ── */}
-              {(() => {
+              {pipelineTab === 'analytics' && (() => {
                 let deals: { id: string; value: number; stage: string; probability: number; createdAt: string; updatedAt: string }[] = [];
                 try { const s = localStorage.getItem('bos_deals'); if (s) deals = JSON.parse(s); } catch { /* ignore */ }
                 if (!deals.length) return null;
@@ -7549,6 +7943,7 @@ Each item should be one sentence, specific to the data above, and actionable. No
                 const [quota, setQuota] = React.useState<number>(() => { try { return JSON.parse(localStorage.getItem(COMM_KEY) ?? '{}').quota ?? 500000; } catch { return 500000; } });
                 const [commRate, setCommRate] = React.useState<number>(() => { try { return JSON.parse(localStorage.getItem(COMM_KEY) ?? '{}').commRate ?? 8; } catch { return 8; } });
                 const [accelRate, setAccelRate] = React.useState<number>(() => { try { return JSON.parse(localStorage.getItem(COMM_KEY) ?? '{}').accelRate ?? 12; } catch { return 12; } });
+                if (pipelineTab !== 'tools') return null;
 
                 const saveCfg = (q: number, r: number, a: number) => {
                   try { localStorage.setItem(COMM_KEY, JSON.stringify({ quota: q, commRate: r, accelRate: a })); } catch { /* ignore */ }
@@ -7698,21 +8093,147 @@ Each item should be one sentence, specific to the data above, and actionable. No
                 );
               })()}
 
-              <KanbanBoard />
+              {/* ── Sales Rep Leaderboard ── */}
+              {pipelineTab === 'analytics' && (() => {
+                type LocalDeal = { id: string; name: string; value: number; stage: string; probability: number; owner?: string; createdAt: string; updatedAt: string };
+                let allDeals: LocalDeal[] = [];
+                try { const s = localStorage.getItem('bos_deals'); if (s) allDeals = JSON.parse(s); } catch { /* ignore */ }
+
+                // Only render if any deal has an owner field set
+                const withOwner = allDeals.filter(d => d.owner && d.owner.trim());
+                if (!withOwner.length) return null;
+
+                const fmtV = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n)}`;
+
+                const owners = Array.from(new Set(withOwner.map(d => d.owner!.trim())));
+                const byRep = owners.map(owner => {
+                  const repDeals = withOwner.filter(d => d.owner!.trim() === owner);
+                  const won    = repDeals.filter(d => d.stage === 'closed-won');
+                  const lost   = repDeals.filter(d => d.stage === 'closed-lost');
+                  const active = repDeals.filter(d => d.stage !== 'closed-won' && d.stage !== 'closed-lost');
+                  const closed = won.length + lost.length;
+                  const winRate = closed > 0 ? (won.length / closed) * 100 : 0;
+                  const closedRev = won.reduce((s, d) => s + d.value, 0);
+                  const pipelineRev = active.reduce((s, d) => s + d.value * (d.probability / 100), 0);
+                  const avgDeal = won.length > 0 ? closedRev / won.length : 0;
+                  const avgCycle = won.length > 0
+                    ? won.reduce((s, d) => s + Math.max(1, Math.round((new Date(d.updatedAt).getTime() - new Date(d.createdAt).getTime()) / 86400000)), 0) / won.length
+                    : null;
+                  return { owner, won: won.length, lost: lost.length, active: active.length, winRate, closedRev, pipelineRev, avgDeal, avgCycle, total: repDeals.length };
+                }).sort((a, b) => b.closedRev - a.closedRev || b.winRate - a.winRate);
+
+                if (!byRep.length) return null;
+                const maxRev = Math.max(...byRep.map(r => r.closedRev), 1);
+
+                return (
+                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 border-b border-slate-800/50">
+                      <div className="text-[12px] font-semibold text-slate-100">Sales Rep Leaderboard</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">Closed revenue · win rate · active pipeline by rep</div>
+                    </div>
+                    <div className="divide-y divide-slate-800/40">
+                      {byRep.map((rep, i) => (
+                        <div key={rep.owner} className="px-5 py-3.5 flex items-center gap-4">
+                          {/* Rank */}
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold ${i === 0 ? 'bg-amber-500/20 text-amber-400' : i === 1 ? 'bg-slate-600/30 text-slate-400' : 'bg-slate-800/40 text-slate-600'}`}>
+                            {i + 1}
+                          </div>
+                          {/* Name + deal counts */}
+                          <div className="w-28 flex-shrink-0 min-w-0">
+                            <div className="text-[12px] font-semibold text-slate-200 truncate">{rep.owner}</div>
+                            <div className="text-[10px] text-slate-600 mt-0.5">{rep.won}W · {rep.lost}L · {rep.active} active</div>
+                          </div>
+                          {/* Progress bar + pipeline */}
+                          <div className="flex-1 min-w-0">
+                            <div className="h-2 bg-slate-800 rounded-full overflow-hidden mb-1">
+                              <div className="h-full bg-indigo-500/60 rounded-full transition-all" style={{ width: `${maxRev > 0 ? (rep.closedRev / maxRev) * 100 : 0}%` }}/>
+                            </div>
+                            <div className="flex items-center gap-2 text-[10px]">
+                              <span className="text-slate-600">pipeline: <span className="text-slate-500">{fmtV(rep.pipelineRev)}</span></span>
+                              {rep.avgCycle !== null && <span className="text-slate-700">· {Math.round(rep.avgCycle)}d cycle</span>}
+                            </div>
+                          </div>
+                          {/* Stats */}
+                          <div className="text-right flex-shrink-0">
+                            <div className="text-[15px] font-bold text-slate-100">{fmtV(rep.closedRev)}</div>
+                            <div className="flex items-center gap-2 justify-end mt-0.5">
+                              <span className={`text-[10px] font-semibold ${rep.winRate >= 50 ? 'text-emerald-400' : rep.winRate >= 30 ? 'text-amber-400' : 'text-slate-500'}`}>
+                                {rep.winRate.toFixed(0)}% win
+                              </span>
+                              <span className="text-[10px] text-slate-600">avg {fmtV(rep.avgDeal)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="px-5 py-2.5 border-t border-slate-800/40 text-[10px] text-slate-600">
+                      Ranked by closed revenue · requires owner field on CRM deals
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {pipelineTab === 'tools' && <KanbanBoard />}
+              </ErrorBoundary>
             </div>
           <div className={activeView === 'automations' ? 'space-y-4' : 'hidden'}>
+              <ErrorBoundary label="Automations">
               <div className="flex items-center gap-2">
                 <div className="h-px flex-1 bg-rose-500/10"/>
                 <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em]">IF / THEN Rules</div>
                 <div className="h-px flex-1 bg-rose-500/10"/>
               </div>
               <AutomationBuilder />
+              </ErrorBoundary>
             </div>
           <div className={activeView === 'acquisitions' ? 'space-y-4' : 'hidden'}>
-              <AcquisitionPipeline onAskAI={openChat}/>
+              <ErrorBoundary label="Acquisitions">
+              {/* M&A Platform gate */}
+              {currentSession.planId !== 'enterprise' && (
+                <div className="relative overflow-hidden rounded-2xl border border-purple-500/20 bg-gradient-to-br from-purple-950/40 via-slate-900/80 to-indigo-950/30 p-8 text-center">
+                  <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(168,85,247,0.08),_transparent_60%)]"/>
+                  <div className="relative">
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-300 text-[10px] font-bold uppercase tracking-widest mb-5">
+                      <svg viewBox="0 0 14 14" fill="currentColor" className="w-3 h-3"><path d="M7 1a1.5 1.5 0 011.5 1.5V4h1A1.5 1.5 0 0111 5.5v6A1.5 1.5 0 019.5 13h-5A1.5 1.5 0 013 11.5v-6A1.5 1.5 0 014.5 4h1V2.5A1.5 1.5 0 017 1zm0 1a.5.5 0 00-.5.5V4h1V2.5A.5.5 0 007 2zm-1 5.5a1 1 0 112 0 1 1 0 01-2 0z"/></svg>
+                      M&A Platform Add-on
+                    </div>
+                    <div className="text-[22px] font-bold text-slate-100 mb-2">Built for Roll-up & PE Operators</div>
+                    <div className="text-[13px] text-slate-400 max-w-lg mx-auto leading-relaxed mb-6">
+                      The M&A Platform is a separate package for PE firms and operators running acquisition programs — deal sourcing, target scoring, LOI generation, due diligence tracking, and post-close integration management.
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-2xl mx-auto mb-8">
+                      {[
+                        { icon: '🎯', label: 'Acquisition Pipeline', sub: 'Source & score targets' },
+                        { icon: '📊', label: 'Deal Analytics', sub: 'IRR/MOIC, pipeline metrics' },
+                        { icon: '📋', label: 'LOI Generator', sub: 'AI-drafted term sheets' },
+                        { icon: '🔍', label: 'Due Diligence', sub: 'Checklist & data room' },
+                      ].map(f => (
+                        <div key={f.label} className="bg-slate-800/40 border border-slate-700/30 rounded-xl p-3 text-left">
+                          <div className="text-lg mb-1.5">{f.icon}</div>
+                          <div className="text-[11px] font-semibold text-slate-200">{f.label}</div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">{f.sub}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                      <button
+                        onClick={() => setPricingOpen(true)}
+                        className="px-6 py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-[13px] font-semibold rounded-xl transition-colors shadow-lg shadow-purple-900/30">
+                        View Pricing & Upgrade
+                      </button>
+                      <a href="mailto:support@businessos.app?subject=M%26A%20Platform%20Inquiry"
+                        className="px-6 py-2.5 border border-purple-500/30 hover:border-purple-500/60 text-purple-300 hover:text-purple-200 text-[13px] font-semibold rounded-xl transition-colors">
+                        Contact Us
+                      </a>
+                    </div>
+                    <div className="mt-4 text-[11px] text-slate-600">Available on the Enterprise plan · custom pricing for teams of 5+</div>
+                  </div>
+                </div>
+              )}
+              {currentSession.planId === 'enterprise' && <AcquisitionPipeline onAskAI={openChat}/>}
 
               {/* ── ACQ Pipeline Analytics ── */}
-              {(() => {
+              {currentSession.planId === 'enterprise' && (() => {
                 type AcqTarget = { id: string; name: string; stage: string; ebitda: number; askingPrice: number; multiple: number; score?: number; thesisMatch?: string; createdAt: string; updatedAt: string; closedAt?: string; stage_history?: string[] };
                 let targets: AcqTarget[] = [];
                 try { const s = localStorage.getItem('bos_acq_targets'); if (s) targets = JSON.parse(s); } catch { /* ignore */ }
@@ -7818,6 +8339,7 @@ Each item should be one sentence, specific to the data above, and actionable. No
                 const [holdYears, setHoldYears]         = React.useState(5);
                 const [exitMultiple, setExitMultiple]   = React.useState(7.0);
                 const [mgmtFee, setMgmtFee]             = React.useState(2);
+                if (currentSession.planId !== 'enterprise') return null;
 
                 const ebitda = data.revenue.total - data.costs.totalCOGS - data.costs.totalOpEx;
                 const entryEV     = ebitda * entryMultiple;
@@ -7916,9 +8438,10 @@ Each item should be one sentence, specific to the data above, and actionable. No
                   try { const s = localStorage.getItem(PLAN_KEY); return s ? JSON.parse(s) : DEFAULT_TASKS; } catch { return DEFAULT_TASKS; }
                 });
                 const [startDate] = React.useState(new Date().toISOString().slice(0, 10));
+                if (currentSession.planId !== 'enterprise') return null;
                 const todayDay = Math.max(1, Math.ceil((new Date().getTime() - new Date(startDate).getTime()) / 86400000));
 
-                const saveTasks = (updated: Task100[]) => { setTasks(updated); try { localStorage.setItem(PLAN_KEY, JSON.stringify(updated)); } catch { /* ignore */ } };
+                const saveTasks = (updated: Task100[]) => { setTasks(updated); try { localStorage.setItem(PLAN_KEY, JSON.stringify(updated)); } catch { /* ignore */ } if (loadAuthSession()) fetch('/api/user/prefs', { method: 'PATCH', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ plan100: updated }) }).catch(() => null); };
                 const toggle = (id: string) => saveTasks(tasks.map(t => t.id === id ? { ...t, done: !t.done } : t));
 
                 const doneCount = tasks.filter(t => t.done).length;
@@ -7995,10 +8518,12 @@ Each item should be one sentence, specific to the data above, and actionable. No
                 const [checked, setChecked] = React.useState<Record<string, boolean>>(() => {
                   try { const s = localStorage.getItem(EXIT_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
                 });
+                if (currentSession.planId !== 'enterprise') return null;
                 const toggle = (id: string) => {
                   const updated = { ...checked, [id]: !checked[id] };
                   setChecked(updated);
                   try { localStorage.setItem(EXIT_KEY, JSON.stringify(updated)); } catch { /* ignore */ }
+                  if (loadAuthSession()) fetch('/api/user/prefs', { method: 'PATCH', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ exitReadiness: updated }) }).catch(() => null);
                 };
                 const totalWeight = EXIT_ITEMS.reduce((s, i) => s + i.weight, 0);
                 const earnedWeight = EXIT_ITEMS.filter(i => checked[i.id]).reduce((s, i) => s + i.weight, 0);
@@ -8078,11 +8603,13 @@ Each item should be one sentence, specific to the data above, and actionable. No
                 const [checked, setChecked] = React.useState<Record<string,boolean>>(() => {
                   try { const s = localStorage.getItem(CHECKLIST_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
                 });
+                if (currentSession.planId !== 'enterprise') return null;
 
                 const toggle = (id: string) => {
                   setChecked(prev => {
                     const next = { ...prev, [id]: !prev[id] };
                     try { localStorage.setItem(CHECKLIST_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+                    if (loadAuthSession()) fetch('/api/user/prefs', { method: 'PATCH', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ dataroomChecklist: next }) }).catch(() => null);
                     return next;
                   });
                 };
@@ -8155,7 +8682,7 @@ Each item should be one sentence, specific to the data above, and actionable. No
               })()}
 
               {/* ── Deal Sourcing Brief (uses component-level state) ── */}
-              {(() => {
+              {currentSession.planId === 'enterprise' && (() => {
                 // dealBrief, setDealBrief, dealBriefLoading, setDealBriefLoading, dealStratType, setDealStratType — lifted to component level
                 const brief = dealBrief; const setBrief = setDealBrief;
                 const briefLoading = dealBriefLoading; const setBriefLoading = setDealBriefLoading;
@@ -8240,12 +8767,31 @@ Specific and actionable, not generic. 200 words.`;
                   </div>
                 );
               })()}
+              </ErrorBoundary>
             </div>
           <div className={activeView === 'valuation' ? 'space-y-4' : 'hidden'}>
+              <ErrorBoundary label="Valuation">
+              <MAReadinessScore data={effectiveData} previousData={prevSnapshot?.data} onAskAI={openChat}/>
               <ValuationEstimator data={effectiveData} previousData={prevSnapshot?.data} onAskAI={openChat}/>
+              </ErrorBoundary>
             </div>
           <div className={activeView === 'goals' ? 'space-y-4' : 'hidden'}>
-              <GoalEngine/>
+              <ErrorBoundary label="Goals">
+              {/* Goals sub-nav */}
+              <div className="flex items-center gap-1 p-1 bg-slate-900/50 border border-slate-800/40 rounded-xl overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {([
+                  { id: 'goals', label: 'Goals & Sprints' },
+                  { id: 'risk',  label: 'Risk & Insurance' },
+                ] as const).map(t => (
+                  <button key={t.id} onClick={() => setGoalsTab(t.id)}
+                    className={`flex-shrink-0 px-3 py-1.5 text-[11px] font-semibold rounded-lg transition-colors ${goalsTab === t.id ? 'bg-emerald-600/30 text-emerald-200 border border-emerald-500/40' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              {goalsTab === 'goals' && <GoalEngine/>}
+              {goalsTab === 'risk' && <RiskRegister onAskAI={openChat}/>}
+              {goalsTab === 'risk' && <InsuranceTracker onAskAI={openChat}/>}
 
               {/* ── 90-Day Sprint Board ── */}
               {(() => {
@@ -8265,10 +8811,12 @@ Specific and actionable, not generic. 200 words.`;
                 const [newOwner, setNewOwner] = React.useState('');
                 const [expandedId, setExpandedId] = React.useState<string|null>(null);
                 const [newMilestone, setNewMilestone] = React.useState('');
+                if (goalsTab !== 'goals') return null;
 
                 const save = (updated: Sprint) => {
                   setSprint(updated);
                   try { localStorage.setItem(SPRINT_KEY, JSON.stringify(updated)); } catch { /* ignore */ }
+                  if (loadAuthSession()) fetch('/api/user/prefs', { method: 'PATCH', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ sprintBoard: updated }) }).catch(() => null);
                 };
 
                 const addInitiative = () => {
@@ -8409,13 +8957,14 @@ Specific and actionable, not generic. 200 words.`;
               })()}
 
               {/* ── Market Sizing Calculator (TAM/SAM/SOM) ── */}
-              {(() => {
+              {goalsTab === 'goals' && (() => {
                 const inputs = mktInputs;
                 type MarketInput = { tamDesc: string; tamSize: string; samPct: string; somPct: string; growthRate: string };
                 const setInput = (k: keyof MarketInput, v: string) => {
                   const next = { ...inputs, [k]: v };
                   setMktInputs(next);
                   try { localStorage.setItem('bos_market_sizing', JSON.stringify(next)); } catch { /* ignore */ }
+                  if (loadAuthSession()) fetch('/api/user/prefs', { method: 'PATCH', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ marketSizing: next }) }).catch(() => null);
                 };
 
                 const tam       = parseFloat(inputs.tamSize) || 0;           // in $M
@@ -8607,17 +9156,29 @@ Specific and actionable, not generic. 200 words.`;
                   </div>
                 );
               })()}
+              </ErrorBoundary>
             </div>
           <div className={activeView === 'team' ? 'space-y-4' : 'hidden'}>
-              <div className="flex items-center gap-2">
-                <div className="h-px flex-1 bg-violet-500/10"/>
-                <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-[0.1em]">Deal Activity & Tasks</div>
-                <div className="h-px flex-1 bg-violet-500/10"/>
+              <ErrorBoundary label="Team">
+              {/* Team sub-nav */}
+              <div className="flex items-center gap-1 p-1 bg-slate-900/50 border border-slate-800/40 rounded-xl overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {([
+                  { id: 'overview',     label: 'Activity & Efficiency' },
+                  { id: 'compensation', label: 'Retention & Comp' },
+                  { id: 'milestones',   label: 'Milestones' },
+                ] as const).map(t => (
+                  <button key={t.id} onClick={() => setTeamTab(t.id)}
+                    className={`flex-shrink-0 px-3 py-1.5 text-[11px] font-semibold rounded-lg transition-colors ${teamTab === t.id ? 'bg-violet-600/30 text-violet-200 border border-violet-500/40' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}>
+                    {t.label}
+                  </button>
+                ))}
               </div>
-              <TeamFeed/>
+              {teamTab === 'overview' && <TeamFeed/>}
+              {teamTab === 'compensation' && <EmployeeRetentionTracker onAskAI={openChat}/>}
+              {teamTab === 'compensation' && <BonusPoolPlanner data={effectiveData} onAskAI={openChat}/>}
 
               {/* ── Org Cost Efficiency Heatmap ── */}
-              {(() => {
+              {teamTab === 'overview' && (() => {
                 const depts = effectiveData.payrollByDept ?? [];
                 if (!depts.length) return null;
                 const rev = effectiveData.revenue.total;
@@ -8702,6 +9263,7 @@ Specific and actionable, not generic. 200 words.`;
                 });
                 const [showAdd, setShowAdd] = React.useState(false);
                 const [draft, setDraft] = React.useState<Omit<CompanyMilestone,'id'>>({ date: new Date().toISOString().slice(0,10), title: '', category: 'revenue', note: '' });
+                if (teamTab !== 'milestones') return null;
 
                 const save = (next: CompanyMilestone[]) => {
                   setMilestones(next);
@@ -8803,272 +9365,28 @@ Specific and actionable, not generic. 200 words.`;
                   </div>
                 );
               })()}
+              </ErrorBoundary>
             </div>
           <div className={activeView === 'cash' ? 'space-y-4' : 'hidden'}>
-              <CashRunway data={effectiveData} onAskAI={openChat}/>
-              <WorkingCapitalDashboard data={effectiveData} onAskAI={openChat}/>
-
-              {/* ── Debt Service / Leverage Tracker ── */}
-              {(() => {
-                const rev = effectiveData.revenue.total;
-                const ebitda = rev - effectiveData.costs.totalCOGS - effectiveData.costs.totalOpEx;
-                const fmtV = (n: number) => n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n/1e3).toFixed(0)}k` : `$${Math.round(n).toLocaleString()}`;
-
-                const saveDebt = (next: typeof debtLines) => {
-                  setDebtLines(next);
-                  try { localStorage.setItem('bos_debt_lines', JSON.stringify(next)); } catch { /* ignore */ }
-                };
-                const addLine = () => {
-                  const next = [...debtLines, { id: `d${Date.now()}`, name: 'New Facility', balance: 0, rate: 6.5, payment: 0, type: 'term' as const }];
-                  saveDebt(next);
-                };
-                const updateLine = (id: string, field: string, val: string | number) => {
-                  saveDebt(debtLines.map(d => d.id === id ? { ...d, [field]: typeof val === 'string' ? (isNaN(parseFloat(val)) ? val : parseFloat(val)) : val } : d));
-                };
-                const removeLine = (id: string) => saveDebt(debtLines.filter(d => d.id !== id));
-
-                // ── Auto-detect from financial data ──────────────────────────
-                const autoDetectFromFinancials = () => {
-                  const interestCats = effectiveData.costs.byCategory.filter(c =>
-                    /interest|debt.*service|loan|finance.*charge|borrowing/i.test(c.category)
-                  );
-                  if (!interestCats.length) {
-                    setDebtPdfMsg('No interest/debt expense found in cost categories. Add an "Interest Expense" category to your financial data.');
-                    setDebtPdfStatus('error');
-                    return;
-                  }
-                  const detected = interestCats.map((c, i) => {
-                    const annualInterest = c.amount;
-                    const assumedRate = 7.0;
-                    const impliedBalance = Math.round((annualInterest / (assumedRate / 100)) / 1000) * 1000;
-                    return {
-                      id: `auto${Date.now()}${i}`,
-                      name: c.category,
-                      balance: impliedBalance,
-                      rate: assumedRate,
-                      payment: Math.round(annualInterest / 12),
-                      type: 'term' as const,
-                    };
-                  });
-                  saveDebt(detected);
-                  setDebtPdfMsg(`Auto-detected ${detected.length} facilit${detected.length === 1 ? 'y' : 'ies'} from interest expense. Balance estimated at 7% rate — update to actual rate.`);
-                  setDebtPdfStatus('done');
-                };
-
-                // ── PDF upload ───────────────────────────────────────────────
-                const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  if (file.type !== 'application/pdf') {
-                    setDebtPdfMsg('Please upload a PDF file.'); setDebtPdfStatus('error'); return;
-                  }
-                  setDebtPdfStatus('loading'); setDebtPdfMsg('Reading loan document…');
-                  try {
-                    const arrayBuffer = await file.arrayBuffer();
-                    const bytes = new Uint8Array(arrayBuffer);
-                    let binary = '';
-                    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-                    const pdfBase64 = btoa(binary);
-
-                    const r = await fetch('/api/data/loan-pdf', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ pdfBase64 }),
-                    });
-                    const j = await r.json() as { lines?: typeof debtLines; error?: string };
-                    if (!r.ok || !j.lines) {
-                      setDebtPdfMsg(j.error ?? 'Could not parse loan data from this document.');
-                      setDebtPdfStatus('error');
-                      return;
-                    }
-                    if (j.lines.length === 0) {
-                      setDebtPdfMsg('No debt facilities found in this document. Try a term sheet, loan agreement, or credit agreement.');
-                      setDebtPdfStatus('error');
-                      return;
-                    }
-                    saveDebt([...debtLines.filter(d => !d.id.startsWith('d1') && !d.id.startsWith('d2') && !d.id.startsWith('d3')), ...j.lines]);
-                    setDebtPdfMsg(`Imported ${j.lines.length} facilit${j.lines.length === 1 ? 'y' : 'ies'} from ${file.name}`);
-                    setDebtPdfStatus('done');
-                  } catch (err) {
-                    setDebtPdfMsg(err instanceof Error ? err.message : 'Upload failed');
-                    setDebtPdfStatus('error');
-                  }
-                  e.target.value = '';
-                };
-
-                const totalDebt = debtLines.reduce((s,d) => s+d.balance, 0);
-                const totalAnnualService = debtLines.reduce((s,d) => s+(d.payment*12), 0);
-                const totalInterest = debtLines.reduce((s,d) => s+(d.balance*d.rate/100), 0);
-                const debtToEbitda = ebitda > 0 ? totalDebt / ebitda : null;
-                const dscr = totalAnnualService > 0 ? ebitda / totalAnnualService : null;
-                const interestCoverage = totalInterest > 0 ? ebitda / totalInterest : null;
-
-                const dscrColor = dscr === null ? 'text-slate-400' : dscr >= 2 ? 'text-emerald-400' : dscr >= 1.25 ? 'text-amber-400' : 'text-red-400';
-                const leverageColor = debtToEbitda === null ? 'text-slate-400' : debtToEbitda <= 3 ? 'text-emerald-400' : debtToEbitda <= 5 ? 'text-amber-400' : 'text-red-400';
-                const icColor = interestCoverage === null ? 'text-slate-400' : interestCoverage >= 3 ? 'text-emerald-400' : interestCoverage >= 1.5 ? 'text-amber-400' : 'text-red-400';
-
-                return (
-                  <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
-                    <div className="px-5 py-3.5 border-b border-slate-800/50 flex items-center justify-between flex-wrap gap-2">
-                      <div>
-                        <div className="text-[12px] font-semibold text-slate-100">Debt Service / Leverage Tracker</div>
-                        <div className="text-[10px] text-slate-500 mt-0.5">Live from EBITDA · import from balance sheet data or loan agreement PDF</div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <button onClick={autoDetectFromFinancials}
-                          className="text-[11px] px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-600/40 text-emerald-300 rounded-lg transition-colors">
-                          ⚡ Auto-detect from Financials
-                        </button>
-                        <label className={`text-[11px] px-3 py-1.5 border rounded-lg transition-colors cursor-pointer ${debtPdfStatus === 'loading' ? 'opacity-50 cursor-not-allowed bg-slate-700/20 border-slate-700/40 text-slate-500' : 'bg-sky-600/20 hover:bg-sky-600/30 border-sky-600/40 text-sky-300'}`}>
-                          {debtPdfStatus === 'loading' ? 'Parsing PDF…' : '↑ Upload Loan PDF'}
-                          <input type="file" accept="application/pdf" className="hidden" disabled={debtPdfStatus === 'loading'} onChange={handlePdfUpload}/>
-                        </label>
-                        <button onClick={addLine}
-                          className="text-[11px] px-3 py-1.5 bg-slate-700/30 hover:bg-slate-700/50 border border-slate-600/40 text-slate-400 rounded-lg transition-colors">
-                          + Manual
-                        </button>
-                      </div>
-                    </div>
-                    {debtPdfMsg && (
-                      <div className={`px-5 py-2.5 text-[11px] border-b ${debtPdfStatus === 'done' ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : debtPdfStatus === 'error' ? 'bg-red-500/5 border-red-500/20 text-red-400' : 'bg-sky-500/5 border-sky-500/20 text-sky-400'}`}>
-                        {debtPdfMsg}
-                        <button onClick={() => { setDebtPdfMsg(''); setDebtPdfStatus('idle'); }} className="ml-3 text-slate-600 hover:text-slate-400">×</button>
-                      </div>
-                    )}
-
-                    {/* Covenant metrics */}
-                    {totalDebt > 0 && (
-                      <div className="grid grid-cols-3 gap-0 divide-x divide-slate-800/50 border-b border-slate-800/50">
-                        {[
-                          { label: 'Debt / EBITDA', value: debtToEbitda !== null ? `${debtToEbitda.toFixed(1)}×` : '—', sub: 'Target ≤ 4×', color: leverageColor },
-                          { label: 'DSCR', value: dscr !== null ? `${dscr.toFixed(2)}×` : '—', sub: 'Target ≥ 1.25×', color: dscrColor },
-                          { label: 'Interest Coverage', value: interestCoverage !== null ? `${interestCoverage.toFixed(1)}×` : '—', sub: 'Target ≥ 2×', color: icColor },
-                        ].map(m => (
-                          <div key={m.label} className="px-5 py-4 text-center">
-                            <div className={`text-[22px] font-bold ${m.color}`}>{m.value}</div>
-                            <div className="text-[10px] text-slate-500 mt-0.5">{m.label}</div>
-                            <div className="text-[9px] text-slate-700 mt-0.5">{m.sub}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Debt lines */}
-                    {debtLines.length > 0 ? (
-                      <div className="divide-y divide-slate-800/40">
-                        <div className="px-5 py-2 grid grid-cols-12 gap-2 text-[10px] font-semibold text-slate-600 uppercase tracking-wide">
-                          <div className="col-span-3">Facility</div>
-                          <div className="col-span-2">Type</div>
-                          <div className="col-span-2 text-right">Balance</div>
-                          <div className="col-span-2 text-right">Rate %</div>
-                          <div className="col-span-2 text-right">Mo. Payment</div>
-                          <div className="col-span-1"/>
-                        </div>
-                        {debtLines.map(d => (
-                          <div key={d.id} className="px-5 py-2.5 grid grid-cols-12 gap-2 items-center">
-                            <div className="col-span-3">
-                              <input value={d.name} onChange={e => updateLine(d.id,'name',e.target.value)}
-                                className="w-full bg-transparent text-[12px] text-slate-300 focus:outline-none border-b border-slate-700/40 focus:border-indigo-500/50"/>
-                            </div>
-                            <div className="col-span-2">
-                              <select value={d.type} onChange={e => updateLine(d.id,'type',e.target.value)}
-                                className="bg-slate-800/60 border border-slate-700/40 rounded px-1.5 py-1 text-[10px] text-slate-400 focus:outline-none w-full">
-                                <option value="term">Term</option>
-                                <option value="revolver">Revolver</option>
-                                <option value="mezz">Mezz</option>
-                              </select>
-                            </div>
-                            <div className="col-span-2 text-right">
-                              <input type="number" value={d.balance/1000} onChange={e => updateLine(d.id,'balance',(parseFloat(e.target.value)||0)*1000)}
-                                className="w-full bg-transparent text-[12px] text-slate-300 text-right focus:outline-none border-b border-slate-700/40 focus:border-indigo-500/50"/>
-                              <div className="text-[9px] text-slate-700">$k</div>
-                            </div>
-                            <div className="col-span-2 text-right">
-                              <input type="number" value={d.rate} onChange={e => updateLine(d.id,'rate',e.target.value)}
-                                step="0.25"
-                                className="w-full bg-transparent text-[12px] text-amber-400 text-right focus:outline-none border-b border-slate-700/40 focus:border-amber-500/50"/>
-                            </div>
-                            <div className="col-span-2 text-right">
-                              <input type="number" value={d.payment/1000} onChange={e => updateLine(d.id,'payment',(parseFloat(e.target.value)||0)*1000)}
-                                className="w-full bg-transparent text-[12px] text-slate-300 text-right focus:outline-none border-b border-slate-700/40 focus:border-indigo-500/50"/>
-                              <div className="text-[9px] text-slate-700">$k/mo</div>
-                            </div>
-                            <div className="col-span-1 text-right">
-                              <button onClick={() => removeLine(d.id)} className="text-slate-700 hover:text-red-400 transition-colors text-[14px]">×</button>
-                            </div>
-                          </div>
-                        ))}
-                        <div className="px-5 py-3 border-t border-slate-800/40 grid grid-cols-2 gap-4 text-[11px]">
-                          <div><span className="text-slate-600">Total Debt: </span><span className="text-slate-300 font-semibold">{fmtV(totalDebt)}</span></div>
-                          <div><span className="text-slate-600">Annual Debt Service: </span><span className="text-slate-300 font-semibold">{fmtV(totalAnnualService)}</span></div>
-                          <div><span className="text-slate-600">Annual Interest: </span><span className="text-amber-400 font-semibold">{fmtV(totalInterest)}</span></div>
-                          <div><span className="text-slate-600">EBITDA: </span><span className={`font-semibold ${ebitda >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{fmtV(ebitda)}</span></div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="px-5 py-8 text-center text-[11px] text-slate-600">
-                        No debt facilities tracked — click &quot;+ Add Facility&quot; to add term loans, revolvers, or mezz debt
-                      </div>
-                    )}
-                    {/* Leverage-based pricing / covenant grid */}
-                    <div className="border-t border-slate-800/40">
-                      <div className="px-5 py-3 border-b border-slate-800/30">
-                        <div className="text-[11px] font-semibold text-slate-400">Leverage-Based Pricing Grid</div>
-                        <div className="text-[10px] text-slate-600 mt-0.5">Hypothetical rate step-ups by Debt/EBITDA tier — typical senior credit covenant structure</div>
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-[11px] min-w-[500px]">
-                          <thead>
-                            <tr className="border-b border-slate-800/40">
-                              <th className="text-left text-slate-600 px-5 py-2 font-medium">Leverage Tier</th>
-                              <th className="text-right text-slate-600 px-4 py-2 font-medium">Debt/EBITDA</th>
-                              <th className="text-right text-slate-600 px-4 py-2 font-medium">Spread (SOFR+)</th>
-                              <th className="text-right text-slate-600 px-4 py-2 font-medium">All-in Rate*</th>
-                              <th className="text-right text-slate-600 px-5 py-2 font-medium">Annual Interest</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {[
-                              { tier: 'I — Low',      min: 0,   max: 2.0, spread: 2.00, label: '< 2.0×' },
-                              { tier: 'II — Moderate', min: 2.0, max: 3.0, spread: 2.50, label: '2.0× – 3.0×' },
-                              { tier: 'III — Elevated',min: 3.0, max: 4.0, spread: 3.25, label: '3.0× – 4.0×' },
-                              { tier: 'IV — High',     min: 4.0, max: 5.0, spread: 4.00, label: '4.0× – 5.0×' },
-                              { tier: 'V — Stressed',  min: 5.0, max: 99,  spread: 5.50, label: '> 5.0×' },
-                            ].map(row => {
-                              const sofrBase = 5.33; // approximate SOFR as of mid-2025
-                              const allIn = sofrBase + row.spread;
-                              const annualInterest = totalDebt * (allIn / 100);
-                              const isCurrent = debtToEbitda !== null && debtToEbitda >= row.min && debtToEbitda < row.max;
-                              return (
-                                <tr key={row.tier} className={`border-b border-slate-800/30 ${isCurrent ? 'bg-indigo-500/10' : ''}`}>
-                                  <td className="px-5 py-2 text-slate-400 font-medium">
-                                    {isCurrent && <span className="text-indigo-400 mr-1.5">▶</span>}
-                                    {row.tier}
-                                  </td>
-                                  <td className="px-4 py-2 text-right text-slate-500">{row.label}</td>
-                                  <td className="px-4 py-2 text-right text-amber-400">+{row.spread.toFixed(2)}%</td>
-                                  <td className={`px-4 py-2 text-right font-semibold ${isCurrent ? 'text-indigo-300' : 'text-slate-400'}`}>{allIn.toFixed(2)}%</td>
-                                  <td className={`px-5 py-2 text-right font-bold ${isCurrent ? 'text-indigo-300' : 'text-slate-500'}`}>{fmtV(annualInterest)}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                      <div className="px-5 py-3 text-[10px] text-slate-600">
-                        * SOFR base: ~5.33% · Spread varies by lender and credit quality · ▶ indicates your current leverage tier · Reducing Debt/EBITDA below 3.0× typically saves 75–150bps
-                      </div>
-                    </div>
-
-                    <div className="px-5 py-3 border-t border-slate-800/40 text-[10px] text-slate-600">
-                      LMM benchmarks: Debt/EBITDA ≤ 4× safe · DSCR ≥ 1.25× (most covenants) · Interest coverage ≥ 2× healthy
-                    </div>
-                  </div>
-                );
-              })()}
+              <ErrorBoundary label="Cash">
+              {/* Cash sub-nav */}
+              <div className="flex items-center gap-1 p-1 bg-slate-900/50 border border-slate-800/40 rounded-xl overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {([
+                  { id: 'overview', label: 'Runway & Working Capital' },
+                  { id: 'forecast', label: 'Projections' },
+                ] as const).map(t => (
+                  <button key={t.id} onClick={() => setCashTab(t.id)}
+                    className={`flex-shrink-0 px-3 py-1.5 text-[11px] font-semibold rounded-lg transition-colors ${cashTab === t.id ? 'bg-emerald-600/30 text-emerald-200 border border-emerald-500/40' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              {cashTab === 'overview' && <CashRunway data={effectiveData} onAskAI={openChat}/>}
+              {cashTab === 'overview' && <CashFlowForecast data={effectiveData} onAskAI={openChat}/>}
+              {cashTab === 'overview' && <WorkingCapitalDashboard data={effectiveData} onAskAI={openChat}/>}
 
               {/* ── 12-Month Cash Flow Forecast ── */}
-              {(() => {
+              {cashTab === 'forecast' && (() => {
                 const cf = effectiveData.cashFlow ?? [];
                 if (cf.length < 2) return null;
 
@@ -9189,29 +9507,55 @@ Specific and actionable, not generic. 200 words.`;
                   </div>
                 );
               })()}
+              </ErrorBoundary>
             </div>
-          <div className={activeView === 'deals' ? '' : 'hidden'}>
-            <DealList
+          <div className={activeView === 'deals' ? 'space-y-5' : 'hidden'}>
+            <ErrorBoundary label="Deals">
+            {/* Deals sub-nav */}
+            <div className="flex items-center gap-1 p-1 bg-slate-900/50 border border-slate-800/40 rounded-xl overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+              {([
+                { id: 'deals',     label: 'Deals' },
+                { id: 'pricing',   label: 'Pricing Intelligence' },
+                { id: 'marketing', label: 'Marketing' },
+              ] as const).map(t => (
+                <button key={t.id} onClick={() => setDealsTab(t.id)}
+                  className={`flex-shrink-0 px-3 py-1.5 text-[11px] font-semibold rounded-lg transition-colors ${dealsTab === t.id ? 'bg-indigo-600/30 text-indigo-200 border border-indigo-500/40' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            {dealsTab === 'deals' && <DealList
               onAskAI={openChat}
               initialDealId={jumpDealId}
               key={jumpDealId ?? 'list'}
-            />
+            />}
+            {dealsTab === 'deals' && deals.length > 0 && (
+              <DealAnalytics deals={deals} onAskAI={openChat}/>
+            )}
+            {dealsTab === 'pricing' && <PricingIntelligence onAskAI={openChat}/>}
+            {dealsTab === 'pricing' && <PriceIncreaseSimulator data={effectiveData} onAskAI={openChat}/>}
+            {dealsTab === 'marketing' && <MarketingChannelTracker onAskAI={openChat}/>}
+            </ErrorBoundary>
           </div>
           {activeView === 'today' && (
+            <ErrorBoundary label="Today">
             <TodayView
               data={data}
               effectiveData={effectiveData}
               companyName={companyName}
               openChat={openChat}
               setActiveView={setActiveView}
+              usingDemo={usingDemo}
               onOpenDeal={(dealId) => {
                 setJumpDealId(dealId);
                 setActiveView('deals');
                 setTimeout(() => setJumpDealId(null), 100);
               }}
             />
+            </ErrorBoundary>
           )}
           <div className={activeView === 'execute' ? 'space-y-5' : 'hidden'}>
+              <ErrorBoundary label="Execute">
               <TaskBoard data={data} onAskAI={openChat}/>
 
               {/* ── Weekly Standup Generator ── */}
@@ -9309,11 +9653,12 @@ Be specific and use the actual task/deal names. Keep each section to 2-4 bullet 
                   </div>
                 );
               })()}
+              </ErrorBoundary>
             </div>
-          {activeView === 'suppliers' && <SupplierDashboard data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/>}
-          {activeView === 'skus' && <SKUAnalyzer data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/>}
-          {activeView === 'capacity' && <CapacityAnalyzer data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/>}
-          {activeView === 'purchasing' && <CapitalImpactSummary data={data} onAskAI={openChat}/>}
+          {activeView === 'suppliers' && <ErrorBoundary label="Suppliers"><SupplierDashboard data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/></ErrorBoundary>}
+          {activeView === 'skus' && <ErrorBoundary label="SKUs"><SKUAnalyzer data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/></ErrorBoundary>}
+          {activeView === 'capacity' && <ErrorBoundary label="Capacity"><CapacityAnalyzer data={data} onDataUpdate={handleDataUpdate} onAskAI={openChat}/></ErrorBoundary>}
+          {activeView === 'purchasing' && <ErrorBoundary label="Purchasing"><CapitalImpactSummary data={data} onAskAI={openChat}/></ErrorBoundary>}
           <div className={activeView === 'data' ? 'space-y-5' : 'hidden'}>
               {/* ── Connection Status Dashboard ── */}
               {(() => {
@@ -9323,7 +9668,7 @@ Be specific and use the actual task/deal names. Keep each section to 2-4 bullet 
                 const hasPeriods = (data.revenue.byPeriod ?? []).length > 0;
                 const hasCustomers = (data.customers.totalCount ?? 0) > 0;
                 const hasPayroll = (data.payrollByDept ?? []).length > 0;
-                const hasDeals   = (() => { try { const s = localStorage.getItem('bos_deals'); return s ? JSON.parse(s).length > 0 : false; } catch { return false; } })();
+                const hasDeals   = getLS<unknown[]>('bos_deals', []).length > 0;
                 const hasARAging = (data.arAging ?? []).length > 0;
                 const hasBudget  = !!(budget.revenue || budget.cogs || budget.opex);
                 const hasTransactions = (data.transactions ?? []).length > 0;

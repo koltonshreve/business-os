@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import {
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, Area, AreaChart,
@@ -160,7 +160,7 @@ function PeriodDrawer({
   );
 }
 
-export default function RevenueChart({ data, previousData, revenueGoal, annotations = {}, onAnnotate, onAskAI }: Props) {
+function RevenueChart({ data, previousData, revenueGoal, annotations = {}, onAnnotate, onAskAI }: Props) {
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodData | null>(null);
   const [viewMode, setViewMode]             = useState<'area' | 'bar'>('area');
   const [showPrior, setShowPrior]           = useState(false);
@@ -497,3 +497,5 @@ export default function RevenueChart({ data, previousData, revenueGoal, annotati
     </div>
   );
 }
+
+export default memo(RevenueChart);

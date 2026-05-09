@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { Budget, UnifiedBusinessData } from '../../types';
 
 interface Props {
@@ -13,7 +14,7 @@ const fmt = (n: number) => {
 
 const fmtSigned = (n: number) => `${n >= 0 ? '+' : '−'}${fmt(n)}`;
 
-export default function BudgetVarianceWaterfall({ data, budget }: Props) {
+function BudgetVarianceWaterfall({ data, budget }: Props) {
   const actRev    = data.revenue.total;
   const actCOGS   = data.costs.totalCOGS;
   const actOpEx   = data.costs.totalOpEx;
@@ -188,3 +189,5 @@ export default function BudgetVarianceWaterfall({ data, budget }: Props) {
     </div>
   );
 }
+
+export default memo(BudgetVarianceWaterfall);

@@ -7,6 +7,37 @@ export const config = { api: { bodyParser: { sizeLimit: '2mb' } } };
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// ── Server-side rate limiter (same pattern as chat.ts) ─────────────────────────
+const AGENT_HOURLY_LIMIT = Number(process.env.AGENT_HOURLY_LIMIT ?? 20);
+const agentIpBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function checkAgentRateLimit(ip: string): { allowed: boolean; resetIn: number } {
+  const now    = Date.now();
+  const hourMs = 60 * 60 * 1000;
+  const bucket = agentIpBuckets.get(ip);
+  if (!bucket || now > bucket.resetAt) {
+    agentIpBuckets.set(ip, { count: 1, resetAt: now + hourMs });
+    return { allowed: true, resetIn: 60 };
+  }
+  if (bucket.count >= AGENT_HOURLY_LIMIT) {
+    return { allowed: false, resetIn: Math.ceil((bucket.resetAt - now) / 60_000) };
+  }
+  bucket.count++;
+  return { allowed: true, resetIn: 60 };
+}
+
+/** Strip characters that could be used for prompt injection. */
+function sanitizeText(s?: string): string | undefined {
+  if (!s) return undefined;
+  return s
+    .replace(/```/g, '')           // no code fences
+    .replace(/\bIGNORE\b/gi, '')   // common injection phrase
+    .replace(/\bFORGET\b/gi, '')
+    .replace(/\bSYSTEM\b/gi, '')
+    .slice(0, 120)                  // hard length cap
+    .trim() || undefined;
+}
+
 const TONE = `
 You are a sharp operating partner at a private equity firm and M&A advisor.
 You work with lower-middle-market and middle-market companies ($5M–$250M revenue).
@@ -115,16 +146,27 @@ function repairTruncatedJSON(s: string): string | null {
   return candidate + opens.reverse().join('');
 }
 
+const AGENT_TIMEOUT_MS = 55_000; // 55 s — keeps us under Vercel's 60 s serverless limit
+
 async function complete(prompt: string, maxTokens = 8192): Promise<string> {
   if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
-  const r = await client.messages.create({
-    model: 'claude-sonnet-4-6', max_tokens: maxTokens,
-    system: 'Return ONLY valid JSON. No markdown, no commentary.',
-    messages: [
-      { role: 'user', content: prompt },
-    ],
-  });
-  return r.content.filter(b => b.type === 'text').map(b => b.text).join('');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AGENT_TIMEOUT_MS);
+  try {
+    const r = await client.messages.create(
+      {
+        model: 'claude-sonnet-4-6',
+        max_tokens: maxTokens,
+        temperature: 0,   // deterministic outputs for financial analysis
+        system: 'Return ONLY valid JSON. No markdown, no commentary.',
+        messages: [{ role: 'user', content: prompt }],
+      },
+      { signal: controller.signal },
+    );
+    return r.content.filter(b => b.type === 'text').map(b => b.text).join('');
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ── EXIT READINESS ─────────────────────────────────────────────────────────────
@@ -394,6 +436,14 @@ Generate 4+ growth levers with specific dollar amounts. Use actual company numbe
   return parseJSON(raw);
 }
 
+// ── Progress steps per agent ───────────────────────────────────────────────────
+const AGENT_STEPS: Record<string, string[]> = {
+  'exit-readiness':  ['Reading financial data…', 'Scoring exit readiness…', 'Calculating valuation range…', 'Building risk matrix…'],
+  'board-prep':      ['Analyzing business metrics…', 'Drafting talking points…', 'Anticipating board questions…'],
+  'action-plan':     ['Assessing current performance…', 'Identifying priority actions…', 'Building sprint schedule…'],
+  'growth-playbook': ['Analyzing revenue drivers…', 'Identifying growth levers…', 'Building priority matrix…'],
+};
+
 // ── Handler ────────────────────────────────────────────────────────────────────
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -402,24 +452,87 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
   if (!process.env.ANTHROPIC_API_KEY) {
-    return res.status(500).json({ error: 'ANTHROPIC_API_KEY is not configured. Add it in Vercel → Settings → Environment Variables.' });
+    res.status(500).json({ error: 'ANTHROPIC_API_KEY is not configured. Add it in Vercel → Settings → Environment Variables.' });
+    return;
   }
 
-  const { agent, data, previousData, companyName, companyProfile }: { agent: string; data: UnifiedBusinessData; previousData?: UnifiedBusinessData; companyName?: string; companyProfile?: CompanyProfile } = req.body;
+  // ── Rate limit check ───────────────────────────────────────────────────────
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+    ?? req.socket?.remoteAddress
+    ?? 'unknown';
+  const { allowed, resetIn } = checkAgentRateLimit(ip);
+  if (!allowed) {
+    // SSE already started? No — we haven't written headers yet, so we can still return JSON
+    return res.status(429).json({
+      error: 'rate_limit_exceeded',
+      message: `Hourly agent limit reached. Resets in ${resetIn} minute${resetIn !== 1 ? 's' : ''}.`,
+      resetIn,
+    });
+  }
+
+  const { agent, data, previousData, companyName: rawCompanyName, companyProfile }: {
+    agent: string; data: UnifiedBusinessData; previousData?: UnifiedBusinessData;
+    companyName?: string; companyProfile?: CompanyProfile;
+  } = req.body;
+
+  // Sanitize user-provided text to prevent prompt injection
+  const companyName = sanitizeText(rawCompanyName);
+
+  // ── SSE response headers ──
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+
+  const send = (data: object) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  const steps = AGENT_STEPS[agent] ?? ['Analyzing data…', 'Generating report…'];
+  let stepIdx = 0;
+
+  // Send first progress event immediately
+  send({ type: 'progress', message: steps[0], step: 1, total: steps.length + 1 });
+  stepIdx = 1;
+
+  // Advance progress on a timer while AI generates
+  const progressInterval = setInterval(() => {
+    if (stepIdx < steps.length) {
+      send({ type: 'progress', message: steps[stepIdx], step: stepIdx + 1, total: steps.length + 1 });
+      stepIdx++;
+    }
+  }, 5000);
 
   const name = (companyName && companyName !== 'My Company') ? companyName : undefined;
+  // companyName is already sanitized above
   const profile = (companyProfile?.industry || companyProfile?.revenueModel) ? companyProfile : undefined;
+
   try {
     let result;
-    if      (agent === 'exit-readiness') result = await exitReadiness(data, previousData, name, profile);
-    else if (agent === 'board-prep')     result = await boardMeetingPrep(data, previousData, name, profile);
-    else if (agent === 'action-plan')    result = await actionPlan90Day(data, previousData, name, profile);
-    else if (agent === 'growth-playbook')result = await growthPlaybook(data, previousData, name, profile);
-    else return res.status(400).json({ error: 'Unknown agent' });
+    if      (agent === 'exit-readiness')  result = await exitReadiness(data, previousData, name, profile);
+    else if (agent === 'board-prep')      result = await boardMeetingPrep(data, previousData, name, profile);
+    else if (agent === 'action-plan')     result = await actionPlan90Day(data, previousData, name, profile);
+    else if (agent === 'growth-playbook') result = await growthPlaybook(data, previousData, name, profile);
+    else {
+      clearInterval(progressInterval);
+      send({ type: 'error', error: 'Unknown agent' });
+      res.write('data: [DONE]\n\n');
+      res.end();
+      return;
+    }
 
-    return res.json({ result, agent });
+    clearInterval(progressInterval);
+    send({ type: 'progress', message: 'Finalizing report…', step: steps.length + 1, total: steps.length + 1 });
+    send({ type: 'result', data: result, agent });
+
   } catch (err) {
+    clearInterval(progressInterval);
     console.error(`Agent ${agent} failed:`, err);
-    return res.status(500).json({ error: err instanceof Error ? err.message : 'Agent failed' });
+    send({ type: 'error', error: err instanceof Error ? err.message : 'Agent failed' });
+  } finally {
+    res.write('data: [DONE]\n\n');
+    res.end();
   }
 }

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts';
 import type { UnifiedBusinessData } from '../../types';
 
@@ -9,7 +10,7 @@ const fmt = (n: number) => {
   return `$${Math.round(abs).toLocaleString('en-US')}`;
 };
 
-export default function RevenueRetentionChart({ data }: Props) {
+function RevenueRetentionChart({ data }: Props) {
   const periods = data.revenue.byPeriod;
   if (periods.length < 2) return null;
 
@@ -85,3 +86,5 @@ export default function RevenueRetentionChart({ data }: Props) {
     </div>
   );
 }
+
+export default memo(RevenueRetentionChart);

@@ -10,7 +10,6 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ── Server-side rate limiter ───────────────────────────────────────────────────
 const HOURLY_HARD_LIMIT = Number(process.env.AI_HOURLY_LIMIT ?? 30);
-const DEMO_BYPASS_KEY   = process.env.DEMO_BYPASS_KEY ?? '';
 
 const ipBuckets = new Map<string, { count: number; resetAt: number }>();
 
@@ -113,26 +112,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const {
     message, data, history = [], companyName, activeView, companyProfile,
-    planId: clientPlanId = 'starter', queriesUsed = 0, bypassKey = '',
+    planId: clientPlanId = 'starter', queriesUsed = 0,
     stripeCustomerId = '', maxTokens = 600, stream: wantStream = false,
   }: {
     message: string; data: UnifiedBusinessData; history: Message[];
     companyName?: string; activeView?: string;
     companyProfile?: { industry?: string; revenueModel?: string };
-    planId?: string; queriesUsed?: number; bypassKey?: string;
+    planId?: string; queriesUsed?: number;
     stripeCustomerId?: string; maxTokens?: number; stream?: boolean;
   } = req.body;
 
   if (!message?.trim()) return res.status(400).json({ error: 'Message required' });
 
-  // ── Demo bypass: operator key skips all limits ────────────────────────────
-  const isDemoBypass = DEMO_BYPASS_KEY && bypassKey === DEMO_BYPASS_KEY;
-
   // ── Server-side auth + plan + usage ──────────────────────────────────────
+  const isDemoBypass = false; // bypass removed for security
   let planId = clientPlanId;
   let authedEmail: string | null = null;
 
-  if (!isDemoBypass && isDbConfigured()) {
+  if (isDbConfigured()) {
     try {
       await ensureSchema();
       const sessionUser = await getSessionUser(req);
@@ -202,25 +199,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (remaining <= 5) res.setHeader('X-RateLimit-Remaining', remaining);
   }
 
+  // Sanitize user-provided text to prevent prompt injection
+  const sanitize = (s?: string) => s?.replace(/```/g, '').replace(/\bIGNORE\b/gi, '').replace(/\bSYSTEM\b/gi, '').slice(0, 120).trim() || undefined;
+  const safeCompanyName = sanitize(companyName);
+  const safeMessage = message.slice(0, 4000); // hard cap on message length
+
   const profileLine = companyProfile?.industry || companyProfile?.revenueModel
     ? `${companyProfile.industry ? `Industry: ${companyProfile.industry}` : ''}${companyProfile.revenueModel ? ` | Revenue model: ${companyProfile.revenueModel}` : ''}`.trim()
     : undefined;
-  const systemContext = buildSystemContext(data, companyName, activeView, profileLine);
+  const systemContext = buildSystemContext(data, safeCompanyName, activeView, profileLine);
   const msgList = [
     ...history.slice(-6).map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-    { role: 'user' as const, content: message },
+    { role: 'user' as const, content: safeMessage },
   ];
   const tokenLimit = Math.min(Math.max(maxTokens, 200), 4000);
 
   // ── Non-streaming path (inline callers: P&L narrative, AR email, etc.) ────
   if (!wantStream) {
     try {
-      const msg = await client.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: tokenLimit,
-        system: systemContext,
-        messages: msgList,
-      });
+      const nonStreamController = new AbortController();
+      const nonStreamTimer = setTimeout(() => nonStreamController.abort(), 55_000);
+      const msg = await client.messages.create(
+        {
+          model: 'claude-sonnet-4-6',
+          max_tokens: tokenLimit,
+          system: systemContext,
+          messages: msgList,
+        },
+        { signal: nonStreamController.signal },
+      );
+      clearTimeout(nonStreamTimer);
       const reply = msg.content.filter(b => b.type === 'text').map(b => b.text).join('');
       // Increment server-side usage for non-streaming authenticated calls
       if (authedEmail && isDbConfigured() && !isDemoBypass) {
@@ -248,19 +256,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
+  const streamController = new AbortController();
+  const streamTimer = setTimeout(() => streamController.abort(), 55_000);
+
   try {
-    const stream = client.messages.stream({
-      model: 'claude-sonnet-4-6',
-      max_tokens: tokenLimit,
-      system: systemContext,
-      messages: msgList,
-    });
+    const stream = client.messages.stream(
+      {
+        model: 'claude-sonnet-4-6',
+        max_tokens: tokenLimit,
+        system: systemContext,
+        messages: msgList,
+      },
+      { signal: streamController.signal },
+    );
 
     stream.on('text', (textDelta: string) => {
       res.write(`data: ${JSON.stringify({ t: textDelta })}\n\n`);
     });
 
     await stream.finalMessage();
+    clearTimeout(streamTimer);
     res.write('data: [DONE]\n\n');
     res.end();
 
@@ -278,6 +293,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
   } catch (err) {
+    clearTimeout(streamTimer);
     console.error('Chat stream error:', err);
     const errMsg = err instanceof Error ? err.message : 'Chat failed';
     try {

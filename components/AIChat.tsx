@@ -59,6 +59,16 @@ function AIIcon({ className }: { className?: string }) {
   );
 }
 
+// ── View label map ────────────────────────────────────────────────────────────
+const VIEW_LABELS: Record<string, string> = {
+  overview: 'Overview', financial: 'Financials', customers: 'Customers',
+  operations: 'Operations', intelligence: 'Intelligence', scenarios: 'Scenarios',
+  data: 'Data', today: 'Today', deals: 'Deals', cash: 'Cash', goals: 'Goals',
+  team: 'Team', acquisitions: 'Acquisitions', pipeline: 'CRM', execute: 'Execute',
+  automations: 'Automations', suppliers: 'Suppliers', skus: 'SKUs',
+  capacity: 'Capacity', purchasing: 'Purchasing', valuation: 'Valuation',
+};
+
 // ── Quick prompts ─────────────────────────────────────────────────────────────
 
 const CATEGORY_EMOJI: Record<string, string> = {
@@ -381,10 +391,11 @@ export default function AIChat({
   const [error,       setError]       = useState<string | null>(null);
   const [copiedIdx,   setCopiedIdx]   = useState<number | null>(null);
 
-  const bottomRef   = useRef<HTMLDivElement>(null);
-  const inputRef    = useRef<HTMLTextAreaElement>(null);
-  const sentInitial = useRef(false);
-  const streamRef   = useRef('');   // accumulates streaming content
+  const bottomRef    = useRef<HTMLDivElement>(null);
+  const inputRef     = useRef<HTMLTextAreaElement>(null);
+  const sentInitial  = useRef(false);
+  const streamRef    = useRef('');          // accumulates streaming content
+  const abortRef     = useRef<AbortController | null>(null); // cancel in-flight stream
 
   const sessionSnap  = loadSession();
   const planLimit    = serverUsage?.limit ?? PLANS[sessionSnap.planId].limits.aiQueriesPerMonth;
@@ -405,13 +416,35 @@ export default function AIChat({
   if (activeView) ctxParts.push(`viewing ${activeView}`);
   const contextLine = ctxParts.join(' · ');
 
-  // Persist history
+  // Persist history (localStorage + Neon for authenticated users)
   useEffect(() => {
     if (messages.length === 0) return;
     try {
       localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(messages.slice(-MAX_SAVED_MESSAGES)));
     } catch { /* ignore */ }
+    if (loadAuthSession()) {
+      fetch('/api/user/prefs', {
+        method: 'PATCH',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatHistory: messages.slice(-MAX_SAVED_MESSAGES) }),
+      }).catch(() => null);
+    }
   }, [messages]);
+
+  // Hydrate chat history from Neon on first mount (authenticated users)
+  useEffect(() => {
+    if (!loadAuthSession()) return;
+    fetch('/api/user/prefs', { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((prefs: { chatHistory?: { role: string; content: string }[] } | null) => {
+        if (Array.isArray(prefs?.chatHistory) && prefs.chatHistory.length > 0) {
+          setMessages(prefs.chatHistory as Message[]);
+          try { localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(prefs.chatHistory)); } catch { /* ignore */ }
+        }
+      })
+      .catch(() => null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-scroll
   useEffect(() => {
@@ -476,16 +509,21 @@ export default function AIChat({
       inputRef.current.style.height = '40px';
     }
 
+    // Cancel any previous in-flight stream
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const bypassKey = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_DEMO_BYPASS_KEY) ?? '';
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: authHeaders(),
+        signal: controller.signal,
         body: JSON.stringify({
           message: trimmed, data, history: messages.slice(-6),
           companyName, activeView, companyProfile,
           planId: session.planId, queriesUsed: session.aiQueriesUsed,
-          stripeCustomerId: session.stripeCustomerId ?? '', bypassKey,
+          stripeCustomerId: session.stripeCustomerId ?? '',
           stream: true,
         }),
       });
@@ -552,7 +590,9 @@ export default function AIChat({
       incrementAIQuery(session);
       if (serverUsage) setServerUsage(u => u ? { ...u, count: u.count + 1 } : u);
 
-    } catch {
+    } catch (err) {
+      // Ignore abort errors (user navigated away or closed chat)
+      if (err instanceof Error && err.name === 'AbortError') return;
       setError('Connection failed. Check your network and try again.');
       // Clean up empty assistant message if it was added
       setMessages(prev => {
@@ -564,6 +604,17 @@ export default function AIChat({
       setStreaming(false);
     }
   }, [messages, data, loading, streaming, companyName, activeView, companyProfile]);
+
+  // Cancel in-flight stream when chat is closed or component unmounts
+  useEffect(() => {
+    if (!open) {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    }
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, [open]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input); }
@@ -608,11 +659,16 @@ export default function AIChat({
                   Claude Sonnet
                 </span>
               </div>
-              <div className="flex items-center gap-1.5 mt-1">
+              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0"/>
                 <span className="text-[10px] text-slate-500 leading-none">
                   {companyName && companyName !== 'My Company' ? companyName : 'Ready to advise'}
                 </span>
+                {activeView && (
+                  <span className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-indigo-500/15 border border-indigo-500/20 text-indigo-400/70 leading-none">
+                    {VIEW_LABELS[activeView] ?? activeView}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -652,7 +708,7 @@ export default function AIChat({
                 </div>
                 <div className="text-[13px] font-semibold text-slate-200 mt-2">Your AI CFO is ready</div>
                 <div className="text-[11px] text-slate-500 leading-relaxed max-w-[240px] mx-auto">
-                  I know your numbers. Ask me anything and I'll give you a straight answer.
+                  Ask about cash runway, margins, customers, or deals — I&apos;ll surface the actions you should take right now.
                 </div>
               </div>
 

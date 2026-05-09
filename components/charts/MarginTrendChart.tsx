@@ -1,9 +1,10 @@
+import { memo } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import type { UnifiedBusinessData } from '../../types';
 
 interface Props { data: UnifiedBusinessData; }
 
-export default function MarginTrendChart({ data }: Props) {
+function MarginTrendChart({ data }: Props) {
   const periods = data.revenue.byPeriod.filter(p => p.cogs != null);
 
   const chartData = periods.map(p => ({
@@ -69,3 +70,5 @@ export default function MarginTrendChart({ data }: Props) {
     </div>
   );
 }
+
+export default memo(MarginTrendChart);

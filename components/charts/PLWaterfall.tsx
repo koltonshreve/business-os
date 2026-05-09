@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { UnifiedBusinessData } from '../../types';
 
 interface Props { data: UnifiedBusinessData; }
@@ -11,7 +12,7 @@ const fmt = (n: number) => {
 const pct = (n: number, total: number) =>
   total > 0 ? `${((n / total) * 100).toFixed(1)}%` : '—';
 
-export default function PLWaterfall({ data }: Props) {
+function PLWaterfall({ data }: Props) {
   const rev    = data.revenue.total;
   const cogs   = data.costs.totalCOGS;
   const opex   = data.costs.totalOpEx;
@@ -116,3 +117,5 @@ export default function PLWaterfall({ data }: Props) {
     </div>
   );
 }
+
+export default memo(PLWaterfall);

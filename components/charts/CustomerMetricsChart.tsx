@@ -1,9 +1,10 @@
+import { memo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import type { UnifiedBusinessData } from '../../types';
 
 interface Props { data: UnifiedBusinessData; }
 
-export default function CustomerMetricsChart({ data }: Props) {
+function CustomerMetricsChart({ data }: Props) {
   const { customers } = data;
 
   const topCustomersData = customers.topCustomers.slice(0, 6).map(c => ({
@@ -101,3 +102,5 @@ export default function CustomerMetricsChart({ data }: Props) {
     </div>
   );
 }
+
+export default memo(CustomerMetricsChart);

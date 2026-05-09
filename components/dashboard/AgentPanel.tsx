@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { UnifiedBusinessData } from '../../types';
+import { loadAuthSession, authHeaders } from '../../lib/auth';
 
 interface CompanyProfile {
   industry?: string;
@@ -759,6 +760,9 @@ const AGENTS: AgentConfig[] = [
   },
 ];
 
+// ── Progress state type ──────────────────────────────────────────────────────
+interface ProgressState { message: string; step: number; total: number; }
+
 // ── Main Component ───────────────────────────────────────────────────────────
 const AGENT_RESULTS_KEY = 'bos_agent_results';
 
@@ -769,22 +773,43 @@ export default function AgentPanel({ data, previousData, companyName, companyPro
       const saved = localStorage.getItem(AGENT_RESULTS_KEY);
       if (saved) return JSON.parse(saved) as Record<string, Record<string, unknown>>;
     } catch {
-      // Stale/corrupt data — clear so it doesn't repeat on every mount
       localStorage.removeItem(AGENT_RESULTS_KEY);
     }
     return {};
   });
-  const [loading, setLoading]   = useState<string | null>(null);
-  const [error, setError]       = useState<string | null>(null);
+  const [loading, setLoading]       = useState<string | null>(null);
+  const [error, setError]           = useState<string | null>(null);
   const [activeAgent, setActiveAgent] = useState<string | null>(null);
-  const [copied, setCopied]     = useState(false);
+  const [copied, setCopied]         = useState(false);
   const [runAllStep, setRunAllStep] = useState<{ current: number; total: number } | null>(null);
+  const [progress, setProgress]     = useState<Record<string, ProgressState>>({});
+  const [runTimestamps, setRunTimestamps] = useState<Record<string, number>>(() => {
+    if (typeof window === 'undefined') return {};
+    try { const s = localStorage.getItem('bos_agent_timestamps'); return s ? JSON.parse(s) as Record<string, number> : {}; } catch { return {}; }
+  });
+  const isAuthRef = useRef(false);
 
-  // Persist results whenever they change
+  // Persist results to localStorage whenever they change
   useEffect(() => {
     if (Object.keys(results).length === 0) return;
     try { localStorage.setItem(AGENT_RESULTS_KEY, JSON.stringify(results)); } catch { /* ignore */ }
   }, [results]);
+
+  // Load persisted results from Neon for authenticated users
+  useEffect(() => {
+    const session = loadAuthSession();
+    if (!session?.token) return;
+    isAuthRef.current = true;
+    fetch('/api/ai-outputs', { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((payload: { results: Record<string, Record<string, unknown>> } | null) => {
+        if (payload?.results && Object.keys(payload.results).length > 0) {
+          setResults(prev => ({ ...prev, ...payload.results }));
+        }
+      })
+      .catch(() => null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleCopy = async (agentId: string) => {
     const r = results[agentId];
@@ -797,26 +822,81 @@ export default function AgentPanel({ data, previousData, companyName, companyPro
     } catch { /* clipboard not available */ }
   };
 
-  async function runAgent(agentId: string) {
+  async function runAgent(agentId: string): Promise<boolean> {
     setLoading(agentId);
     setError(null);
+    setProgress(prev => ({ ...prev, [agentId]: { message: 'Starting analysis…', step: 0, total: 1 } }));
+
     try {
       const res = await fetch('/api/agents', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ agent: agentId, data, previousData, companyName, companyProfile }),
       });
-      const json = await res.json();
-      if (json.error) {
-        setError(json.error);
-      } else {
-        setResults(prev => ({ ...prev, [agentId]: json.result }));
-        setActiveAgent(agentId);
+
+      if (!res.ok || !res.body) {
+        const json = await res.json().catch(() => ({})) as { error?: string };
+        setError(json.error ?? 'Agent failed. Check your API key and try again.');
+        return false;
       }
+
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let agentResult: Record<string, unknown> | null = null;
+
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const raw = line.slice(6).trim();
+          if (raw === '[DONE]') break outer;
+          try {
+            const parsed = JSON.parse(raw) as { type: string; message?: string; step?: number; total?: number; data?: Record<string, unknown>; agent?: string; error?: string };
+            if (parsed.type === 'progress') {
+              setProgress(prev => ({
+                ...prev,
+                [agentId]: { message: parsed.message ?? '…', step: parsed.step ?? 0, total: parsed.total ?? 1 },
+              }));
+            } else if (parsed.type === 'result' && parsed.data) {
+              agentResult = parsed.data;
+              setResults(prev => ({ ...prev, [agentId]: parsed.data! }));
+              setRunTimestamps(prev => {
+                const next = { ...prev, [agentId]: Date.now() };
+                try { localStorage.setItem('bos_agent_timestamps', JSON.stringify(next)); } catch { /* ignore */ }
+                return next;
+              });
+              setActiveAgent(agentId);
+            } else if (parsed.type === 'error') {
+              setError(parsed.error ?? 'Agent failed');
+            }
+          } catch { /* skip malformed line */ }
+        }
+      }
+
+      // Persist to Neon for authenticated users
+      if (agentResult && isAuthRef.current) {
+        fetch('/api/ai-outputs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({ agentId, result: agentResult }),
+        }).catch(() => null);
+      }
+
+      return !!agentResult;
+
     } catch {
       setError('Agent failed. Check your API key and try again.');
+      return false;
     } finally {
       setLoading(null);
+      setProgress(prev => { const next = { ...prev }; delete next[agentId]; return next; });
     }
   }
 
@@ -824,27 +904,16 @@ export default function AgentPanel({ data, previousData, companyName, companyPro
 
   async function runAllAgents() {
     setRunAllStep({ current: 0, total: AGENTS.length });
-    for (let i = 0; i < AGENTS.length; i++) {
-      const agent = AGENTS[i];
-      setRunAllStep({ current: i + 1, total: AGENTS.length });
-      setLoading(agent.id);
-      setError(null);
-      try {
-        const res = await fetch('/api/agents', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agent: agent.id, data, previousData, companyName, companyProfile }),
-        });
-        const json = await res.json();
-        if (json.error) { setError(json.error); break; }
-        setResults(prev => ({ ...prev, [agent.id]: json.result }));
-      } catch {
-        setError('Agent failed. Check your API key and try again.');
-        break;
-      } finally {
-        setLoading(null);
-      }
-    }
+    // Run all agents in parallel — results are stored independently by agentId
+    let completed = 0;
+    await Promise.allSettled(
+      AGENTS.map(agent =>
+        runAgent(agent.id).then(() => {
+          completed++;
+          setRunAllStep({ current: completed, total: AGENTS.length });
+        })
+      )
+    );
     setRunAllStep(null);
   }
 
@@ -877,7 +946,17 @@ export default function AgentPanel({ data, previousData, companyName, companyPro
       </div>
 
       {error && (
-        <div className="bg-red-500/8 border border-red-500/20 rounded-xl px-4 py-3 text-[13px] text-red-400">{error}</div>
+        <div className="bg-red-500/8 border border-red-500/20 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+          <span className="text-[13px] text-red-400">{error}</span>
+          {activeAgent && (
+            <button
+              onClick={() => { setError(null); void runAgent(activeAgent); }}
+              className="flex-shrink-0 text-[11px] font-medium text-red-300 hover:text-red-100 border border-red-500/30 hover:border-red-500/60 px-2.5 py-1 rounded-lg transition-all"
+            >
+              Retry
+            </button>
+          )}
+        </div>
       )}
 
       {/* Agent result view */}
@@ -891,7 +970,14 @@ export default function AgentPanel({ data, previousData, companyName, companyPro
                 </div>
                 <div>
                   <div className={`text-[14px] font-bold ${agent.accent}`}>{agent.label}</div>
-                  <div className="text-[11px] text-slate-500">{agent.tagline}</div>
+                  <div className="text-[11px] text-slate-500">
+                    {agent.tagline}
+                    {runTimestamps[agent.id] && (
+                      <span className="ml-2 text-slate-600">
+                        · updated {new Date(runTimestamps[agent.id]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -942,7 +1028,14 @@ export default function AgentPanel({ data, previousData, companyName, companyPro
                     <div className={`text-[13px] font-bold ${agent.accent}`}>{agent.label}</div>
                     <div className="text-[11px] text-slate-400 mt-0.5">{agent.tagline}</div>
                   </div>
-                  {ran && <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-1.5 py-0.5 rounded-full flex-shrink-0">Done</span>}
+                  {ran && (
+                    <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                      <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-1.5 py-0.5 rounded-full">Done</span>
+                      {runTimestamps[agent.id] && (
+                        <span className="text-[9px] text-slate-600">{new Date(runTimestamps[agent.id]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="text-[12px] text-slate-500 leading-relaxed mb-4">{agent.description}</div>
@@ -954,6 +1047,25 @@ export default function AgentPanel({ data, previousData, companyName, companyPro
                     </div>
                   ))}
                 </div>
+
+                {/* Progress bar — shown while this agent is running */}
+                {isLoading && progress[agent.id] && (
+                  <div className="mb-3 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-slate-400 leading-snug">{progress[agent.id].message}</span>
+                      <span className="text-[10px] text-slate-600 tabular-nums flex-shrink-0">{progress[agent.id].step}/{progress[agent.id].total}</span>
+                    </div>
+                    <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-700"
+                        style={{
+                          width: `${Math.round((progress[agent.id].step / progress[agent.id].total) * 100)}%`,
+                          background: 'linear-gradient(90deg, #4f46e5, #7c3aed)',
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex items-center gap-2">
                   <button
@@ -976,7 +1088,7 @@ export default function AgentPanel({ data, previousData, companyName, companyPro
                     </button>
                   )}
                 </div>
-                {!ran && (
+                {!ran && !isLoading && (
                   <div className="text-center mt-2 text-[10px] text-slate-700">{agent.estimatedTime}</div>
                 )}
               </div>

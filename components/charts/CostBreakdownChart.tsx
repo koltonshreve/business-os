@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import type { UnifiedBusinessData } from '../../types';
 
@@ -5,7 +6,7 @@ interface Props { data: UnifiedBusinessData; }
 
 const COLORS = ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16'];
 
-export default function CostBreakdownChart({ data }: Props) {
+function CostBreakdownChart({ data }: Props) {
   const totalRevenue = data.revenue.total;
   const totalCosts = data.costs.totalCOGS + data.costs.totalOpEx;
   const grossProfit = totalRevenue - data.costs.totalCOGS;
@@ -106,3 +107,5 @@ export default function CostBreakdownChart({ data }: Props) {
     </div>
   );
 }
+
+export default memo(CostBreakdownChart);
