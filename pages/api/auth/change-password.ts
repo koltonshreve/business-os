@@ -36,5 +36,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     WHERE email = ${user.email}
   `;
 
+  // Invalidate all other sessions except the current one so the user stays logged in
+  // but any attacker who had a stolen session token is kicked out immediately.
+  const currentToken = req.headers.authorization?.slice(7) ?? '';
+  await sql`
+    DELETE FROM bos_sessions
+    WHERE email = ${user.email} AND id != ${currentToken}
+  `;
+
   return res.json({ ok: true });
 }

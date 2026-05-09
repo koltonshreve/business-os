@@ -133,6 +133,12 @@ export default function PricingModal({ open, onClose, currentPlan, highlightFeat
       btn:    'bg-violet-700 hover:bg-violet-600 text-white',
       badge:  '',
     },
+    enterprise: {
+      accent: 'text-purple-300',
+      ring:   'border-purple-500/40',
+      btn:    'bg-purple-700 hover:bg-purple-600 text-white',
+      badge:  'bg-purple-500/15 border-purple-500/30 text-purple-300',
+    },
   };
 
   return (
@@ -158,7 +164,7 @@ export default function PricingModal({ open, onClose, currentPlan, highlightFeat
         </div>
 
         {/* Plan cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-6 pb-3">
           {plans.map(planId => {
             const plan   = PLANS[planId];
             const colors = planColors[planId];
@@ -168,7 +174,12 @@ export default function PricingModal({ open, onClose, currentPlan, highlightFeat
                 key={planId}
                 className={`relative flex flex-col bg-slate-900/60 border rounded-2xl p-5 transition-all ${colors.ring} ${planId === 'growth' ? 'ring-1 ring-indigo-500/20' : ''}`}
               >
-                {plan.badge && (
+                {isCurrent && (
+                  <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[10px] font-bold px-3 py-0.5 rounded-full border bg-slate-800 border-slate-600 text-slate-300 whitespace-nowrap">
+                    ✓ Current plan
+                  </div>
+                )}
+                {!isCurrent && plan.badge && (
                   <div className={`absolute -top-2.5 left-1/2 -translate-x-1/2 text-[10px] font-bold px-3 py-0.5 rounded-full border ${colors.badge}`}>
                     {plan.badge}
                   </div>
@@ -220,6 +231,46 @@ export default function PricingModal({ open, onClose, currentPlan, highlightFeat
           })}
         </div>
 
+        {/* M&A Platform add-on */}
+        <div className="px-6 pb-5">
+          <div className="relative overflow-hidden rounded-2xl border border-purple-500/25 bg-gradient-to-r from-purple-950/40 via-slate-900/60 to-indigo-950/30 p-5">
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(168,85,247,0.07),_transparent_60%)] pointer-events-none"/>
+            <div className="relative flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-full">Add-on</span>
+                  <span className="text-[15px] font-bold text-purple-200">M&amp;A Platform</span>
+                  <span className="text-[13px] font-bold text-slate-100">— $99.99<span className="text-[11px] text-slate-500 font-normal">/mo</span></span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed mb-2">For PE-backed roll-ups and active acquirers. Full acquisition pipeline, IRR/MOIC modeling, 100-Day value creation planning, exit readiness scoring, and deal sourcing AI.</p>
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  {['Acquisition pipeline','IRR / MOIC modeling','100-Day value creation','Exit readiness score','Deal sourcing brief','M&A data room checklist'].map(f => (
+                    <span key={f} className="flex items-center gap-1 text-[10px] text-purple-300/70">
+                      <svg viewBox="0 0 12 12" fill="none" className="w-3 h-3 flex-shrink-0 text-purple-400"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      {f}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 flex-shrink-0">
+                {currentPlan === 'enterprise' ? (
+                  <div className="px-5 py-2.5 rounded-xl text-[13px] font-semibold bg-slate-800/60 text-slate-500 border border-slate-700/40 text-center">Current plan</div>
+                ) : (
+                  <>
+                    <a
+                      href="mailto:support@businessos.app?subject=M%26A%20Platform%20Inquiry"
+                      className="px-5 py-2.5 rounded-xl text-[13px] font-semibold bg-purple-700 hover:bg-purple-600 text-white transition-colors text-center"
+                    >
+                      Contact us →
+                    </a>
+                    <div className="text-[10px] text-slate-600 text-center">Requires Pro plan</div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Error */}
         {error && (
           <div className="mx-6 mb-4 px-4 py-3 bg-red-500/8 border border-red-500/25 rounded-xl text-[12px] text-red-400">
@@ -251,7 +302,7 @@ export default function PricingModal({ open, onClose, currentPlan, highlightFeat
             ))}
           </div>
           <div className="mt-4 text-center text-[11px] text-slate-600">
-            All plans include 14-day free trial · No credit card required · Cancel anytime
+            Free plan available · No credit card required · Cancel anytime
           </div>
         </div>
       </div>

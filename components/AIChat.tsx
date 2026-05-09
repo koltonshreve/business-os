@@ -803,6 +803,7 @@ export default function AIChat({
               ref={inputRef}
               rows={1}
               value={input}
+              maxLength={4000}
               onChange={e => {
                 setInput(e.target.value);
                 e.target.style.height = 'auto';
@@ -830,11 +831,18 @@ export default function AIChat({
           </div>
           <div className="flex items-center justify-between mt-1.5">
             <span className="text-[10px] text-slate-700">⏎ send &nbsp;⇧⏎ new line</span>
-            {!isUnlimited && (
-              <span className={`text-[10px] font-medium ${queriesLeft <= 2 ? 'text-amber-500/80' : 'text-slate-700'}`}>
-                {queriesLeft}/{planLimit} queries
-              </span>
-            )}
+            <div className="flex items-center gap-3">
+              {input.length > 3000 && (
+                <span className={`text-[10px] font-medium ${input.length > 3800 ? 'text-amber-500/80' : 'text-slate-600'}`}>
+                  {4000 - input.length} chars left
+                </span>
+              )}
+              {!isUnlimited && (
+                <span className={`text-[10px] font-medium ${queriesLeft <= 2 ? 'text-amber-500/80' : 'text-slate-700'}`}>
+                  {queriesLeft}/{planLimit} queries
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>
